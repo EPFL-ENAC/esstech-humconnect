@@ -9,6 +9,7 @@ from fastapi_cache.backends.inmemory import InMemoryBackend
 from pydantic import BaseModel
 
 from api.config import config
+from api.db import create_db_and_tables, dispose_engine
 # from api.views.files import router as files_router
 
 basicConfig(level=INFO)
@@ -17,7 +18,11 @@ basicConfig(level=INFO)
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
-    yield
+    await create_db_and_tables()
+    try:
+        yield
+    finally:
+        await dispose_engine()
 
 
 app = FastAPI(root_path=config.API_PATH, lifespan=lifespan)

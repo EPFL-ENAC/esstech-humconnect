@@ -13,6 +13,16 @@ run-backend:
 run-frontend:
 	cd frontend && npm run dev
 
+run-db:
+	docker compose up -d
+
+stop-db:
+	docker compose down
+
+reset-db:
+	docker compose down --volumes
+	docker compose up -d
+
 test:
 	cd backend && make test
 	for dir in $$(ls mcps); do \
