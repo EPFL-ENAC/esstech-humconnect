@@ -1,0 +1,58 @@
+{
+  "name": "esstech-humconnect",
+  "version": "0.0.1",
+  "description": "Dataset annotation tools for the Humanitarian OpenStreetMap - Nepal project",
+  "productName": "Humanitarian Connector",
+  "contributors": [
+	"Son Pham-Ba <son.phamba@epfl.ch>",
+	"Cyprien Lengagne <cyprien.lengagne@epfl.ch>"
+  ],
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "typecheck": "uvx lefthook run pre-commit --command frontend-typecheck --all-files",
+    "lint": "uvx lefthook run pre-commit --command frontend-lint --all-files",
+    "format": "uvx lefthook run pre-commit --command frontend-format --all-files",
+    "test": "echo \"No test specified\" && exit 0",
+    "dev": "quasar dev",
+    "build": "quasar build"
+  },
+  "dependencies": {
+    "@annotorious/annotorious": "https://github.com/EPFL-ENAC/annotorious/releases/download/v3.8.2-feat-undo-point/annotorious-annotorious-3.8.2.tgz",
+    "@annotorious/core": "https://github.com/EPFL-ENAC/annotorious/releases/download/v3.8.2-feat-undo-point/annotorious-core-3.8.2.tgz",
+    "@annotorious/openseadragon": "https://github.com/EPFL-ENAC/annotorious/releases/download/v3.8.2-feat-undo-point/annotorious-openseadragon-3.8.2.tgz",
+    "@quasar/extras": "^1.16.4",
+    "lefthook": "^2.1.4",
+    "maplibre-gl": "^5.23.0",
+    "openseadragon": "^6.0.2",
+    "pinia": "^3.0.1",
+    "pinia-plugin-persistedstate": "^4.7.1",
+    "quasar": "^2.16.0",
+    "vue": "^3.5.22",
+    "vue-i18n": "^11.0.0",
+    "vue-router": "^5.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.14.0",
+    "@intlify/unplugin-vue-i18n": "^4.0.0",
+    "@quasar/app-vite": "^2.1.0",
+    "@types/node": "^20.5.9",
+    "@vue/eslint-config-prettier": "^10.1.0",
+    "@vue/eslint-config-typescript": "^14.4.0",
+    "autoprefixer": "^10.4.2",
+    "eslint": "^9.14.0",
+    "eslint-plugin-vue": "^10.4.0",
+    "globals": "^16.4.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.9.2",
+    "vite-plugin-checker": "^0.11.0",
+    "vue-eslint-parser": "^10.2.0",
+    "vue-tsc": "^3.0.7"
+  },
+  "engines": {
+    "node": "^28 || ^26 || ^24 || ^22 || ^20",
+    "npm": ">= 6.13.4",
+    "yarn": ">= 1.21.1",
+    "pnpm": ">= 10.0.0"
+  }
+}

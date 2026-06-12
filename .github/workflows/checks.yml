@@ -1,0 +1,50 @@
+name: checks
+
+on:
+  push:
+    branches:
+      - main
+      - stage
+      - dev
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        command:
+          - frontend-typecheck
+          - frontend-lint
+          - frontend-format
+          - backend-typecheck
+          - backend-lint
+          - backend-format
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install uv and all dependencies
+        run: |
+          pip install uv
+          make install
+
+      - name: Prepare Quasar (for frontend checks)
+        if: startsWith(matrix.command, 'frontend-')
+        working-directory: frontend
+        run: npx quasar prepare
+
+      - name: Run ${{ matrix.command }}
+        run: uvx lefthook run pre-commit --command ${{ matrix.command }} --all-files

@@ -1,0 +1,40 @@
+#   Refer for explanation to following link:
+#   https://lefthook.dev/configuration/
+
+pre-commit:
+  parallel: true
+  commands:
+    frontend-typecheck:
+      root: frontend
+      glob: "frontend/src/**/*.{ts,vue}"
+      exclude: "frontend/third-party/**"
+      run: test -f .quasar/tsconfig.json || npx quasar prepare && npx --yes -- vue-tsc@3.3.0 --noEmit --project tsconfig.typecheck.json
+    frontend-lint:
+      root: frontend
+      glob: "frontend/src/**/*.{ts,js,cjs,mjs,vue}"
+      exclude: "frontend/third-party/**"
+      run: test -f .quasar/tsconfig.json || npx quasar prepare && npx --yes -- eslint@10.4.0 -c eslint.config.js {staged_files}
+    frontend-format:
+      root: frontend
+      glob: "frontend/src/**/*.{js,ts,vue,scss,html,md,json}"
+      exclude: "frontend/third-party/**"
+      run: npx --yes -- prettier@3.8.3 --write {staged_files} --ignore-path .gitignore && git add {staged_files}
+    backend-typecheck:
+      root: backend
+      glob: "backend/{api,tests}/**/*.py"
+      run: uvx ty@0.0.37 check {staged_files}
+    backend-lint:
+      root: backend
+      glob: "backend/{api,tests}/**/*.py"
+      run: uvx ruff@0.15.13 check --fix --select I {staged_files} && git add {staged_files}
+    backend-format:
+      root: backend
+      glob: "backend/{api,tests}/**/*.py"
+      run: uvx ruff@0.15.13 format {staged_files} && git add {staged_files}
+    codespell:
+      run: uvx codespell@2.4.2 --skip="frontend/package-lock.json,frontend/src/i18n/fr/index.ts" --ignore-words-list="selectin" {staged_files}
+
+commit-msg:
+  commands:
+    commitlint:
+      run: npx --yes -p "@commitlint/cli@21.0.1" -p "@commitlint/config-conventional@21.0.1" -- commitlint --edit {1}
