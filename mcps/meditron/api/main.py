@@ -20,7 +20,7 @@ def ask(prompt: str, system_prompt: str = "") -> str:
     """Ask something to the Meditron LLM."""
 
     response = openai_client.responses.create(
-        model="moonshotai/Kimi-K2.6",
+        model=config.MEDITRON_MODEL_NAME,
         instructions=system_prompt,
         input=prompt,
     )
