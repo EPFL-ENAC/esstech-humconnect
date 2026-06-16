@@ -13,12 +13,11 @@ _Humanitarian Connector for the EssentialTech Centre's HUD program_
 ## Deploying locally
 
 
-Clone the repository with submodules:
+Clone the repository:
 
 ```bash
 git clone
 cd esstech-humconnect
-git submodule update --init
 ```
 
 Setup your environment by running:
@@ -39,6 +38,7 @@ make run-backend
 
 The interactive API documentation will be available at [http://localhost:8000/docs](http://localhost:8000/docs).
 
+
 ### Frontend
 
 In another shell, run:
@@ -48,3 +48,8 @@ make run-frontend
 ```
 
 The website will be available at [http://localhost:9000](http://localhost:9000).
+
+
+### MCP servers
+
+Custom MCP (Model Context Protocol) servers are automatically deployed with the backend under [http://localhost:8000/mcp/*](http://localhost:8000/mcp/*). They can be also be used standalone. See their respective documentation in the `backend/mcps/*` directories for more details.

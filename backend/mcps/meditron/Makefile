@@ -6,7 +6,7 @@ install:
 	test -f .env || cp .env.example .env
 
 run:
-	uv run dotenv -f "$(env_path)" run fastmcp run api/main.py:mcp --transport http --port 8000 --reload
+	uv run dotenv -f "$(env_path)" run fastmcp run meditron_mcp/main.py:mcp --transport http --port 8000 --reload
 
 test:
 	uv run dotenv -f "$(env_path)" run pytest

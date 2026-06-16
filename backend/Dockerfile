@@ -14,6 +14,7 @@ WORKDIR /app
 COPY uv.lock pyproject.toml /app/
 COPY start.sh /app/
 COPY api /app/api
+COPY mcps /app/mcps
 
 RUN uv pip install --system --no-cache-dir -e /app
 

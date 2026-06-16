@@ -6,17 +6,19 @@ from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
+from fastmcp.utilities.lifespan import combine_lifespans
 from pydantic import BaseModel
 
 from api.config import config
 from api.db import create_db_and_tables, dispose_engine
 # from api.views.files import router as files_router
+from meditron_mcp.main import mcp as meditron_mcp
 
 basicConfig(level=INFO)
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+async def app_lifespan(_: FastAPI) -> AsyncIterator[None]:
     FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
     await create_db_and_tables()
     try:
@@ -25,7 +27,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await dispose_engine()
 
 
-app = FastAPI(root_path=config.API_PATH, lifespan=lifespan)
+meditron_mcp_app = meditron_mcp.http_app(path="/")
+
+app = FastAPI(
+    root_path=config.API_PATH,
+    lifespan=combine_lifespans(app_lifespan, meditron_mcp_app.lifespan),
+)
 
 origins = [config.APP_URL] if config.APP_URL else []
 if not config.APP_URL:
@@ -60,6 +67,9 @@ async def get_health() -> HealthCheck:
     """Endpoint to perform an API healthcheck."""
 
     return HealthCheck(status="OK")
+
+
+app.mount("/mcp/meditron", meditron_mcp_app)
 
 
 # app.include_router(
