@@ -1,6 +1,8 @@
 from openai import OpenAI
 from fastmcp import FastMCP
-from api.config import config
+from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
+
+from meditron_mcp.config import config
 
 
 openai_client = OpenAI(
@@ -9,9 +11,20 @@ openai_client = OpenAI(
 )
 
 
+auth = StaticTokenVerifier(
+    tokens={
+        config.MEDITRON_MCP_API_KEY: {
+            "client_id": "meditron-mcp-client",
+            "scopes": [],
+        },
+    },
+)
+
+
 mcp = FastMCP(
     "Meditron",
     instructions="Provides an interface to the medical LLM Meditron, trained on a comprehensively curated medical corpus, including selected PubMed papers and abstracts, a dataset of internationally-recognized medical guidelines, and a general domain corpus. Knowledge cutoff is August 2023.",
+    auth=auth,
 )
 
 
@@ -36,7 +49,7 @@ def system_prompt_medical_q_and_a() -> str:
 
 
 def main() -> None:
-    mcp.run
+    mcp.run(transport="http", port=8000)
 
 
 if __name__ == "__main__":
