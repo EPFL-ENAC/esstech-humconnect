@@ -2,9 +2,9 @@ install:
 	cd backend && make install
 	cd frontend && npm install
 	test -f .env || cp .env.example .env
-	for dir in $$(ls mcps); do \
-		(cd mcps/$$dir && make install); \
-		ln -sf ../../.env mcps/$$dir/.env; \
+	for dir in $$(ls backend/mcps); do \
+		(cd backend/mcps/$$dir && make install); \
+		ln -sf ../../../.env backend/mcps/$$dir/.env; \
 	done
 
 run-backend:
@@ -25,8 +25,8 @@ reset-db:
 
 test:
 	cd backend && make test
-	for dir in $$(ls mcps); do \
-		cd mcps/$$dir && make test; \
+	for dir in $$(ls backend/mcps); do \
+		cd backend/mcps/$$dir && make test; \
 	done
 
 lint:

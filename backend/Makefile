@@ -8,7 +8,7 @@ run:
 	uv run dotenv -f "$(env_path)" run uvicorn api.main:app --reload
 
 test:
-	uv run dotenv -f "$(env_path)" run pytest
+	uv run dotenv -f "$(env_path)" run pytest tests
 
 typecheck:
 	uvx lefthook run pre-commit --command backend-typecheck --all-files
