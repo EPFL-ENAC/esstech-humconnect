@@ -23,7 +23,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["api"]
+packages = ["meditron_mcp"]
 
 [tool.codespell]
 skip = 'uv.lock'

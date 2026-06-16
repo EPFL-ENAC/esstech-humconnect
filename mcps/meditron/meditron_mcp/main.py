@@ -11,7 +11,7 @@ openai_client = OpenAI(
 
 mcp = FastMCP(
     "Meditron",
-    instructions="Provides an interface to the medical LLM Meditron, trained on a comprehensively curated medical corpus, including selected PubMed papers and abstracts, a dataset of internationally-recognized medical guidelines, and a general domain corpus.",
+    instructions="Provides an interface to the medical LLM Meditron, trained on a comprehensively curated medical corpus, including selected PubMed papers and abstracts, a dataset of internationally-recognized medical guidelines, and a general domain corpus. Knowledge cutoff is August 2023.",
 )
 
 
