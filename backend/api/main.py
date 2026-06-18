@@ -27,7 +27,7 @@ async def app_lifespan(_: FastAPI) -> AsyncIterator[None]:
         await dispose_engine()
 
 
-meditron_mcp_app = meditron_mcp.http_app(path="/")
+meditron_mcp_app = meditron_mcp.http_app(path="/mcp")
 
 app = FastAPI(
     root_path=config.API_PATH,
