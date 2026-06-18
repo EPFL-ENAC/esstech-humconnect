@@ -8,6 +8,7 @@ from fastapi_cache import FastAPICache
 from fastapi_cache.backends.inmemory import InMemoryBackend
 from fastmcp.utilities.lifespan import combine_lifespans
 from pydantic import BaseModel
+from starlette.routing import Route
 
 from api.config import config
 from api.db import create_db_and_tables, dispose_engine
@@ -69,7 +70,37 @@ async def get_health() -> HealthCheck:
     return HealthCheck(status="OK")
 
 
-app.mount("/mcp/meditron", meditron_mcp_app)
+class _MCPMountSlashFix:
+    """Handle exact mount path without trailing slash to avoid Starlette's
+    broken trailing-slash redirect behind path-stripping reverse proxies.
+    """
+
+    def __init__(self, mcp_app, mount_path: str):
+        self.mcp_app = mcp_app
+        self.mount_path = mount_path
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            scope = dict(scope)
+            root_path = scope.get("root_path", "")
+            scope["root_path"] = root_path + self.mount_path
+            scope["path"] = "/"
+        await self.mcp_app(scope, receive, send)
+
+
+def add_mcp_proxy(mount_path: str, mcp_app):
+    app.routes.insert(
+        0,
+        Route(
+            mount_path,
+            endpoint=_MCPMountSlashFix(mcp_app, mount_path),
+            include_in_schema=False,
+        ),
+    )
+    app.mount(mount_path, mcp_app)
+
+
+add_mcp_proxy("/mcp/meditron", meditron_mcp_app)
 
 
 # app.include_router(
