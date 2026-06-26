@@ -3,14 +3,14 @@
         <section class="index-content">
             <div class="header-row">
                 <div>
-                    <h1>Chats</h1>
-                    <p>Start a new conversation or reopen a previous one.</p>
+                    <h1>{{ t('chats.title') }}</h1>
+                    <p>{{ t('chats.subtitle') }}</p>
                 </div>
 
                 <q-btn
                     color="primary"
                     icon="add"
-                    label="New Chat"
+                    :label="t('chats.newChat')"
                     :loading="creating"
                     @click="startNewChat"
                 />
@@ -22,11 +22,11 @@
 
             <q-list bordered separator class="chat-list">
                 <q-item v-if="loading">
-                    <q-item-section>Loading chats...</q-item-section>
+                    <q-item-section>{{ t('chats.loading') }}</q-item-section>
                 </q-item>
 
                 <q-item v-else-if="chats.length === 0">
-                    <q-item-section>No chats yet.</q-item-section>
+                    <q-item-section>{{ t('chats.empty') }}</q-item-section>
                 </q-item>
 
                 <template v-else>
@@ -37,7 +37,7 @@
                         @click="openChat(chat.id)"
                     >
                         <q-item-section>
-                            <q-item-label>{{ chat.title || 'Untitled chat' }}</q-item-label>
+                            <q-item-label>{{ chat.title || t('chats.untitledChat') }}</q-item-label>
                             <q-item-label caption>{{ formatDate(chat.updated_at) }}</q-item-label>
                         </q-item-section>
                         <q-item-section side>
@@ -54,9 +54,11 @@
 import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
 import { useChatsStore } from 'src/stores/chats';
 
 const router = useRouter();
+const { locale, t } = useI18n();
 const chatsStore = useChatsStore();
 const { chats, creating, error, loading } = storeToRefs(chatsStore);
 
@@ -72,7 +74,7 @@ function openChat(chatId: string) {
 }
 
 function formatDate(value: string) {
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat(locale.value, {
         dateStyle: 'medium',
         timeStyle: 'short',
     }).format(new Date(value));

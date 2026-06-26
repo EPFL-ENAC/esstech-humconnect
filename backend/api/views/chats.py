@@ -8,12 +8,23 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from pydantic import BaseModel, Field
+from pydantic import ValidationError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
 from api.db import get_engine, get_session
-from api.models.chat import ChatSession, Message, utc_now
+from api.models.chat import (
+    ChatErrorEvent,
+    ChatSession,
+    ChatSnapshotResponse,
+    CreateChatRequest,
+    CreateChatResponse,
+    ListChatsResponse,
+    Message,
+    MessageCreatedEvent,
+    UserMessageEvent,
+    utc_now,
+)
 from api.services.chat import (
     MESSAGE_ROLE_ASSISTANT,
     MESSAGE_ROLE_USER,
@@ -30,14 +41,6 @@ from api.services.chat import (
 router = APIRouter(prefix="/chats", tags=["Chats"])
 
 
-class CreateChatRequest(BaseModel):
-    client_id: str = Field(min_length=1, max_length=256)
-
-
-class CreateChatResponse(BaseModel):
-    id: UUID
-
-
 @router.post("", response_model=CreateChatResponse)
 async def create_chat(
     payload: CreateChatRequest,
@@ -50,25 +53,25 @@ async def create_chat(
     return CreateChatResponse(id=chat.id)
 
 
-@router.get("")
+@router.get("", response_model=ListChatsResponse)
 async def list_chats(
     client_id: str = Query(min_length=1, max_length=256),
     session: AsyncSQLModelSession = Depends(get_session),
-) -> dict:
+) -> ListChatsResponse:
     result = await session.exec(
         select(ChatSession)
         .where(ChatSession.client_id == client_id)
         .order_by(col(ChatSession.updated_at).desc())
     )
-    return {"chats": [serialize_chat(chat) for chat in result.all()]}
+    return ListChatsResponse(chats=[serialize_chat(chat) for chat in result.all()])
 
 
-@router.get("/{chat_id}")
+@router.get("/{chat_id}", response_model=ChatSnapshotResponse)
 async def get_chat(
     chat_id: UUID,
     client_id: str = Query(min_length=1, max_length=256),
     session: AsyncSQLModelSession = Depends(get_session),
-) -> dict:
+) -> ChatSnapshotResponse:
     chat = await get_chat_for_client(session, chat_id, client_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="Chat not found")
@@ -97,29 +100,35 @@ async def chat_websocket(
         async with AsyncSQLModelSession(get_engine()) as session:
             chat = await get_chat_for_client(session, chat_id, client_id)
             if chat is not None:
-                await websocket.send_json(await build_chat_snapshot(session, chat))
+                snapshot = await build_chat_snapshot(session, chat)
+                await websocket.send_json(snapshot.model_dump(mode="json"))
 
         while True:
             payload = await websocket.receive_json()
-            if payload.get("type") != "user_message":
+            try:
+                client_event = UserMessageEvent.model_validate(payload)
+            except ValidationError:
                 await websocket.send_json(
-                    {"type": "error", "message": "Unsupported message type."}
+                    ChatErrorEvent(message="Unsupported message type.").model_dump(
+                        mode="json"
+                    )
                 )
                 continue
 
-            content = str(payload.get("content", "")).strip()
+            content = client_event.content.strip()
             if not content:
                 await websocket.send_json(
-                    {"type": "error", "message": "Message content is required."}
+                    ChatErrorEvent(message="Message content is required.").model_dump(
+                        mode="json"
+                    )
                 )
                 continue
 
             if await chat_stream_manager.has_active_generation(chat_id):
                 await websocket.send_json(
-                    {
-                        "type": "error",
-                        "message": "Wait for the current response to finish.",
-                    }
+                    ChatErrorEvent(
+                        message="Wait for the current response to finish."
+                    ).model_dump(mode="json")
                 )
                 continue
 
@@ -152,17 +161,15 @@ async def chat_websocket(
 
             await chat_stream_manager.broadcast(
                 chat_id,
-                {
-                    "type": "message_created",
-                    "message": serialize_message(user_message),
-                },
+                MessageCreatedEvent(
+                    message=serialize_message(user_message),
+                ).model_dump(mode="json"),
             )
             await chat_stream_manager.broadcast(
                 chat_id,
-                {
-                    "type": "message_created",
-                    "message": serialize_message(assistant_message),
-                },
+                MessageCreatedEvent(
+                    message=serialize_message(assistant_message),
+                ).model_dump(mode="json"),
             )
             await chat_stream_manager.start_placeholder_generation(
                 chat_id=chat_id,

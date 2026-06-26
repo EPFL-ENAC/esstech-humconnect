@@ -1,6 +1,7 @@
 import asyncio
 import random
 from collections import defaultdict
+from typing import cast
 from uuid import UUID
 
 from fastapi import WebSocket
@@ -8,7 +9,18 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
 from api.db import get_engine
-from api.models.chat import ChatSession, Message, utc_now
+from api.models.chat import (
+    ChatMessageResponse,
+    ChatSession,
+    ChatSessionResponse,
+    ChatSnapshotResponse,
+    Message,
+    MessageDeltaEvent,
+    MessageDoneEvent,
+    MessageRole,
+    MessageStatus,
+    utc_now,
+)
 
 MESSAGE_ROLE_ASSISTANT = "assistant"
 MESSAGE_ROLE_USER = "user"
@@ -105,11 +117,10 @@ class ChatStreamManager:
 
                     await self.broadcast(
                         chat_id,
-                        {
-                            "type": "message_delta",
-                            "message_id": str(assistant_message_id),
-                            "delta": token,
-                        },
+                        MessageDeltaEvent(
+                            message_id=assistant_message_id,
+                            delta=token,
+                        ).model_dump(mode="json"),
                     )
 
                     now = loop.time()
@@ -135,11 +146,10 @@ class ChatStreamManager:
 
             await self.broadcast(
                 chat_id,
-                {
-                    "type": "message_done",
-                    "message_id": str(assistant_message_id),
-                    "status": MESSAGE_STATUS_COMPLETE,
-                },
+                MessageDoneEvent(
+                    message_id=assistant_message_id,
+                    status=MESSAGE_STATUS_COMPLETE,
+                ).model_dump(mode="json"),
             )
         except Exception:
             async with AsyncSQLModelSession(get_engine()) as session:
@@ -152,11 +162,10 @@ class ChatStreamManager:
 
             await self.broadcast(
                 chat_id,
-                {
-                    "type": "message_done",
-                    "message_id": str(assistant_message_id),
-                    "status": MESSAGE_STATUS_ERROR,
-                },
+                MessageDoneEvent(
+                    message_id=assistant_message_id,
+                    status=MESSAGE_STATUS_ERROR,
+                ).model_dump(mode="json"),
             )
         finally:
             current_task = asyncio.current_task()
@@ -169,26 +178,26 @@ class ChatStreamManager:
 chat_stream_manager = ChatStreamManager()
 
 
-def serialize_chat(chat: ChatSession) -> dict:
-    return {
-        "id": str(chat.id),
-        "client_id": chat.client_id,
-        "title": chat.title,
-        "created_at": chat.created_at.isoformat(),
-        "updated_at": chat.updated_at.isoformat(),
-    }
+def serialize_chat(chat: ChatSession) -> ChatSessionResponse:
+    return ChatSessionResponse(
+        id=chat.id,
+        client_id=chat.client_id,
+        title=chat.title,
+        created_at=chat.created_at,
+        updated_at=chat.updated_at,
+    )
 
 
-def serialize_message(message: Message) -> dict:
-    return {
-        "id": str(message.id),
-        "chat_id": str(message.chat_id),
-        "role": message.role,
-        "content": message.content,
-        "status": message.status,
-        "created_at": message.created_at.isoformat(),
-        "updated_at": message.updated_at.isoformat(),
-    }
+def serialize_message(message: Message) -> ChatMessageResponse:
+    return ChatMessageResponse(
+        id=message.id,
+        chat_id=message.chat_id,
+        role=cast(MessageRole, message.role),
+        content=message.content,
+        status=cast(MessageStatus, message.status),
+        created_at=message.created_at,
+        updated_at=message.updated_at,
+    )
 
 
 async def get_chat_for_client(
@@ -233,7 +242,9 @@ async def mark_stale_streaming_messages_interrupted(
         await session.commit()
 
 
-async def build_chat_snapshot(session: AsyncSQLModelSession, chat: ChatSession) -> dict:
+async def build_chat_snapshot(
+    session: AsyncSQLModelSession, chat: ChatSession
+) -> ChatSnapshotResponse:
     await mark_stale_streaming_messages_interrupted(session, chat_id=chat.id)
 
     messages = await session.exec(
@@ -242,8 +253,7 @@ async def build_chat_snapshot(session: AsyncSQLModelSession, chat: ChatSession) 
         .order_by(col(Message.created_at))
     )
     refreshed_chat = await session.get(ChatSession, chat.id)
-    return {
-        "type": "snapshot",
-        "chat": serialize_chat(refreshed_chat or chat),
-        "messages": [serialize_message(message) for message in messages.all()],
-    }
+    return ChatSnapshotResponse(
+        chat=serialize_chat(refreshed_chat or chat),
+        messages=[serialize_message(message) for message in messages.all()],
+    )

@@ -1,9 +1,12 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import { createChat, listChats, type ChatSession } from 'src/utils/chatApi';
+import { createChat, listChats } from 'src/utils/chatApi';
 import { getClientId } from 'src/utils/clientId';
+import { getI18nT } from 'src/utils/i18n';
+import type { ChatSession } from 'src/utils/model';
 
 export const useChatsStore = defineStore('chats', () => {
+    const t = getI18nT();
     const chats = ref<ChatSession[]>([]);
     const creating = ref(false);
     const error = ref('');
@@ -23,7 +26,7 @@ export const useChatsStore = defineStore('chats', () => {
         try {
             chats.value = await listChats(getClientId());
         } catch (err) {
-            error.value = err instanceof Error ? err.message : 'Could not load chats.';
+            error.value = err instanceof Error ? err.message : t('errors.loadChats');
         } finally {
             loading.value = false;
         }
@@ -36,7 +39,7 @@ export const useChatsStore = defineStore('chats', () => {
         try {
             return await createChat(getClientId());
         } catch (err) {
-            error.value = err instanceof Error ? err.message : 'Could not create chat.';
+            error.value = err instanceof Error ? err.message : t('errors.createChat');
             return null;
         } finally {
             creating.value = false;

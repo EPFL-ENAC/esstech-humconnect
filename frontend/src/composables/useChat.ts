@@ -1,18 +1,15 @@
 import { onBeforeUnmount, ref, toValue, watch, type MaybeRefOrGetter } from 'vue';
-import {
-    chatWebSocketUrl,
-    type ChatClientEvent,
-    type ChatMessage,
-    type ChatSession,
-    type ChatSocketEvent,
-} from 'src/utils/chatApi';
+import { chatWebSocketUrl } from 'src/utils/chatApi';
+import type { ChatClientEvent, ChatMessage, ChatSession, ChatSocketEvent } from 'src/utils/model';
 import { getClientId } from 'src/utils/clientId';
+import { getI18nT } from 'src/utils/i18n';
 import { useChatsStore } from 'src/stores/chats';
 
 type ChatId = string | number;
 type MessageDoneCallback = (message: ChatMessage | undefined) => void;
 
 export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
+    const t = getI18nT();
     const clientId = getClientId();
     const chatsStore = useChatsStore();
     const chat = ref<ChatSession | null>(null);
@@ -75,7 +72,7 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
             if (socket !== nextSocket) {
                 return;
             }
-            error.value = 'Connection error.';
+            error.value = t('errors.connection');
         });
     }
 

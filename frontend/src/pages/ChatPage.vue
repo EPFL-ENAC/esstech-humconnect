@@ -3,10 +3,10 @@
         <section class="chat-shell">
             <div class="chat-header">
                 <q-btn flat round icon="arrow_back" @click="goBack">
-                    <q-tooltip>Back to chats</q-tooltip>
+                    <q-tooltip>{{ t('chat.backToChats') }}</q-tooltip>
                 </q-btn>
                 <div>
-                    <h1>{{ chat?.title || 'New chat' }}</h1>
+                    <h1>{{ chat?.title || t('chat.newChat') }}</h1>
                     <p>{{ connectionLabel }}</p>
                 </div>
             </div>
@@ -16,7 +16,9 @@
             </q-banner>
 
             <div class="messages">
-                <div v-if="messages.length === 0" class="empty-state">Send a message to start.</div>
+                <div v-if="messages.length === 0" class="empty-state">
+                    {{ t('chat.emptyState') }}
+                </div>
 
                 <div
                     v-for="message in messages"
@@ -29,7 +31,7 @@
                             {{ message.content || (message.status === 'streaming' ? '...' : '') }}
                         </div>
                         <div v-if="message.status !== 'complete'" class="message-status">
-                            {{ message.status }}
+                            {{ t(`chat.status.${message.status}`) }}
                         </div>
                     </div>
                 </div>
@@ -41,12 +43,12 @@
                     outlined
                     dense
                     autogrow
-                    placeholder="Write a message"
+                    :placeholder="t('chat.writeMessage')"
                     :disable="!canSend"
                     @keydown.enter="handleEnter"
                 />
                 <q-btn round color="primary" icon="send" type="submit" :disable="!canSubmit">
-                    <q-tooltip>Send</q-tooltip>
+                    <q-tooltip>{{ t('chat.send') }}</q-tooltip>
                 </q-btn>
             </form>
         </section>
@@ -56,16 +58,20 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
 import { useChat } from 'src/composables/useChat';
 
 const route = useRoute();
 const router = useRouter();
+const { t } = useI18n();
 const chatId = computed(() => String(route.params.id));
 
 const draft = ref('');
 const { chat, connected, error, messages, sendEvent, onMessageDone } = useChat(chatId);
 
-const connectionLabel = computed(() => (connected.value ? 'Connected' : 'Reconnecting...'));
+const connectionLabel = computed(() =>
+    connected.value ? t('chat.connected') : t('chat.reconnecting'),
+);
 const canSend = computed(() => connected.value);
 const canSubmit = computed(() => canSend.value && draft.value.trim().length > 0);
 

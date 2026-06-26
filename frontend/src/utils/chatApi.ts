@@ -1,63 +1,40 @@
 import { baseUrl } from 'src/boot/api';
-
-export interface ChatSession {
-    id: string;
-    client_id: string;
-    title: string | null;
-    created_at: string;
-    updated_at: string;
-}
-
-export interface ChatMessage {
-    id: string;
-    chat_id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    status: 'complete' | 'streaming' | 'interrupted' | 'error';
-    created_at: string;
-    updated_at: string;
-}
-
-export interface ChatSnapshot {
-    type: 'snapshot';
-    chat: ChatSession;
-    messages: ChatMessage[];
-}
-
-export type ChatSocketEvent =
-    | ChatSnapshot
-    | { type: 'message_created'; message: ChatMessage }
-    | { type: 'message_delta'; message_id: string; delta: string }
-    | { type: 'message_done'; message_id: string; status: ChatMessage['status'] }
-    | { type: 'error'; message: string };
-
-export type ChatClientEvent = { type: 'user_message'; content: string };
+import { getI18nT } from 'src/utils/i18n';
+import type {
+    ChatSession,
+    CreateChatRequest,
+    CreateChatResponse,
+    ListChatsResponse,
+} from 'src/utils/model';
 
 export async function createChat(clientId: string): Promise<string> {
+    const t = getI18nT();
+    const payload: CreateChatRequest = { client_id: clientId };
     const response = await fetch(`${baseUrl}/chats`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ client_id: clientId }),
+        body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
-        throw new Error('Could not create chat.');
+        throw new Error(t('errors.createChat'));
     }
 
-    const payload = (await response.json()) as { id: string };
-    return payload.id;
+    const responsePayload = (await response.json()) as CreateChatResponse;
+    return responsePayload.id;
 }
 
 export async function listChats(clientId: string): Promise<ChatSession[]> {
+    const t = getI18nT();
     const url = new URL(`${baseUrl}/chats`);
     url.searchParams.set('client_id', clientId);
 
     const response = await fetch(url);
     if (!response.ok) {
-        throw new Error('Could not load chats.');
+        throw new Error(t('errors.loadChats'));
     }
 
-    const payload = (await response.json()) as { chats: ChatSession[] };
+    const payload = (await response.json()) as ListChatsResponse;
     return payload.chats;
 }
 

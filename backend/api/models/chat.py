@@ -1,6 +1,9 @@
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
+from pydantic import BaseModel
+from pydantic import Field as PydanticField
 from sqlalchemy import Column, DateTime
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -41,3 +44,70 @@ class Message(SQLModel, table=True):
     )
 
     chat: ChatSession = Relationship(back_populates="messages")
+
+
+MessageRole = Literal["user", "assistant"]
+MessageStatus = Literal["complete", "streaming", "interrupted", "error"]
+
+
+class CreateChatRequest(BaseModel):
+    client_id: str = PydanticField(min_length=1, max_length=256)
+
+
+class CreateChatResponse(BaseModel):
+    id: UUID
+
+
+class ChatSessionResponse(BaseModel):
+    id: UUID
+    client_id: str
+    title: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatMessageResponse(BaseModel):
+    id: UUID
+    chat_id: UUID
+    role: MessageRole
+    content: str
+    status: MessageStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+class ListChatsResponse(BaseModel):
+    chats: list[ChatSessionResponse]
+
+
+class ChatSnapshotResponse(BaseModel):
+    type: Literal["snapshot"] = "snapshot"
+    chat: ChatSessionResponse
+    messages: list[ChatMessageResponse]
+
+
+class MessageCreatedEvent(BaseModel):
+    type: Literal["message_created"] = "message_created"
+    message: ChatMessageResponse
+
+
+class MessageDeltaEvent(BaseModel):
+    type: Literal["message_delta"] = "message_delta"
+    message_id: UUID
+    delta: str
+
+
+class MessageDoneEvent(BaseModel):
+    type: Literal["message_done"] = "message_done"
+    message_id: UUID
+    status: MessageStatus
+
+
+class ChatErrorEvent(BaseModel):
+    type: Literal["error"] = "error"
+    message: str
+
+
+class UserMessageEvent(BaseModel):
+    type: Literal["user_message"] = "user_message"
+    content: str
