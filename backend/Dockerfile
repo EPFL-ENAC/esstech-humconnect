@@ -12,8 +12,10 @@ RUN pip install "uv==$UV_VERSION"
 WORKDIR /app
 
 COPY uv.lock pyproject.toml /app/
+COPY alembic.ini /app/
 COPY start.sh /app/
 COPY api /app/api
+COPY migrations /app/migrations
 COPY mcps /app/mcps
 
 RUN uv pip install --system --no-cache-dir -e /app

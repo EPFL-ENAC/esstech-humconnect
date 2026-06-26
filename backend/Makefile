@@ -10,6 +10,15 @@ run:
 test:
 	uv run dotenv -f "$(env_path)" run pytest tests
 
+db-upgrade:
+	uv run dotenv -f "$(env_path)" run alembic upgrade head
+
+db-downgrade:
+	uv run dotenv -f "$(env_path)" run alembic downgrade -1
+
+db-revision:
+	uv run dotenv -f "$(env_path)" run alembic revision --autogenerate -m "$(name)"
+
 typecheck:
 	uvx lefthook run pre-commit --command backend-typecheck --all-files
 

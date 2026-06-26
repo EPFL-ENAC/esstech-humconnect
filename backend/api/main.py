@@ -10,7 +10,8 @@ from fastmcp.utilities.lifespan import combine_lifespans
 from pydantic import BaseModel
 
 from api.config import config
-from api.db import create_db_and_tables, dispose_engine
+from api.db import dispose_engine
+from api.views.chats import mark_interrupted_messages_on_startup, router as chats_router
 # from api.views.files import router as files_router
 from meditron_mcp.main import mcp as meditron_mcp
 
@@ -20,7 +21,7 @@ basicConfig(level=INFO)
 @asynccontextmanager
 async def app_lifespan(_: FastAPI) -> AsyncIterator[None]:
     FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
-    await create_db_and_tables()
+    await mark_interrupted_messages_on_startup()
     try:
         yield
     finally:
@@ -70,6 +71,8 @@ async def get_health() -> HealthCheck:
 
 
 app.mount("/mcp/meditron", meditron_mcp_app)
+
+app.include_router(chats_router)
 
 
 # app.include_router(
