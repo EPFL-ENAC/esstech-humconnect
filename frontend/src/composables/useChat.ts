@@ -29,7 +29,9 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
         const currentChatId = String(toValue(chatId));
         clearReconnectTimer();
         connected.value = false;
-        socket?.close();
+        const previousSocket = socket;
+        socket = null;
+        previousSocket?.close();
 
         if (reset) {
             chat.value = null;

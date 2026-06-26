@@ -18,6 +18,9 @@ MESSAGE_STATUS_ERROR = "error"
 MESSAGE_STATUS_INTERRUPTED = "interrupted"
 MESSAGE_STATUS_STREAMING = "streaming"
 
+STREAM_COMMIT_TOKEN_BATCH_SIZE = 32
+STREAM_COMMIT_INTERVAL_SECONDS = 1.0
+
 
 class ChatStreamManager:
     def __init__(self) -> None:
@@ -82,16 +85,23 @@ class ChatStreamManager:
             random_number = random.randint(0, 999999)
             response = f"Random number: {random_number}"
 
-            async with AsyncSQLModelSession(get_engine()) as session:
-                for token in response:
-                    message = await session.get(Message, assistant_message_id)
-                    if message is None:
-                        return
+            async with AsyncSQLModelSession(
+                get_engine(), expire_on_commit=False
+            ) as session:
+                message = await session.get(Message, assistant_message_id)
+                if message is None:
+                    return
 
+                chat = await session.get(ChatSession, chat_id)
+                loop = asyncio.get_running_loop()
+                last_commit_at = loop.time()
+                tokens_since_commit = 0
+                response_length = len(response)
+
+                for token_index, token in enumerate(response, start=1):
                     message.content += token
                     message.updated_at = utc_now()
-                    session.add(message)
-                    await session.commit()
+                    tokens_since_commit += 1
 
                     await self.broadcast(
                         chat_id,
@@ -101,14 +111,23 @@ class ChatStreamManager:
                             "delta": token,
                         },
                     )
+
+                    now = loop.time()
+                    should_commit_batch = (
+                        tokens_since_commit >= STREAM_COMMIT_TOKEN_BATCH_SIZE
+                        or now - last_commit_at >= STREAM_COMMIT_INTERVAL_SECONDS
+                    )
+                    if should_commit_batch and token_index < response_length:
+                        session.add(message)
+                        await session.commit()
+                        tokens_since_commit = 0
+                        last_commit_at = now
+
                     await asyncio.sleep(0.05)
 
-                message = await session.get(Message, assistant_message_id)
-                chat = await session.get(ChatSession, chat_id)
-                if message is not None:
-                    message.status = MESSAGE_STATUS_COMPLETE
-                    message.updated_at = utc_now()
-                    session.add(message)
+                message.status = MESSAGE_STATUS_COMPLETE
+                message.updated_at = utc_now()
+                session.add(message)
                 if chat is not None:
                     chat.updated_at = utc_now()
                     session.add(chat)
