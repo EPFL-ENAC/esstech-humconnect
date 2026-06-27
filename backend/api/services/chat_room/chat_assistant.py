@@ -15,7 +15,7 @@ PLACEHOLDER_TOKEN_DELAY_SECONDS = 0.05
 class AssistantStreamChunkDelta(NamedTuple):
     index: int
     type: MessageChunkType
-    content: str
+    content_delta: str
 
 
 class ChatAssistant(Protocol):

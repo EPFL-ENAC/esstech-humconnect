@@ -738,7 +738,7 @@ def test_placeholder_chat_assistant_streams_random_number(monkeypatch):
 
     async def run():
         return [
-            chunk.content
+            chunk.content_delta
             async for chunk in assistant.stream_response([], "What number?")
         ]
 

@@ -1,17 +1,14 @@
 <template>
-    <q-markdown class="message-text" :src="chunk.content || fallback" no-heading-anchor-links />
+    <q-markdown class="message-text" :src="props.chunk.content" no-heading-anchor-links />
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
 import type { ChatMessageChunk, ChatMessageStatus } from 'src/utils/model';
 
 const props = defineProps<{
     chunk: ChatMessageChunk;
     status: ChatMessageStatus;
 }>();
-
-const fallback = computed(() => (props.status === 'streaming' ? '' : ''));
 </script>
 
 <style scoped lang="scss">
