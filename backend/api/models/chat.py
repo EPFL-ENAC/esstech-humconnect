@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
+from openai.types.responses import EasyInputMessageParam
 from pydantic import BaseModel
 from pydantic import Field as PydanticField
 from sqlalchemy import JSON, Column, DateTime
@@ -194,11 +195,13 @@ class ChatMessageResponse(BaseModel):
     def append_chunk_delta(
         self, chunk_index: int, chunk_type: MessageChunkType, delta: str
     ) -> int:
-        for chunk in self.chunks:
-            if chunk.index == chunk_index:
-                chunk.append(delta)
-                self.updated_at = utc_now()
-                return chunk.index
+        if (
+            len(self.chunks) > chunk_index
+            and self.chunks[chunk_index].type == chunk_type
+        ):
+            self.chunks[chunk_index].append(delta)
+            self.updated_at = utc_now()
+            return chunk_index
 
         chunk = ChatMessageChunk.create(chunk_index, chunk_type, delta)
         self.chunks.append(chunk)
@@ -212,6 +215,12 @@ class ChatMessageResponse(BaseModel):
             for chunk in self.chunks
             if chunk.type == CHUNK_TYPE_MESSAGE_CONTENT
         )
+
+    def to_ai_model_input(self) -> EasyInputMessageParam:
+        return {
+            "role": self.role,
+            "content": self.content_for_model(),
+        }
 
     def update_status(self, new_status: MessageStatus) -> None:
         self.status = new_status

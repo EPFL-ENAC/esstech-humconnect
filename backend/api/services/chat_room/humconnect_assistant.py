@@ -30,10 +30,7 @@ class HumConnectAssistant(ChatAssistant):
         chat_history: Sequence[ChatMessageResponse],
     ) -> list[ModelInputMessage]:
         return [
-            {
-                "role": message.role,
-                "content": message.content_for_model(),
-            }
+            message.to_ai_model_input()
             for message in chat_history
             if message.status == MESSAGE_STATUS_COMPLETE and message.content_for_model()
         ]
