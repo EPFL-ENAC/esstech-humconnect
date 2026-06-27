@@ -26,14 +26,10 @@
                     class="message-row"
                     :class="message.role"
                 >
-                    <div class="message-bubble">
-                        <div class="message-text">
-                            {{ message.content || (message.status === 'streaming' ? '...' : '') }}
-                        </div>
-                        <div v-if="message.status !== 'complete'" class="message-status">
-                            {{ t(`chat.status.${message.status}`) }}
-                        </div>
-                    </div>
+                    <ChatMessageBubble
+                        :message="message"
+                        :status-label="t(`chat.status.${message.status}`)"
+                    />
                 </div>
             </div>
 
@@ -60,6 +56,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useChat } from 'src/composables/useChat';
+import ChatMessageBubble from 'src/components/chat/ChatMessageBubble.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -184,28 +181,12 @@ p {
     justify-content: flex-start;
 }
 
-.message-bubble {
-    background: white;
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    border-radius: 8px;
-    max-width: min(680px, 86%);
-    padding: 10px 12px;
-    white-space: pre-wrap;
-    word-break: break-word;
-}
-
-.message-row.user .message-bubble {
+.message-row.user :deep(.message-bubble) {
     background: #1f6feb;
     color: white;
 }
 
-.message-status {
-    color: #667085;
-    font-size: 12px;
-    margin-top: 6px;
-}
-
-.message-row.user .message-status {
+.message-row.user :deep(.message-status) {
     color: rgba(255, 255, 255, 0.82);
 }
 

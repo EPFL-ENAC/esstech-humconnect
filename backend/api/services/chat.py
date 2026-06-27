@@ -25,6 +25,7 @@ from api.services.chat_room.chat_db import (
     mark_stale_streaming_messages_interrupted as _mark_stale_streaming_messages_interrupted,
 )
 from api.services.chat_room.chat_room import ChatRoomService
+from api.services.chat_room.humconnect_assistant import HumConnectAssistant
 
 
 async def mark_stale_streaming_messages_interrupted(
@@ -53,6 +54,7 @@ __all__ = [
     "ChatRoomRegistry",
     "ChatRoomService",
     "PlaceholderChatAssistant",
+    "HumConnectAssistant",
     "PersistentChatMessagesHistory",
     "build_chat_snapshot",
     "chat_room_registry",

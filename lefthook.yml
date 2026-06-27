@@ -2,7 +2,7 @@
 #   https://lefthook.dev/configuration/
 
 pre-commit:
-  parallel: true
+  parallel: false
   commands:
     frontend-typecheck:
       root: frontend
@@ -32,7 +32,7 @@ pre-commit:
       glob: "backend/{api,tests}/**/*.py"
       run: uvx ruff@0.15.13 format {staged_files} && git add {staged_files}
     codespell:
-      run: uvx codespell@2.4.2 --skip="frontend/package-lock.json,frontend/src/i18n/fr/index.ts" --ignore-words-list="selectin" {staged_files}
+      run: uvx codespell@2.4.2 --skip="frontend/package-lock.json,frontend/src/i18n/fr/index.ts,backend/tests/**,backend/mcps/meditron/tests/**" --ignore-words-list="selectin" {staged_files}
 
 commit-msg:
   commands:

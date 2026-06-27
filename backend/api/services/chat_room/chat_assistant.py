@@ -1,11 +1,21 @@
 import asyncio
 import random
 from collections.abc import AsyncIterator, Sequence
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
-from api.models.chat import ChatMessageResponse
+from api.models.chat import (
+    CHUNK_TYPE_MESSAGE_CONTENT,
+    ChatMessageResponse,
+    MessageChunkType,
+)
 
 PLACEHOLDER_TOKEN_DELAY_SECONDS = 0.05
+
+
+class AssistantStreamChunkDelta(NamedTuple):
+    index: int
+    type: MessageChunkType
+    content: str
 
 
 class ChatAssistant(Protocol):
@@ -13,18 +23,18 @@ class ChatAssistant(Protocol):
         self,
         chat_history: Sequence[ChatMessageResponse],
         question: str,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[AssistantStreamChunkDelta]:
         raise NotImplementedError
 
 
-class PlaceholderChatAssistant:
+class PlaceholderChatAssistant(ChatAssistant):
     async def stream_response(
         self,
         chat_history: Sequence[ChatMessageResponse],
         question: str,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[AssistantStreamChunkDelta]:
         random_number = random.randint(0, 999999)
         response = f"Random number: {random_number}"
         for token in response:
-            yield token
+            yield AssistantStreamChunkDelta(0, CHUNK_TYPE_MESSAGE_CONTENT, token)
             await asyncio.sleep(PLACEHOLDER_TOKEN_DELAY_SECONDS)

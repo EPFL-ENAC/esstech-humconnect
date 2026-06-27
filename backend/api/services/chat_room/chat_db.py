@@ -18,6 +18,7 @@ from api.models.chat import (
     ChatSessionResponse,
     ChatSnapshotResponse,
     Message,
+    MessageChunkType,
     utc_now,
 )
 
@@ -100,30 +101,40 @@ class PersistentChatMessagesHistory:
 
         return user_response
 
-    async def response_progress(self, tokens: str) -> ChatMessageResponse | None:
+    async def start_response(self) -> ChatMessageResponse:
+        await self._ensure_loaded()
+
+        message = self._active_assistant_message
+        if message is not None and message.status == MESSAGE_STATUS_STREAMING:
+            return message
+
+        message = ChatMessageResponse.make_assistant_message(self.chat_id)
+        self._messages.append(message)
+        self._active_assistant_message_id = message.id
+        await self._insert_active_message()
+        return message
+
+    async def response_progress(
+        self, chunk_index: int, chunk_type: MessageChunkType, delta: str
+    ) -> tuple[ChatMessageResponse | None, int | None]:
         message = self._active_assistant_message
         created_message = None
         if message is None:
-            message = ChatMessageResponse.make_assistant_message(
-                self.chat_id, content=tokens
-            )
-            self._messages.append(message)
-            self._active_assistant_message_id = message.id
-            created_message = message
+            return None, None
         elif message.status != MESSAGE_STATUS_STREAMING:
-            return None
+            return None, None
         else:
-            message.update_content(message.content + tokens)
+            message.append_chunk_delta(chunk_index, chunk_type, delta)
 
-        self._tokens_since_commit += len(tokens)
+        self._tokens_since_commit += len(delta)
 
         if message.id not in self._persisted_message_ids:
             await self._insert_active_message()
-            return created_message
+            return created_message, chunk_index
 
         if self._should_commit():
-            await self._commit_active_message_content()
-        return created_message
+            await self._commit_active_message_chunks()
+        return created_message, chunk_index
 
     async def complete_response(self) -> None:
         message = self._active_assistant_message
@@ -139,7 +150,9 @@ class PersistentChatMessagesHistory:
                 db_message = await session.get(Message, message.id)
 
                 if db_message is not None:
-                    db_message.content = message.content
+                    db_message.chunks = [
+                        chunk.model_dump(mode="json") for chunk in message.chunks
+                    ]
                     db_message.status = MESSAGE_STATUS_COMPLETE
                     db_message.updated_at = message.updated_at
                     session.add(db_message)
@@ -172,7 +185,7 @@ class PersistentChatMessagesHistory:
                 db_message = None
 
             if db_message is not None:
-                db_message.update_content_status(message.content, MESSAGE_STATUS_ERROR)
+                db_message.update_chunks_status(message.chunks, MESSAGE_STATUS_ERROR)
                 session.add(db_message)
                 await session.commit()
 
@@ -261,7 +274,7 @@ class PersistentChatMessagesHistory:
         self._persisted_message_ids.add(message.id)
         self._post_commit()
 
-    async def _commit_active_message_content(self) -> None:
+    async def _commit_active_message_chunks(self) -> None:
         message = self._active_assistant_message
         if message is None:
             return
@@ -272,7 +285,9 @@ class PersistentChatMessagesHistory:
             db_message = await session.get(Message, message.id)
             if db_message is None:
                 return
-            db_message.content = message.content
+            db_message.chunks = [
+                chunk.model_dump(mode="json") for chunk in message.chunks
+            ]
             db_message.updated_at = message.updated_at
             session.add(db_message)
             await session.commit()

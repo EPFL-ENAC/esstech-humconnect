@@ -92,7 +92,17 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
         if (event.type === 'message_delta') {
             const message = messages.value.find((item) => item.id === event.message_id);
             if (message) {
-                message.content += event.delta;
+                let chunk = message.chunks.find((item) => item.index === event.chunk_index);
+                if (!chunk) {
+                    chunk = {
+                        index: event.chunk_index,
+                        type: event.chunk_type,
+                        content: '',
+                    };
+                    message.chunks.push(chunk);
+                    message.chunks.sort((a, b) => a.index - b.index);
+                }
+                chunk.content += event.delta;
             }
             return;
         }
