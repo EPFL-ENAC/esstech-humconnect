@@ -1,1 +1,32 @@
-export default {};
+export default {
+    appTitle: 'HumConnect',
+    notFoundMessage: 'Oops. Nothing here...',
+    goHome: 'Go home',
+    chats: {
+        title: 'Chats',
+        subtitle: 'Start a new conversation or reopen a previous one.',
+        newChat: 'New Chat',
+        loading: 'Loading chats...',
+        empty: 'No chats yet.',
+        untitledChat: 'Untitled chat',
+    },
+    chat: {
+        backToChats: 'Back to chats',
+        newChat: 'New chat',
+        connected: 'Connected',
+        reconnecting: 'Reconnecting...',
+        emptyState: 'Send a message to start.',
+        writeMessage: 'Write a message',
+        send: 'Send',
+        status: {
+            streaming: 'Streaming',
+            interrupted: 'Interrupted',
+            error: 'Error',
+        },
+    },
+    errors: {
+        connection: 'Connection error.',
+        createChat: 'Could not create chat.',
+        loadChats: 'Could not load chats.',
+    },
+};
