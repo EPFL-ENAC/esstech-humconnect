@@ -15,7 +15,7 @@
                 {{ error }}
             </q-banner>
 
-            <div class="messages">
+            <div ref="messagesElement" class="messages">
                 <div v-if="messages.length === 0" class="empty-state">
                     {{ t('chat.emptyState') }}
                 </div>
@@ -56,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useChat } from 'src/composables/useChat';
@@ -67,7 +67,9 @@ const { t } = useI18n();
 const chatId = computed(() => String(route.params.id));
 
 const draft = ref('');
+const messagesElement = ref<HTMLElement | null>(null);
 const { chat, connected, error, messages, sendEvent, onMessageDone } = useChat(chatId);
+let scrollFrame: number | undefined;
 
 const connectionLabel = computed(() =>
     connected.value ? t('chat.connected') : t('chat.reconnecting'),
@@ -95,11 +97,16 @@ function handleEnter(event: KeyboardEvent) {
     sendMessage();
 }
 
-function scrollToBottom() {
-    void nextTick(() => {
-        const messagesElement = document.querySelector('.messages');
-        messagesElement?.scrollTo({
-            top: messagesElement.scrollHeight,
+function scheduleScrollToBottom() {
+    if (scrollFrame !== undefined) {
+        return;
+    }
+
+    scrollFrame = window.requestAnimationFrame(() => {
+        scrollFrame = undefined;
+        const element = messagesElement.value;
+        element?.scrollTo({
+            top: element.scrollHeight,
             behavior: 'smooth',
         });
     });
@@ -109,8 +116,14 @@ function goBack() {
     void router.push('/');
 }
 
-watch(messages, scrollToBottom, { deep: true });
-onMessageDone(scrollToBottom);
+watch(messages, scheduleScrollToBottom, { deep: true, flush: 'post' });
+onMessageDone(scheduleScrollToBottom);
+
+onBeforeUnmount(() => {
+    if (scrollFrame !== undefined) {
+        window.cancelAnimationFrame(scrollFrame);
+    }
+});
 </script>
 
 <style scoped lang="scss">
