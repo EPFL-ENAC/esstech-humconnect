@@ -18,6 +18,7 @@ from api.services.chat_room.chat_db import (
     STREAM_COMMIT_INTERVAL_SECONDS,
     STREAM_COMMIT_TOKEN_BATCH_SIZE,
     PersistentChatMessagesHistory,
+    ResponseProgressResult,
     build_chat_snapshot,
     get_chat_for_client,
 )
@@ -25,6 +26,7 @@ from api.services.chat_room.chat_db import (
     mark_stale_streaming_messages_interrupted as _mark_stale_streaming_messages_interrupted,
 )
 from api.services.chat_room.chat_room import ChatRoomService
+from api.services.chat_room.humconnect_assistant import HumConnectAssistant
 
 
 async def mark_stale_streaming_messages_interrupted(
@@ -53,7 +55,9 @@ __all__ = [
     "ChatRoomRegistry",
     "ChatRoomService",
     "PlaceholderChatAssistant",
+    "HumConnectAssistant",
     "PersistentChatMessagesHistory",
+    "ResponseProgressResult",
     "build_chat_snapshot",
     "chat_room_registry",
     "get_chat_for_client",

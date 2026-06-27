@@ -38,7 +38,7 @@ dev = [
 packages = ["api", "api.agent", "api.models", "api.services", "api.views"]
 
 [tool.codespell]
-skip = 'uv.lock'
+skip = 'uv.lock,tests/**,mcps/meditron/tests/**'
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

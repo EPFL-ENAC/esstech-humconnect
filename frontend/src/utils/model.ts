@@ -1,5 +1,12 @@
 export type ChatMessageRole = 'user' | 'assistant';
 export type ChatMessageStatus = 'complete' | 'streaming' | 'interrupted' | 'error';
+export type ChatMessageChunkType = 'message_content' | 'reasoning_text';
+
+export interface ChatMessageChunk {
+    index: number;
+    type: ChatMessageChunkType;
+    content: string;
+}
 
 export interface CreateChatRequest {
     client_id: string;
@@ -21,7 +28,7 @@ export interface ChatMessageResponse {
     id: string;
     chat_id: string;
     role: ChatMessageRole;
-    content: string;
+    chunks: ChatMessageChunk[];
     status: ChatMessageStatus;
     created_at: string;
     updated_at: string;
@@ -45,6 +52,8 @@ export interface MessageCreatedEvent {
 export interface MessageDeltaEvent {
     type: 'message_delta';
     message_id: string;
+    chunk_index: number;
+    chunk_type: ChatMessageChunkType;
     delta: string;
 }
 

@@ -10,10 +10,20 @@ os.environ.setdefault("OPENAI_API_URL", "http://test.local")
 os.environ.setdefault("OPENAI_API_KEY", "test")
 os.environ.setdefault("MEDITRON_MCP_API_KEY", "test")
 
-from api.models.chat import ChatMessageResponse, ChatSession, Message, utc_now
+from api.models.chat import (
+    CHUNK_TYPE_MESSAGE_CONTENT,
+    CHUNK_TYPE_REASONING_TEXT,
+    ChatMessageChunk,
+    ChatMessageResponse,
+    ChatSession,
+    Message,
+    utc_now,
+)
 from api.services import chat as chat_service
 from api.services.chat_room import chat_assistant as chat_assistant_module
 from api.services.chat_room import chat_db as chat_db_module
+from api.services.chat_room import humconnect_assistant as humconnect_assistant_module
+from api.services.chat_room.chat_assistant import AssistantStreamChunkDelta
 from api.services.chat import (
     MESSAGE_ROLE_ASSISTANT,
     MESSAGE_ROLE_USER,
@@ -24,6 +34,7 @@ from api.services.chat import (
     ChatRoomConnectionHub,
     ChatRoomRegistry,
     ChatRoomService,
+    HumConnectAssistant,
     PersistentChatMessagesHistory,
     PlaceholderChatAssistant,
     mark_stale_streaming_messages_interrupted,
@@ -128,6 +139,7 @@ class FakeHistory:
         self.failed = False
         self.active = True
         self.active_response_message_id = None
+        self.started_message = None
 
     async def client_has_access(self, client_id):
         return client_id == "client-1"
@@ -141,29 +153,31 @@ class FakeHistory:
     async def submit_question(self, client_id, question):
         self.created_turns.append((client_id, question))
         chat_id = uuid4()
-        user_message = Message(
-            chat_id=chat_id,
-            role=MESSAGE_ROLE_USER,
-            content=question,
-            status=MESSAGE_STATUS_COMPLETE,
-        )
+        user_message = Message.create_user_message(chat_id, question)
         return ChatMessageResponse.from_db_model(user_message)
 
-    async def response_progress(self, tokens):
-        self.progress_tokens.append(tokens)
+    async def start_response(self):
+        if self.started_message is not None:
+            return self.started_message
+
+        self.active_response_message_id = uuid4()
+        created_at = utc_now()
+        self.started_message = ChatMessageResponse(
+            id=self.active_response_message_id,
+            chat_id=uuid4(),
+            role=MESSAGE_ROLE_ASSISTANT,
+            chunks=[],
+            status=MESSAGE_STATUS_STREAMING,
+            created_at=created_at,
+            updated_at=created_at,
+        )
+        return self.started_message
+
+    async def response_progress(self, chunk_index, chunk_type, delta):
+        self.progress_tokens.append((chunk_index, chunk_type, delta))
         if self.active_response_message_id is None:
-            self.active_response_message_id = uuid4()
-            created_at = utc_now()
-            return ChatMessageResponse(
-                id=self.active_response_message_id,
-                chat_id=uuid4(),
-                role=MESSAGE_ROLE_ASSISTANT,
-                content=tokens,
-                status=MESSAGE_STATUS_STREAMING,
-                created_at=created_at,
-                updated_at=created_at,
-            )
-        return None
+            return None
+        return chat_db_module.ResponseProgressResult(chunk_index=chunk_index)
 
     async def complete_response(self):
         self.completed = True
@@ -184,7 +198,17 @@ class FakeAssistant:
         for chunk in self.chunks:
             if isinstance(chunk, Exception):
                 raise chunk
-            yield chunk
+            if isinstance(chunk, AssistantStreamChunkDelta):
+                yield chunk
+            else:
+                yield AssistantStreamChunkDelta(0, CHUNK_TYPE_MESSAGE_CONTENT, chunk)
+
+
+async def start_and_wait_for_response(room, chat_history=None, question=""):
+    await room._start_assistant_response(chat_history or [], question)
+    task = room._generation_task
+    assert task is not None
+    await task
 
 
 async def immediate_sleep(delay):
@@ -202,12 +226,29 @@ def make_chat_and_message():
     message = Message(
         chat_id=chat.id,
         role=MESSAGE_ROLE_ASSISTANT,
-        content="",
+        chunks=[],
         status=MESSAGE_STATUS_STREAMING,
     )
     FakeAsyncSession.rows[ChatSession][chat.id] = chat
     FakeAsyncSession.rows[Message][message.id] = message
     return chat, message
+
+
+def message_content(message, chunk_type=CHUNK_TYPE_MESSAGE_CONTENT):
+    return "".join(chunk.content for chunk in message.chunks if chunk.type == chunk_type)
+
+
+def make_db_message(chat_id, role, content, status):
+    return Message(
+        chat_id=chat_id,
+        role=role,
+        chunks=[
+            ChatMessageChunk.create(0, CHUNK_TYPE_MESSAGE_CONTENT, content).model_dump(
+                mode="json"
+            )
+        ],
+        status=status,
+    )
 
 
 def test_connection_hub_broadcasts_only_to_connected_sockets():
@@ -244,17 +285,9 @@ def test_connection_hub_removes_failed_sockets():
 def test_persistent_history_loads_messages_for_snapshot(monkeypatch):
     install_fake_session(monkeypatch)
     chat = ChatSession(client_id="client-1")
-    first = Message(
-        chat_id=chat.id,
-        role=MESSAGE_ROLE_USER,
-        content="First",
-        status=MESSAGE_STATUS_COMPLETE,
-    )
-    second = Message(
-        chat_id=chat.id,
-        role=MESSAGE_ROLE_ASSISTANT,
-        content="Second",
-        status=MESSAGE_STATUS_COMPLETE,
+    first = make_db_message(chat.id, MESSAGE_ROLE_USER, "First", MESSAGE_STATUS_COMPLETE)
+    second = make_db_message(
+        chat.id, MESSAGE_ROLE_ASSISTANT, "Second", MESSAGE_STATUS_COMPLETE
     )
     FakeAsyncSession.rows[ChatSession][chat.id] = chat
     FakeAsyncSession.rows[Message][first.id] = first
@@ -265,7 +298,10 @@ def test_persistent_history_loads_messages_for_snapshot(monkeypatch):
 
     assert snapshot is not None
     assert snapshot.chat.id == chat.id
-    assert [message.content for message in snapshot.messages] == ["First", "Second"]
+    assert [message_content(message) for message in snapshot.messages] == [
+        "First",
+        "Second",
+    ]
 
 
 def test_persistent_history_submit_question_writes_user_and_caches_response(monkeypatch):
@@ -279,7 +315,9 @@ def test_persistent_history_submit_question_writes_user_and_caches_response(monk
     snapshot = asyncio.run(history.build_snapshot("client-1"))
     assert user_message.role == MESSAGE_ROLE_USER
     assert snapshot is not None
-    assert [message.content for message in snapshot.messages] == ["Hello there"]
+    assert [message_content(message) for message in snapshot.messages] == [
+        "Hello there"
+    ]
     assert [
         row.role
         for row in FakeAsyncSession.instances[-1].added
@@ -289,7 +327,7 @@ def test_persistent_history_submit_question_writes_user_and_caches_response(monk
     assert FakeAsyncSession.commit_count == 1
 
 
-def test_persistent_history_first_response_progress_creates_response_record(monkeypatch):
+def test_persistent_history_start_response_creates_empty_response_record(monkeypatch):
     install_fake_session(monkeypatch)
     chat = ChatSession(client_id="client-1")
     FakeAsyncSession.rows[ChatSession][chat.id] = chat
@@ -298,7 +336,7 @@ def test_persistent_history_first_response_progress_creates_response_record(monk
     asyncio.run(history.submit_question("client-1", "Hello"))
 
     async def run():
-        created_message = await history.response_progress("OK")
+        created_message = await history.start_response()
         snapshot = await history.build_snapshot("client-1")
         return created_message, snapshot
 
@@ -306,10 +344,10 @@ def test_persistent_history_first_response_progress_creates_response_record(monk
 
     assert created_message is not None
     persisted_message = FakeAsyncSession.rows[Message][created_message.id]
-    assert persisted_message.content == "OK"
+    assert persisted_message.chunks == []
     assert persisted_message.status == MESSAGE_STATUS_STREAMING
     assert snapshot is not None
-    assert snapshot.messages[-1].content == "OK"
+    assert snapshot.messages[-1].chunks == []
     assert FakeAsyncSession.commit_count == 2
 
 
@@ -320,30 +358,68 @@ def test_persistent_history_response_progress_throttles_after_initial_insert(mon
     history = PersistentChatMessagesHistory(chat.id)
 
     asyncio.run(history.submit_question("client-1", "Hello"))
+    chunk_index = 0
 
     async def run():
-        created_message = await history.response_progress("a")
+        assistant_message = await history.start_response()
+        await history.response_progress(chunk_index, CHUNK_TYPE_MESSAGE_CONTENT, "a")
         for _ in range(chat_service.STREAM_COMMIT_TOKEN_BATCH_SIZE - 1):
-            await history.response_progress("a")
+            await history.response_progress(
+                chunk_index, CHUNK_TYPE_MESSAGE_CONTENT, "a"
+            )
 
         snapshot = await history.build_snapshot("client-1")
         assert snapshot is not None
-        assert snapshot.messages[-1].content == "a" * (
+        assert message_content(snapshot.messages[-1]) == "a" * (
             chat_service.STREAM_COMMIT_TOKEN_BATCH_SIZE
         )
-        assert FakeAsyncSession.commit_count == 2
+        assert FakeAsyncSession.commit_count == 3
 
-        await history.response_progress("b")
-        return created_message
+        await history.response_progress(chunk_index, CHUNK_TYPE_MESSAGE_CONTENT, "b")
+        return assistant_message
 
     assistant_message = asyncio.run(run())
 
     assert assistant_message is not None
     persisted_message = FakeAsyncSession.rows[Message][assistant_message.id]
-    assert persisted_message.content == (
-        "a" * chat_service.STREAM_COMMIT_TOKEN_BATCH_SIZE + "b"
+    assert persisted_message.chunks[0]["content"] == (
+        "a" * chat_service.STREAM_COMMIT_TOKEN_BATCH_SIZE
     )
     assert FakeAsyncSession.commit_count == 3
+
+
+def test_persistent_history_uses_chunk_index_not_type_to_append(monkeypatch):
+    install_fake_session(monkeypatch)
+    chat = ChatSession(client_id="client-1")
+    FakeAsyncSession.rows[ChatSession][chat.id] = chat
+    history = PersistentChatMessagesHistory(chat.id)
+    first_chunk_index = 0
+    second_chunk_index = 1
+
+    asyncio.run(history.submit_question("client-1", "Hello"))
+
+    async def run():
+        await history.start_response()
+        await history.response_progress(
+            first_chunk_index, CHUNK_TYPE_REASONING_TEXT, "First"
+        )
+        await history.response_progress(
+            second_chunk_index, CHUNK_TYPE_REASONING_TEXT, "Second"
+        )
+        snapshot = await history.build_snapshot("client-1")
+        return snapshot
+
+    snapshot = asyncio.run(run())
+
+    assert snapshot is not None
+    assistant_message = snapshot.messages[-1]
+    assert [
+        (chunk.index, chunk.type, chunk.content)
+        for chunk in assistant_message.chunks
+    ] == [
+        (first_chunk_index, CHUNK_TYPE_REASONING_TEXT, "First"),
+        (second_chunk_index, CHUNK_TYPE_REASONING_TEXT, "Second"),
+    ]
 
 
 def test_persistent_history_complete_response_flushes_and_marks_complete(monkeypatch):
@@ -353,9 +429,11 @@ def test_persistent_history_complete_response_flushes_and_marks_complete(monkeyp
     history = PersistentChatMessagesHistory(chat.id)
 
     asyncio.run(history.submit_question("client-1", "Hello"))
+    chunk_index = 0
 
     async def run():
-        assistant_message = await history.response_progress("OK")
+        assistant_message = await history.start_response()
+        await history.response_progress(chunk_index, CHUNK_TYPE_MESSAGE_CONTENT, "OK")
         await history.complete_response()
         snapshot = await history.build_snapshot("client-1")
         return assistant_message, snapshot
@@ -364,7 +442,7 @@ def test_persistent_history_complete_response_flushes_and_marks_complete(monkeyp
 
     assert assistant_message is not None
     persisted_message = FakeAsyncSession.rows[Message][assistant_message.id]
-    assert persisted_message.content == "OK"
+    assert persisted_message.chunks[0]["content"] == "OK"
     assert persisted_message.status == MESSAGE_STATUS_COMPLETE
     assert snapshot is not None
     assert snapshot.messages[-1].status == MESSAGE_STATUS_COMPLETE
@@ -378,9 +456,13 @@ def test_persistent_history_fail_response_marks_error_in_db_and_memory(monkeypat
     history = PersistentChatMessagesHistory(chat.id)
 
     asyncio.run(history.submit_question("client-1", "Hello"))
+    chunk_index = 0
 
     async def run():
-        assistant_message = await history.response_progress("Nope")
+        assistant_message = await history.start_response()
+        await history.response_progress(
+            chunk_index, CHUNK_TYPE_MESSAGE_CONTENT, "Nope"
+        )
         await history.fail_response()
         snapshot = await history.build_snapshot("client-1")
         return assistant_message, snapshot
@@ -389,7 +471,7 @@ def test_persistent_history_fail_response_marks_error_in_db_and_memory(monkeypat
 
     assert assistant_message is not None
     persisted_message = FakeAsyncSession.rows[Message][assistant_message.id]
-    assert persisted_message.content == "Nope"
+    assert persisted_message.chunks[0]["content"] == "Nope"
     assert persisted_message.status == MESSAGE_STATUS_ERROR
     assert snapshot is not None
     assert snapshot.messages[-1].status == MESSAGE_STATUS_ERROR
@@ -449,36 +531,46 @@ def test_service_rejects_second_message_while_generation_is_active(monkeypatch):
 def test_service_passes_chat_history_and_question_to_assistant():
     history = FakeHistory()
     history_message = ChatMessageResponse.from_db_model(
-        Message(
-            chat_id=uuid4(),
-            role=MESSAGE_ROLE_USER,
-            content="Earlier question",
-            status=MESSAGE_STATUS_COMPLETE,
+        make_db_message(
+            uuid4(), MESSAGE_ROLE_USER, "Earlier question", MESSAGE_STATUS_COMPLETE
         )
     )
     history.chat_history = [history_message]
-    assistant = FakeAssistant(["O", "K"])
+    assistant = FakeAssistant(
+        [
+            AssistantStreamChunkDelta(0, CHUNK_TYPE_MESSAGE_CONTENT, "O"),
+            AssistantStreamChunkDelta(0, CHUNK_TYPE_MESSAGE_CONTENT, "K"),
+        ]
+    )
     room = ChatRoomService(
         uuid4(),
         messages_history=history,
         chat_assistant=assistant,
     )
-    asyncio.run(
-        room._stream_assistant_response(
-            history.chat_history,
-            "Latest question",
-        )
-    )
+    asyncio.run(start_and_wait_for_response(room, history.chat_history, "Latest question"))
 
     assert assistant.calls == [([history_message], "Latest question")]
-    assert history.progress_tokens == ["O", "K"]
+    assert history.progress_tokens == [
+        (0, CHUNK_TYPE_MESSAGE_CONTENT, "O"),
+        (0, CHUNK_TYPE_MESSAGE_CONTENT, "K"),
+    ]
 
 
 def test_assistant_stream_pushes_every_chunk_and_broadcasts_deltas():
     history = FakeHistory()
     hub = ChatRoomConnectionHub()
     websocket = FakeWebSocket()
-    assistant = FakeAssistant(["Hello", " ", "there"])
+    assistant = FakeAssistant(
+        [
+            AssistantStreamChunkDelta(
+                0, CHUNK_TYPE_REASONING_TEXT, "Thinking"
+            ),
+            AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "Hello"),
+            AssistantStreamChunkDelta(
+                1, CHUNK_TYPE_MESSAGE_CONTENT, " there"
+            ),
+        ]
+    )
     room = ChatRoomService(
         uuid4(),
         connection_hub=hub,
@@ -487,18 +579,30 @@ def test_assistant_stream_pushes_every_chunk_and_broadcasts_deltas():
     )
     async def run():
         await room.connect(websocket)
-        await room._stream_assistant_response([], "Hello?")
+        await start_and_wait_for_response(room, [], "Hello?")
 
     asyncio.run(run())
 
-    chunks = ["Hello", " ", "there"]
+    chunks = [
+        (0, CHUNK_TYPE_REASONING_TEXT, "Thinking"),
+        (1, CHUNK_TYPE_MESSAGE_CONTENT, "Hello"),
+        (1, CHUNK_TYPE_MESSAGE_CONTENT, " there"),
+    ]
     assert history.progress_tokens == chunks
     assert history.completed
     created_event = websocket.events[0]
     assert created_event["type"] == "message_created"
     assert created_event["message"]["role"] == MESSAGE_ROLE_ASSISTANT
-    assert created_event["message"]["content"] == chunks[0]
-    assert [event["delta"] for event in websocket.events[1:-1]] == chunks[1:]
+    assert created_event["message"]["chunks"] == []
+    assert websocket.events[1]["chunk_type"] == CHUNK_TYPE_REASONING_TEXT
+    assert websocket.events[1]["chunk_index"] == 0
+    assert websocket.events[1]["delta"] == "Thinking"
+    assert websocket.events[2]["chunk_type"] == CHUNK_TYPE_MESSAGE_CONTENT
+    assert websocket.events[2]["chunk_index"] == 1
+    assert websocket.events[2]["delta"] == "Hello"
+    assert websocket.events[3]["chunk_type"] == CHUNK_TYPE_MESSAGE_CONTENT
+    assert websocket.events[3]["chunk_index"] == websocket.events[2]["chunk_index"]
+    assert websocket.events[3]["delta"] == " there"
     assert websocket.events[-1] == {
         "type": "message_done",
         "message_id": created_event["message"]["id"],
@@ -520,11 +624,17 @@ def test_assistant_stream_returns_without_done_event_when_no_tokens_are_generate
 
     async def run():
         await room.connect(websocket)
-        await room._stream_assistant_response()
+        await start_and_wait_for_response(room)
 
     asyncio.run(run())
 
-    assert websocket.events == []
+    assert websocket.events[0]["type"] == "message_created"
+    assert websocket.events[0]["message"]["chunks"] == []
+    assert websocket.events[1] == {
+        "type": "message_done",
+        "message_id": websocket.events[0]["message"]["id"],
+        "status": MESSAGE_STATUS_COMPLETE,
+    }
     assert history.progress_tokens == []
     assert assistant.calls == [([], "")]
 
@@ -549,7 +659,7 @@ def test_assistant_stream_marks_message_error_when_streaming_fails(monkeypatch):
 
     async def run():
         await room.connect(websocket)
-        await room._stream_assistant_response()
+        await start_and_wait_for_response(room)
 
     asyncio.run(run())
 
@@ -582,15 +692,16 @@ def test_assistant_stream_does_not_mark_error_when_done_broadcast_fails(monkeypa
 
     async def run():
         await room.connect(websocket)
-        await room._stream_assistant_response()
+        await start_and_wait_for_response(room)
 
     with pytest.raises(RuntimeError, match="done broadcast failed"):
         asyncio.run(run())
 
     assert history.completed
     assert not history.failed
-    assert len(websocket.events) == 1
+    assert len(websocket.events) == 2
     assert websocket.events[0]["type"] == "message_created"
+    assert websocket.events[1]["type"] == "message_delta"
 
 
 def test_assistant_stream_marks_message_error_when_assistant_fails():
@@ -606,12 +717,18 @@ def test_assistant_stream_marks_message_error_when_assistant_fails():
 
     async def run():
         await room.connect(websocket)
-        await room._stream_assistant_response([], "Hello?")
+        await start_and_wait_for_response(room, [], "Hello?")
 
     asyncio.run(run())
 
-    assert not history.failed
-    assert websocket.events == []
+    assert history.failed
+    assert websocket.events[0]["type"] == "message_created"
+    assert websocket.events[0]["message"]["chunks"] == []
+    assert websocket.events[1] == {
+        "type": "message_done",
+        "message_id": websocket.events[0]["message"]["id"],
+        "status": MESSAGE_STATUS_ERROR,
+    }
 
 
 def test_placeholder_chat_assistant_streams_random_number(monkeypatch):
@@ -621,11 +738,145 @@ def test_placeholder_chat_assistant_streams_random_number(monkeypatch):
 
     async def run():
         return [
-            token
-            async for token in assistant.stream_response([], "What number?")
+            chunk.content_delta
+            async for chunk in assistant.stream_response([], "What number?")
         ]
 
     assert asyncio.run(run()) == list("Random number: 42")
+
+
+def test_humconnect_chat_assistant_converts_complete_history_for_model():
+    chat_id = uuid4()
+    messages = [
+        ChatMessageResponse.from_db_model(
+            make_db_message(chat_id, MESSAGE_ROLE_USER, "Hello", MESSAGE_STATUS_COMPLETE)
+        ),
+        ChatMessageResponse.from_db_model(
+            make_db_message(
+                chat_id=chat_id,
+                role=MESSAGE_ROLE_ASSISTANT,
+                content="Hi",
+                status=MESSAGE_STATUS_COMPLETE,
+            )
+        ),
+        ChatMessageResponse.from_db_model(
+            make_db_message(
+                chat_id=chat_id,
+                role=MESSAGE_ROLE_ASSISTANT,
+                content="Still typing",
+                status=MESSAGE_STATUS_STREAMING,
+            )
+        ),
+        ChatMessageResponse.from_db_model(
+            make_db_message(
+                chat_id=chat_id,
+                role=MESSAGE_ROLE_ASSISTANT,
+                content="Failed",
+                status=MESSAGE_STATUS_ERROR,
+            )
+        ),
+    ]
+
+    model_input = HumConnectAssistant.chat_history_to_model_input(messages)
+
+    assert model_input == [
+        {
+            "role": MESSAGE_ROLE_USER,
+            "content": "Hello",
+        },
+        {
+            "role": MESSAGE_ROLE_ASSISTANT,
+            "content": "Hi",
+        },
+    ]
+
+
+def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
+    class FakeEvent:
+        def __init__(
+            self,
+            event_type,
+            delta="",
+            item_id=None,
+            output_index=0,
+            content_index=0,
+        ):
+            self.type = event_type
+            self.delta = delta
+            self.item_id = item_id
+            self.output_index = output_index
+            self.content_index = content_index
+
+    class FakeResponses:
+        def __init__(self):
+            self.create_kwargs = None
+
+        async def create(self, **kwargs):
+            self.create_kwargs = kwargs
+
+            async def stream():
+                yield FakeEvent("response.created")
+                yield FakeEvent(
+                    "response.reasoning_text.delta", "Think", "reasoning-item"
+                )
+                yield FakeEvent("response.output_text.delta", "Hel", "message-item")
+                yield FakeEvent("response.output_text.delta", "lo", "message-item")
+
+            return stream()
+
+    class FakeOpenAIClient:
+        def __init__(self):
+            self.responses = FakeResponses()
+
+    fake_client = FakeOpenAIClient()
+    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+    assistant = HumConnectAssistant()
+    chat_id = uuid4()
+    history = [
+        ChatMessageResponse.from_db_model(
+            make_db_message(
+                chat_id=chat_id,
+                role=MESSAGE_ROLE_USER,
+                content="Earlier question",
+                status=MESSAGE_STATUS_COMPLETE,
+            )
+        ),
+        ChatMessageResponse.from_db_model(
+            make_db_message(
+                chat_id=chat_id,
+                role=MESSAGE_ROLE_ASSISTANT,
+                content="Earlier answer",
+                status=MESSAGE_STATUS_COMPLETE,
+            )
+        ),
+    ]
+
+    async def run():
+        return [
+            chunk
+            async for chunk in assistant.stream_response(history, "Say hello")
+        ]
+
+    assert asyncio.run(run()) == [
+        AssistantStreamChunkDelta(0, CHUNK_TYPE_REASONING_TEXT, "Think"),
+        AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "Hel"),
+        AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "lo"),
+    ]
+    assert fake_client.responses.create_kwargs["stream"] is True
+    assert fake_client.responses.create_kwargs["input"] == [
+        {
+            "role": MESSAGE_ROLE_USER,
+            "content": "Earlier question",
+        },
+        {
+            "role": MESSAGE_ROLE_ASSISTANT,
+            "content": "Earlier answer",
+        },
+        {
+            "role": "user",
+            "content": "Say hello",
+        },
+    ]
 
 
 def test_registry_returns_same_room_for_same_chat_and_different_rooms_for_different_chats():
