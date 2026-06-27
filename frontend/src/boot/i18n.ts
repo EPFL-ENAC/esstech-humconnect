@@ -10,43 +10,43 @@ export type MessageSchema = (typeof messages)['en-US'];
 // See https://vue-i18n.intlify.dev/guide/advanced/typescript.html#global-resource-schema-type-definition
 /* eslint-disable @typescript-eslint/no-empty-object-type */
 declare module 'vue-i18n' {
-  // define the locale messages schema
-  export interface DefineLocaleMessage extends MessageSchema {}
+    // define the locale messages schema
+    export interface DefineLocaleMessage extends MessageSchema {}
 
-  // define the datetime format schema
-  export interface DefineDateTimeFormat {}
+    // define the datetime format schema
+    export interface DefineDateTimeFormat {}
 
-  // define the number format schema
-  export interface DefineNumberFormat {}
+    // define the number format schema
+    export interface DefineNumberFormat {}
 }
 /* eslint-enable @typescript-eslint/no-empty-object-type */
 
 function getInitialLocale(): MessageLanguages {
-  const stored = typeof window !== 'undefined' ? localStorage.getItem('app-locale') : null;
-  if (stored && (stored === 'en-US' || stored === 'fr')) {
-    return stored;
-  }
-
-  if (typeof navigator !== 'undefined') {
-    const browserLang = navigator.language.toLowerCase();
-    if (browserLang.startsWith('fr')) {
-      return 'fr';
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('app-locale') : null;
+    if (stored && (stored === 'en-US' || stored === 'fr')) {
+        return stored;
     }
-  }
 
-  return 'en-US';
+    if (typeof navigator !== 'undefined') {
+        const browserLang = navigator.language.toLowerCase();
+        if (browserLang.startsWith('fr')) {
+            return 'fr';
+        }
+    }
+
+    return 'en-US';
 }
 
 export default defineBoot(({ app }) => {
-  const i18n = createI18n<{ message: MessageSchema }, MessageLanguages>({
-    locale: getInitialLocale(),
-    legacy: false,
-    messages,
-  });
+    const i18n = createI18n<{ message: MessageSchema }, MessageLanguages>({
+        locale: getInitialLocale(),
+        legacy: false,
+        messages,
+    });
 
-  app.use(i18n);
+    app.use(i18n);
 
-  if (typeof window !== 'undefined') {
-    (window as { i18nGlobal?: unknown }).i18nGlobal = i18n.global;
-  }
+    if (typeof window !== 'undefined') {
+        (window as { i18nGlobal?: unknown }).i18nGlobal = i18n.global;
+    }
 });

@@ -1,1 +1,32 @@
-export default {};
+export default {
+    appTitle: 'HumConnect',
+    notFoundMessage: "Oups. Il n'y a rien ici...",
+    goHome: "Retour à l'accueil",
+    chats: {
+        title: 'Discussions',
+        subtitle: 'Démarrez une nouvelle conversation ou rouvrez-en une précédente.',
+        newChat: 'Nouvelle discussion',
+        loading: 'Chargement des discussions...',
+        empty: 'Aucune discussion pour le moment.',
+        untitledChat: 'Discussion sans titre',
+    },
+    chat: {
+        backToChats: 'Retour aux discussions',
+        newChat: 'Nouvelle discussion',
+        connected: 'Connecté',
+        reconnecting: 'Reconnexion...',
+        emptyState: 'Envoyez un message pour commencer.',
+        writeMessage: 'Écrire un message',
+        send: 'Envoyer',
+        status: {
+            streaming: 'En cours',
+            interrupted: 'Interrompu',
+            error: 'Erreur',
+        },
+    },
+    errors: {
+        connection: 'Erreur de connexion.',
+        createChat: 'Impossible de créer la discussion.',
+        loadChats: 'Impossible de charger les discussions.',
+    },
+};
