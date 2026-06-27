@@ -1,0 +1,200 @@
+from datetime import UTC, datetime
+from typing import Literal, cast
+from uuid import UUID, uuid4
+
+from pydantic import BaseModel
+from pydantic import Field as PydanticField
+from sqlalchemy import Column, DateTime
+from sqlmodel import Field, Relationship, SQLModel
+
+MESSAGE_ROLE_ASSISTANT = "assistant"
+MESSAGE_ROLE_USER = "user"
+
+MESSAGE_STATUS_COMPLETE = "complete"
+MESSAGE_STATUS_ERROR = "error"
+MESSAGE_STATUS_INTERRUPTED = "interrupted"
+MESSAGE_STATUS_STREAMING = "streaming"
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+class ChatSession(SQLModel, table=True):
+    __tablename__ = "chatsession"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    client_id: str = Field(index=True)
+    title: str | None = None
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+    messages: list["Message"] = Relationship(back_populates="chat")
+
+    def update_title(self, new_title: str) -> None:
+        self.title = new_title
+        self.updated_at = utc_now()
+
+
+class Message(SQLModel, table=True):
+    __tablename__ = "message"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    chat_id: UUID = Field(foreign_key="chatsession.id", index=True)
+    role: str = Field(index=True)
+    content: str = ""
+    status: str = Field(index=True)
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    updated_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+    chat: ChatSession = Relationship(back_populates="messages")
+
+    @staticmethod
+    def create_user_message(chat_id: UUID, content: str) -> "Message":
+        return Message(
+            chat_id=chat_id,
+            role=MESSAGE_ROLE_USER,
+            content=content,
+            status=MESSAGE_STATUS_COMPLETE,
+        )
+
+    @staticmethod
+    def from_response(response: "ChatMessageResponse") -> "Message":
+        return Message(
+            id=response.id,
+            chat_id=response.chat_id,
+            role=response.role,
+            content=response.content,
+            status=response.status,
+            created_at=response.created_at,
+            updated_at=response.updated_at,
+        )
+
+    def update_content_status(self, new_content: str, new_status: str | None) -> None:
+        self.content = new_content
+        if new_status is not None:
+            self.status = new_status
+
+        self.updated_at = utc_now()
+
+
+MessageRole = Literal["user", "assistant"]
+MessageStatus = Literal["complete", "streaming", "interrupted", "error"]
+
+
+class CreateChatRequest(BaseModel):
+    client_id: str = PydanticField(min_length=1, max_length=256)
+
+
+class CreateChatResponse(BaseModel):
+    id: UUID
+
+
+class ChatSessionResponse(BaseModel):
+    id: UUID
+    client_id: str
+    title: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    @staticmethod
+    def from_db_model(chat: ChatSession) -> "ChatSessionResponse":
+        return ChatSessionResponse(
+            id=chat.id,
+            client_id=chat.client_id,
+            title=chat.title,
+            created_at=chat.created_at,
+            updated_at=chat.updated_at,
+        )
+
+
+class ChatMessageResponse(BaseModel):
+    id: UUID
+    chat_id: UUID
+    role: MessageRole
+    content: str
+    status: MessageStatus
+    created_at: datetime
+    updated_at: datetime
+
+    @staticmethod
+    def from_db_model(message: Message) -> "ChatMessageResponse":
+        return ChatMessageResponse(
+            id=message.id,
+            chat_id=message.chat_id,
+            role=cast(MessageRole, message.role),
+            content=message.content,
+            status=cast(MessageStatus, message.status),
+            created_at=message.created_at,
+            updated_at=message.updated_at,
+        )
+
+    @staticmethod
+    def make_assistant_message(chat_id: UUID, content: str) -> "ChatMessageResponse":
+        created_at = utc_now()
+        return ChatMessageResponse(
+            id=uuid4(),
+            chat_id=chat_id,
+            role=MESSAGE_ROLE_ASSISTANT,
+            content=content,
+            status=MESSAGE_STATUS_STREAMING,
+            created_at=created_at,
+            updated_at=created_at,
+        )
+
+    def update_content(self, new_content: str) -> None:
+        self.content = new_content
+        self.updated_at = utc_now()
+
+    def update_status(self, new_status: MessageStatus) -> None:
+        self.status = new_status
+        self.updated_at = utc_now()
+
+
+class ListChatsResponse(BaseModel):
+    chats: list[ChatSessionResponse]
+
+
+class ChatSnapshotResponse(BaseModel):
+    type: Literal["snapshot"] = "snapshot"
+    chat: ChatSessionResponse
+    messages: list[ChatMessageResponse]
+
+
+class MessageCreatedEvent(BaseModel):
+    type: Literal["message_created"] = "message_created"
+    message: ChatMessageResponse
+
+
+class MessageDeltaEvent(BaseModel):
+    type: Literal["message_delta"] = "message_delta"
+    message_id: UUID
+    delta: str
+
+
+class MessageDoneEvent(BaseModel):
+    type: Literal["message_done"] = "message_done"
+    message_id: UUID
+    status: MessageStatus
+
+
+class ChatErrorEvent(BaseModel):
+    type: Literal["error"] = "error"
+    message: str
+
+
+class UserMessageEvent(BaseModel):
+    type: Literal["user_message"] = "user_message"
+    content: str
