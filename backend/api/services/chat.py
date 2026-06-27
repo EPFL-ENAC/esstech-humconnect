@@ -1,215 +1,30 @@
-import asyncio
-import random
-from collections import defaultdict
-from typing import cast
 from uuid import UUID
 
-from fastapi import WebSocket
-from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
-from api.db import get_engine
-from api.models.chat import (
-    ChatMessageResponse,
-    ChatSession,
-    ChatSessionResponse,
-    ChatSnapshotResponse,
-    Message,
-    MessageDeltaEvent,
-    MessageDoneEvent,
-    MessageRole,
-    MessageStatus,
-    utc_now,
+from api.services.chat_registry import ChatRoomRegistry, chat_room_registry
+from api.services.chat_room.chat_assistant import (
+    ChatAssistant,
+    PlaceholderChatAssistant,
 )
-
-MESSAGE_ROLE_ASSISTANT = "assistant"
-MESSAGE_ROLE_USER = "user"
-
-MESSAGE_STATUS_COMPLETE = "complete"
-MESSAGE_STATUS_ERROR = "error"
-MESSAGE_STATUS_INTERRUPTED = "interrupted"
-MESSAGE_STATUS_STREAMING = "streaming"
-
-STREAM_COMMIT_TOKEN_BATCH_SIZE = 32
-STREAM_COMMIT_INTERVAL_SECONDS = 1.0
-
-
-class ChatStreamManager:
-    def __init__(self) -> None:
-        self._connections: dict[UUID, set[WebSocket]] = defaultdict(set)
-        self._tasks: dict[UUID, asyncio.Task] = {}
-        self._lock = asyncio.Lock()
-
-    async def connect(self, chat_id: UUID, websocket: WebSocket) -> None:
-        await websocket.accept()
-        async with self._lock:
-            self._connections[chat_id].add(websocket)
-
-    async def disconnect(self, chat_id: UUID, websocket: WebSocket) -> None:
-        async with self._lock:
-            sockets = self._connections.get(chat_id)
-            if sockets is None:
-                return
-            sockets.discard(websocket)
-            if not sockets:
-                self._connections.pop(chat_id, None)
-
-    async def broadcast(self, chat_id: UUID, event: dict) -> None:
-        async with self._lock:
-            sockets = list(self._connections.get(chat_id, set()))
-
-        disconnected: list[WebSocket] = []
-        for websocket in sockets:
-            try:
-                await websocket.send_json(event)
-            except Exception:
-                disconnected.append(websocket)
-
-        if disconnected:
-            async with self._lock:
-                for websocket in disconnected:
-                    self._connections.get(chat_id, set()).discard(websocket)
-
-    async def has_active_generation(self, chat_id: UUID) -> bool:
-        async with self._lock:
-            task = self._tasks.get(chat_id)
-            return task is not None and not task.done()
-
-    async def start_placeholder_generation(
-        self,
-        *,
-        chat_id: UUID,
-        assistant_message_id: UUID,
-    ) -> None:
-        async with self._lock:
-            task = self._tasks.get(chat_id)
-            if task is not None and not task.done():
-                raise RuntimeError("A response is already streaming for this chat.")
-
-            self._tasks[chat_id] = asyncio.create_task(
-                self._stream_placeholder_response(chat_id, assistant_message_id)
-            )
-
-    async def _stream_placeholder_response(
-        self, chat_id: UUID, assistant_message_id: UUID
-    ) -> None:
-        try:
-            random_number = random.randint(0, 999999)
-            response = f"Random number: {random_number}"
-
-            async with AsyncSQLModelSession(
-                get_engine(), expire_on_commit=False
-            ) as session:
-                message = await session.get(Message, assistant_message_id)
-                if message is None:
-                    return
-
-                chat = await session.get(ChatSession, chat_id)
-                loop = asyncio.get_running_loop()
-                last_commit_at = loop.time()
-                tokens_since_commit = 0
-                response_length = len(response)
-
-                for token_index, token in enumerate(response, start=1):
-                    message.content += token
-                    message.updated_at = utc_now()
-                    tokens_since_commit += 1
-
-                    await self.broadcast(
-                        chat_id,
-                        MessageDeltaEvent(
-                            message_id=assistant_message_id,
-                            delta=token,
-                        ).model_dump(mode="json"),
-                    )
-
-                    now = loop.time()
-                    should_commit_batch = (
-                        tokens_since_commit >= STREAM_COMMIT_TOKEN_BATCH_SIZE
-                        or now - last_commit_at >= STREAM_COMMIT_INTERVAL_SECONDS
-                    )
-                    if should_commit_batch and token_index < response_length:
-                        session.add(message)
-                        await session.commit()
-                        tokens_since_commit = 0
-                        last_commit_at = now
-
-                    await asyncio.sleep(0.05)
-
-                message.status = MESSAGE_STATUS_COMPLETE
-                message.updated_at = utc_now()
-                session.add(message)
-                if chat is not None:
-                    chat.updated_at = utc_now()
-                    session.add(chat)
-                await session.commit()
-
-            await self.broadcast(
-                chat_id,
-                MessageDoneEvent(
-                    message_id=assistant_message_id,
-                    status=MESSAGE_STATUS_COMPLETE,
-                ).model_dump(mode="json"),
-            )
-        except Exception:
-            async with AsyncSQLModelSession(get_engine()) as session:
-                message = await session.get(Message, assistant_message_id)
-                if message is not None:
-                    message.status = MESSAGE_STATUS_ERROR
-                    message.updated_at = utc_now()
-                    session.add(message)
-                    await session.commit()
-
-            await self.broadcast(
-                chat_id,
-                MessageDoneEvent(
-                    message_id=assistant_message_id,
-                    status=MESSAGE_STATUS_ERROR,
-                ).model_dump(mode="json"),
-            )
-        finally:
-            current_task = asyncio.current_task()
-            async with self._lock:
-                task = self._tasks.get(chat_id)
-                if task is current_task:
-                    self._tasks.pop(chat_id, None)
-
-
-chat_stream_manager = ChatStreamManager()
-
-
-def serialize_chat(chat: ChatSession) -> ChatSessionResponse:
-    return ChatSessionResponse(
-        id=chat.id,
-        client_id=chat.client_id,
-        title=chat.title,
-        created_at=chat.created_at,
-        updated_at=chat.updated_at,
-    )
-
-
-def serialize_message(message: Message) -> ChatMessageResponse:
-    return ChatMessageResponse(
-        id=message.id,
-        chat_id=message.chat_id,
-        role=cast(MessageRole, message.role),
-        content=message.content,
-        status=cast(MessageStatus, message.status),
-        created_at=message.created_at,
-        updated_at=message.updated_at,
-    )
-
-
-async def get_chat_for_client(
-    session: AsyncSQLModelSession, chat_id: UUID, client_id: str
-) -> ChatSession | None:
-    result = await session.exec(
-        select(ChatSession).where(
-            ChatSession.id == chat_id,
-            ChatSession.client_id == client_id,
-        )
-    )
-    return result.first()
+from api.services.chat_room.chat_connection import ChatRoomConnectionHub
+from api.services.chat_room.chat_db import (
+    MESSAGE_ROLE_ASSISTANT,
+    MESSAGE_ROLE_USER,
+    MESSAGE_STATUS_COMPLETE,
+    MESSAGE_STATUS_ERROR,
+    MESSAGE_STATUS_INTERRUPTED,
+    MESSAGE_STATUS_STREAMING,
+    STREAM_COMMIT_INTERVAL_SECONDS,
+    STREAM_COMMIT_TOKEN_BATCH_SIZE,
+    PersistentChatMessagesHistory,
+    build_chat_snapshot,
+    get_chat_for_client,
+)
+from api.services.chat_room.chat_db import (
+    mark_stale_streaming_messages_interrupted as _mark_stale_streaming_messages_interrupted,
+)
+from api.services.chat_room.chat_room import ChatRoomService
 
 
 async def mark_stale_streaming_messages_interrupted(
@@ -217,43 +32,30 @@ async def mark_stale_streaming_messages_interrupted(
     *,
     chat_id: UUID | None = None,
 ) -> None:
-    query = select(Message).where(Message.status == MESSAGE_STATUS_STREAMING)
-    if chat_id is not None:
-        query = query.where(Message.chat_id == chat_id)
-
-    result = await session.exec(query)
-    messages = result.all()
-    changed_messages = False
-    for message in messages:
-        if chat_id is not None and await chat_stream_manager.has_active_generation(
-            chat_id
-        ):
-            continue
-        if chat_id is None and await chat_stream_manager.has_active_generation(
-            message.chat_id
-        ):
-            continue
-        message.status = MESSAGE_STATUS_INTERRUPTED
-        message.updated_at = utc_now()
-        session.add(message)
-        changed_messages = True
-
-    if changed_messages:
-        await session.commit()
-
-
-async def build_chat_snapshot(
-    session: AsyncSQLModelSession, chat: ChatSession
-) -> ChatSnapshotResponse:
-    await mark_stale_streaming_messages_interrupted(session, chat_id=chat.id)
-
-    messages = await session.exec(
-        select(Message)
-        .where(Message.chat_id == chat.id)
-        .order_by(col(Message.created_at))
+    await _mark_stale_streaming_messages_interrupted(
+        session,
+        chat_id=chat_id,
+        has_active_generation=chat_room_registry.has_active_generation,
     )
-    refreshed_chat = await session.get(ChatSession, chat.id)
-    return ChatSnapshotResponse(
-        chat=serialize_chat(refreshed_chat or chat),
-        messages=[serialize_message(message) for message in messages.all()],
-    )
+
+
+__all__ = [
+    "MESSAGE_ROLE_ASSISTANT",
+    "MESSAGE_ROLE_USER",
+    "MESSAGE_STATUS_COMPLETE",
+    "MESSAGE_STATUS_ERROR",
+    "MESSAGE_STATUS_INTERRUPTED",
+    "MESSAGE_STATUS_STREAMING",
+    "STREAM_COMMIT_INTERVAL_SECONDS",
+    "STREAM_COMMIT_TOKEN_BATCH_SIZE",
+    "ChatAssistant",
+    "ChatRoomConnectionHub",
+    "ChatRoomRegistry",
+    "ChatRoomService",
+    "PlaceholderChatAssistant",
+    "PersistentChatMessagesHistory",
+    "build_chat_snapshot",
+    "chat_room_registry",
+    "get_chat_for_client",
+    "mark_stale_streaming_messages_interrupted",
+]
