@@ -1,7 +1,8 @@
 import asyncio
 import random
 from collections.abc import AsyncIterator, Sequence
-from typing import NamedTuple, Protocol
+from dataclasses import dataclass
+from typing import Protocol
 
 from api.models.chat import (
     CHUNK_TYPE_MESSAGE_CONTENT,
@@ -12,7 +13,8 @@ from api.models.chat import (
 PLACEHOLDER_TOKEN_DELAY_SECONDS = 0.05
 
 
-class AssistantStreamChunkDelta(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class AssistantStreamChunkDelta:
     index: int
     type: MessageChunkType
     content_delta: str

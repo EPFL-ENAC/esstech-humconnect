@@ -171,15 +171,15 @@ class ChatRoomService:
             chat_history,
             question,
         ):
-            _, chunk_index = await self._messages_history.response_progress(
+            progress = await self._messages_history.response_progress(
                 chunk.index, chunk.type, chunk.content_delta
             )
             assistant_message_id = self._messages_history.active_response_message_id
-            if assistant_message_id is None or chunk_index is None:
+            if assistant_message_id is None or progress is None:
                 continue
             await self._broadcast_assistant_response_delta(
                 assistant_message_id,
-                chunk_index,
+                progress.chunk_index,
                 chunk.type,
                 chunk.content_delta,
             )

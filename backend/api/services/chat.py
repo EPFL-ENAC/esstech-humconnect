@@ -18,6 +18,7 @@ from api.services.chat_room.chat_db import (
     STREAM_COMMIT_INTERVAL_SECONDS,
     STREAM_COMMIT_TOKEN_BATCH_SIZE,
     PersistentChatMessagesHistory,
+    ResponseProgressResult,
     build_chat_snapshot,
     get_chat_for_client,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "PlaceholderChatAssistant",
     "HumConnectAssistant",
     "PersistentChatMessagesHistory",
+    "ResponseProgressResult",
     "build_chat_snapshot",
     "chat_room_registry",
     "get_chat_for_client",

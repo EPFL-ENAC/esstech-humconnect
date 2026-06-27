@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from uuid import UUID
 
 from sqlmodel import col, select
@@ -26,6 +27,11 @@ STREAM_COMMIT_TOKEN_BATCH_SIZE = 32
 STREAM_COMMIT_INTERVAL_SECONDS = 1.0
 
 ActiveGenerationChecker = Callable[[UUID], Awaitable[bool]]
+
+
+@dataclass(frozen=True, slots=True)
+class ResponseProgressResult:
+    chunk_index: int
 
 
 class PersistentChatMessagesHistory:
@@ -116,13 +122,12 @@ class PersistentChatMessagesHistory:
 
     async def response_progress(
         self, chunk_index: int, chunk_type: MessageChunkType, delta: str
-    ) -> tuple[ChatMessageResponse | None, int | None]:
+    ) -> ResponseProgressResult | None:
         message = self._active_assistant_message
-        created_message = None
         if message is None:
-            return None, None
+            return None
         elif message.status != MESSAGE_STATUS_STREAMING:
-            return None, None
+            return None
         else:
             message.append_chunk_delta(chunk_index, chunk_type, delta)
 
@@ -130,11 +135,11 @@ class PersistentChatMessagesHistory:
 
         if message.id not in self._persisted_message_ids:
             await self._insert_active_message()
-            return created_message, chunk_index
+            return ResponseProgressResult(chunk_index=chunk_index)
 
         if self._should_commit():
             await self._commit_active_message_chunks()
-        return created_message, chunk_index
+        return ResponseProgressResult(chunk_index=chunk_index)
 
     async def complete_response(self) -> None:
         message = self._active_assistant_message

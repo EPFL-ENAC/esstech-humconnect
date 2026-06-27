@@ -176,8 +176,8 @@ class FakeHistory:
     async def response_progress(self, chunk_index, chunk_type, delta):
         self.progress_tokens.append((chunk_index, chunk_type, delta))
         if self.active_response_message_id is None:
-            return None, None
-        return None, chunk_index
+            return None
+        return chat_db_module.ResponseProgressResult(chunk_index=chunk_index)
 
     async def complete_response(self):
         self.completed = True
