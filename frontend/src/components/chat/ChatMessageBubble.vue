@@ -6,6 +6,7 @@
         <template v-else-if="message.chunks.length > 0">
             <template v-for="chunk in message.chunks" :key="chunk.index">
                 <ReasoningTextChunk v-if="chunk.type === 'reasoning_text'" :chunk="chunk" />
+                <ToolCallChunk v-else-if="chunk.type === 'tool_call'" :chunk="chunk" />
                 <MessageContentChunk
                     v-else-if="chunk.type === 'message_content'"
                     :chunk="chunk"
@@ -25,6 +26,7 @@ import { computed } from 'vue';
 import type { ChatMessage } from 'src/utils/model';
 import MessageContentChunk from './MessageContentChunk.vue';
 import ReasoningTextChunk from './ReasoningTextChunk.vue';
+import ToolCallChunk from './ToolCallChunk.vue';
 
 const props = defineProps<{
     message: ChatMessage;

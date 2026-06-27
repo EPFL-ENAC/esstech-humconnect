@@ -35,7 +35,15 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["api", "api.agent", "api.models", "api.services", "api.views"]
+packages = [
+    "api",
+    "api.agent",
+    "api.models",
+    "api.services",
+    "api.services.chat_room",
+    "api.services.chat_room.tools",
+    "api.views",
+]
 
 [tool.codespell]
 skip = 'uv.lock,tests/**,mcps/meditron/tests/**'

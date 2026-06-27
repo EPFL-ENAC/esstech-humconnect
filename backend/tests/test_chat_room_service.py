@@ -3,6 +3,7 @@ import os
 from uuid import uuid4
 
 import pytest
+from openai.types.responses import ResponseFunctionToolCall
 
 os.environ.setdefault("DB_USER", "test")
 os.environ.setdefault("DB_PASSWORD", "test")
@@ -13,17 +14,23 @@ os.environ.setdefault("MEDITRON_MCP_API_KEY", "test")
 from api.models.chat import (
     CHUNK_TYPE_MESSAGE_CONTENT,
     CHUNK_TYPE_REASONING_TEXT,
+    CHUNK_TYPE_TOOL_CALL,
     ChatMessageChunk,
     ChatMessageResponse,
     ChatSession,
     Message,
+    ToolCallPayload,
     utc_now,
 )
 from api.services import chat as chat_service
 from api.services.chat_room import chat_assistant as chat_assistant_module
 from api.services.chat_room import chat_db as chat_db_module
 from api.services.chat_room import humconnect_assistant as humconnect_assistant_module
-from api.services.chat_room.chat_assistant import AssistantStreamChunkDelta
+from api.services.chat_room.chat_assistant import (
+    AssistantStreamChunkDelta,
+    AssistantStreamPayloadUpdate,
+)
+from api.services.chat_room.tools import ToolCallInputItem, ToolCallOutput
 from api.services.chat import (
     MESSAGE_ROLE_ASSISTANT,
     MESSAGE_ROLE_USER,
@@ -135,6 +142,7 @@ class FakeHistory:
         self.created_turns = []
         self.chat_history = []
         self.progress_tokens = []
+        self.payload_updates = []
         self.completed = False
         self.failed = False
         self.active = True
@@ -179,6 +187,12 @@ class FakeHistory:
             return None
         return chat_db_module.ResponseProgressResult(chunk_index=chunk_index)
 
+    async def response_payload_update(self, chunk_index, chunk_type, payload):
+        self.payload_updates.append((chunk_index, chunk_type, payload))
+        if self.active_response_message_id is None:
+            return None
+        return chat_db_module.ResponseProgressResult(chunk_index=chunk_index)
+
     async def complete_response(self):
         self.completed = True
         self.active = False
@@ -198,7 +212,9 @@ class FakeAssistant:
         for chunk in self.chunks:
             if isinstance(chunk, Exception):
                 raise chunk
-            if isinstance(chunk, AssistantStreamChunkDelta):
+            if isinstance(
+                chunk, AssistantStreamChunkDelta | AssistantStreamPayloadUpdate
+            ):
                 yield chunk
             else:
                 yield AssistantStreamChunkDelta(0, CHUNK_TYPE_MESSAGE_CONTENT, chunk)
@@ -422,6 +438,79 @@ def test_persistent_history_uses_chunk_index_not_type_to_append(monkeypatch):
     ]
 
 
+def test_persistent_history_response_payload_update_upserts_chunk(monkeypatch):
+    install_fake_session(monkeypatch)
+    chat = ChatSession(client_id="client-1")
+    FakeAsyncSession.rows[ChatSession][chat.id] = chat
+    history = PersistentChatMessagesHistory(chat.id)
+    payload = ToolCallPayload(
+        tool_name="dummy_tool",
+        tool_label="Dummy tool",
+        call_id="call_1",
+        arguments={"message": "hello"},
+        status="running",
+    )
+
+    asyncio.run(history.submit_question("client-1", "Hello"))
+
+    async def run():
+        assistant_message = await history.start_response()
+        await history.response_payload_update(0, CHUNK_TYPE_TOOL_CALL, payload)
+        snapshot = await history.build_snapshot("client-1")
+        return assistant_message, snapshot
+
+    assistant_message, snapshot = asyncio.run(run())
+
+    assert assistant_message is not None
+    persisted_message = FakeAsyncSession.rows[Message][assistant_message.id]
+    assert persisted_message.chunks[0]["content"] == ""
+    assert persisted_message.chunks[0]["payload"] == payload.model_dump(mode="json")
+    assert snapshot is not None
+    assert snapshot.messages[-1].chunks[0].payload == payload
+
+
+def test_persistent_history_response_payload_update_replaces_payload(monkeypatch):
+    install_fake_session(monkeypatch)
+    chat = ChatSession(client_id="client-1")
+    FakeAsyncSession.rows[ChatSession][chat.id] = chat
+    history = PersistentChatMessagesHistory(chat.id)
+    running_payload = ToolCallPayload(
+        tool_name="dummy_tool",
+        tool_label="Dummy tool",
+        call_id="call_1",
+        arguments={"message": "hello"},
+        status="running",
+    )
+    finished_payload = ToolCallPayload(
+        tool_name="dummy_tool",
+        tool_label="Dummy tool",
+        call_id="call_1",
+        arguments={"message": "hello"},
+        status="finished",
+        answer="Dummy tool received: hello",
+    )
+
+    asyncio.run(history.submit_question("client-1", "Hello"))
+
+    async def run():
+        assistant_message = await history.start_response()
+        await history.response_payload_update(0, CHUNK_TYPE_TOOL_CALL, running_payload)
+        await history.response_payload_update(0, CHUNK_TYPE_TOOL_CALL, finished_payload)
+        snapshot = await history.build_snapshot("client-1")
+        return assistant_message, snapshot
+
+    assistant_message, snapshot = asyncio.run(run())
+
+    assert assistant_message is not None
+    persisted_message = FakeAsyncSession.rows[Message][assistant_message.id]
+    assert len(persisted_message.chunks) == 1
+    assert persisted_message.chunks[0]["payload"] == finished_payload.model_dump(
+        mode="json"
+    )
+    assert snapshot is not None
+    assert snapshot.messages[-1].chunks[0].payload == finished_payload
+
+
 def test_persistent_history_complete_response_flushes_and_marks_complete(monkeypatch):
     install_fake_session(monkeypatch)
     chat = ChatSession(client_id="client-1")
@@ -607,6 +696,46 @@ def test_assistant_stream_pushes_every_chunk_and_broadcasts_deltas():
         "type": "message_done",
         "message_id": created_event["message"]["id"],
         "status": MESSAGE_STATUS_COMPLETE,
+    }
+
+
+def test_assistant_stream_broadcasts_payload_updates():
+    history = FakeHistory()
+    hub = ChatRoomConnectionHub()
+    websocket = FakeWebSocket()
+    payload = ToolCallPayload(
+        tool_name="dummy_tool",
+        tool_label="Dummy tool",
+        call_id="call_1",
+        arguments={"message": "hello"},
+        status="running",
+    )
+    assistant = FakeAssistant(
+        [
+            AssistantStreamPayloadUpdate(0, CHUNK_TYPE_TOOL_CALL, payload),
+        ]
+    )
+    room = ChatRoomService(
+        uuid4(),
+        connection_hub=hub,
+        messages_history=history,
+        chat_assistant=assistant,
+    )
+
+    async def run():
+        await room.connect(websocket)
+        await start_and_wait_for_response(room, [], "Hello?")
+
+    asyncio.run(run())
+
+    created_event = websocket.events[0]
+    assert history.payload_updates == [(0, CHUNK_TYPE_TOOL_CALL, payload)]
+    assert websocket.events[1] == {
+        "type": "message_update_payload",
+        "message_id": created_event["message"]["id"],
+        "chunk_index": 0,
+        "chunk_type": CHUNK_TYPE_TOOL_CALL,
+        "payload": payload.model_dump(mode="json"),
     }
 
 
@@ -800,12 +929,14 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
             item_id=None,
             output_index=0,
             content_index=0,
+            item=None,
         ):
             self.type = event_type
             self.delta = delta
             self.item_id = item_id
             self.output_index = output_index
             self.content_index = content_index
+            self.item = item
 
     class FakeResponses:
         def __init__(self):
@@ -863,6 +994,7 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
         AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "lo"),
     ]
     assert fake_client.responses.create_kwargs["stream"] is True
+    assert fake_client.responses.create_kwargs["tools"][0]["name"] == "dummy_tool"
     assert fake_client.responses.create_kwargs["input"] == [
         {
             "role": MESSAGE_ROLE_USER,
@@ -877,6 +1009,343 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
             "content": "Say hello",
         },
     ]
+
+
+def test_tool_call_output_formats_json_and_reports_success_status():
+    success = ToolCallOutput.from_success("Tool finished")
+    failure = ToolCallOutput.from_failure("Tool failed")
+
+    assert success.to_json() == '{"ok": true, "result": "Tool finished"}'
+    assert success.is_successful() is True
+    assert failure.to_json() == '{"ok": false, "error": "Tool failed"}'
+    assert failure.is_successful() is False
+
+
+def test_tool_call_input_item_preserves_function_call_optional_fields():
+    function_call = ResponseFunctionToolCall(
+        id="item_1",
+        arguments='{"message": "hello"}',
+        call_id="call_1",
+        name="dummy_tool",
+        type="function_call",
+        status="completed",
+    )
+
+    input_item = ToolCallInputItem.from_function_call(function_call)
+
+    assert input_item.to_openai_input_item() == {
+        "type": "function_call",
+        "id": "item_1",
+        "call_id": "call_1",
+        "name": "dummy_tool",
+        "arguments": '{"message": "hello"}',
+        "status": "completed",
+    }
+
+
+def test_humconnect_chat_assistant_executes_dummy_tool_calls(monkeypatch):
+    class FakeEvent:
+        def __init__(self, event_type, delta="", item=None):
+            self.type = event_type
+            self.delta = delta
+            self.item = item
+
+    class FakeResponses:
+        def __init__(self):
+            self.create_kwargs = []
+
+        async def create(self, **kwargs):
+            self.create_kwargs.append(kwargs)
+            call_index = len(self.create_kwargs)
+
+            async def first_stream():
+                yield FakeEvent(
+                    "response.output_item.done",
+                    item=ResponseFunctionToolCall(
+                        arguments='{"message": "hello"}',
+                        call_id="call_1",
+                        name="dummy_tool",
+                        type="function_call",
+                        status="completed",
+                    ),
+                )
+
+            async def second_stream():
+                yield FakeEvent("response.output_text.delta", "Done")
+
+            return first_stream() if call_index == 1 else second_stream()
+
+    class FakeOpenAIClient:
+        def __init__(self):
+            self.responses = FakeResponses()
+
+    fake_client = FakeOpenAIClient()
+    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+    assistant = HumConnectAssistant()
+
+    async def run():
+        return [
+            chunk
+            async for chunk in assistant.stream_response([], "Use a tool")
+        ]
+
+    assert asyncio.run(run()) == [
+        AssistantStreamPayloadUpdate(
+            0,
+            CHUNK_TYPE_TOOL_CALL,
+            ToolCallPayload(
+                tool_name="dummy_tool",
+                tool_label="Dummy tool",
+                call_id="call_1",
+                arguments={"message": "hello"},
+                status="running",
+            ),
+        ),
+        AssistantStreamPayloadUpdate(
+            0,
+            CHUNK_TYPE_TOOL_CALL,
+            ToolCallPayload(
+                tool_name="dummy_tool",
+                tool_label="Dummy tool",
+                call_id="call_1",
+                arguments={"message": "hello"},
+                status="finished",
+                answer="Dummy tool received: hello",
+            ),
+        ),
+        AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "Done"),
+    ]
+
+    second_input = fake_client.responses.create_kwargs[1]["input"]
+    assert second_input[-2] == {
+        "type": "function_call",
+        "call_id": "call_1",
+        "name": "dummy_tool",
+        "arguments": '{"message": "hello"}',
+        "status": "completed",
+    }
+    assert second_input[-1] == {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": '{"ok": true, "result": "Dummy tool received: hello"}',
+    }
+
+
+def test_humconnect_chat_assistant_reports_invalid_tool_arguments(monkeypatch):
+    class FakeEvent:
+        def __init__(self, event_type, delta="", item=None):
+            self.type = event_type
+            self.delta = delta
+            self.item = item
+
+    class FakeResponses:
+        def __init__(self):
+            self.create_kwargs = []
+
+        async def create(self, **kwargs):
+            self.create_kwargs.append(kwargs)
+            call_index = len(self.create_kwargs)
+
+            async def first_stream():
+                yield FakeEvent(
+                    "response.output_item.done",
+                    item=ResponseFunctionToolCall(
+                        arguments='{"message": ""}',
+                        call_id="call_1",
+                        name="dummy_tool",
+                        type="function_call",
+                    ),
+                )
+
+            async def second_stream():
+                yield FakeEvent("response.output_text.delta", "Recovered")
+
+            return first_stream() if call_index == 1 else second_stream()
+
+    class FakeOpenAIClient:
+        def __init__(self):
+            self.responses = FakeResponses()
+
+    fake_client = FakeOpenAIClient()
+    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+    assistant = HumConnectAssistant()
+
+    async def run():
+        return [
+            chunk
+            async for chunk in assistant.stream_response([], "Use a tool")
+        ]
+
+    assert asyncio.run(run()) == [
+        AssistantStreamPayloadUpdate(
+            0,
+            CHUNK_TYPE_TOOL_CALL,
+            ToolCallPayload(
+                tool_name="dummy_tool",
+                tool_label="Dummy tool",
+                call_id="call_1",
+                arguments={"message": ""},
+                status="running",
+            ),
+        ),
+        AssistantStreamPayloadUpdate(
+            0,
+            CHUNK_TYPE_TOOL_CALL,
+            ToolCallPayload(
+                tool_name="dummy_tool",
+                tool_label="Dummy tool",
+                call_id="call_1",
+                arguments={"message": ""},
+                status="failed",
+                error="dummy_tool requires a non-empty string message.",
+            ),
+        ),
+        AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "Recovered"),
+    ]
+    output = fake_client.responses.create_kwargs[1]["input"][-1]["output"]
+    assert '"ok": false' in output
+    assert "dummy_tool requires a non-empty string message" in output
+
+
+def test_humconnect_chat_assistant_reports_malformed_tool_arguments(monkeypatch):
+    class FakeEvent:
+        def __init__(self, event_type, delta="", item=None):
+            self.type = event_type
+            self.delta = delta
+            self.item = item
+
+    class FakeResponses:
+        def __init__(self):
+            self.create_kwargs = []
+
+        async def create(self, **kwargs):
+            self.create_kwargs.append(kwargs)
+            call_index = len(self.create_kwargs)
+
+            async def first_stream():
+                yield FakeEvent(
+                    "response.output_item.done",
+                    item=ResponseFunctionToolCall(
+                        arguments="{",
+                        call_id="call_1",
+                        name="dummy_tool",
+                        type="function_call",
+                    ),
+                )
+
+            async def second_stream():
+                yield FakeEvent("response.output_text.delta", "Recovered")
+
+            return first_stream() if call_index == 1 else second_stream()
+
+    class FakeOpenAIClient:
+        def __init__(self):
+            self.responses = FakeResponses()
+
+    fake_client = FakeOpenAIClient()
+    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+    assistant = HumConnectAssistant()
+
+    async def run():
+        return [
+            chunk
+            async for chunk in assistant.stream_response([], "Use a tool")
+        ]
+
+    chunks = asyncio.run(run())
+
+    assert chunks[0] == AssistantStreamPayloadUpdate(
+        0,
+        CHUNK_TYPE_TOOL_CALL,
+        ToolCallPayload(
+            tool_name="dummy_tool",
+            tool_label="Dummy tool",
+            call_id="call_1",
+            arguments=None,
+            status="running",
+        ),
+    )
+    assert isinstance(chunks[1], AssistantStreamPayloadUpdate)
+    assert chunks[1].payload.arguments is None
+    assert chunks[1].payload.status == "failed"
+    assert chunks[1].payload.error is not None
+    assert "Expecting property name" in chunks[1].payload.error
+
+
+def test_humconnect_chat_assistant_reports_unknown_tool(monkeypatch):
+    class FakeEvent:
+        def __init__(self, event_type, delta="", item=None):
+            self.type = event_type
+            self.delta = delta
+            self.item = item
+
+    class FakeResponses:
+        def __init__(self):
+            self.create_kwargs = []
+
+        async def create(self, **kwargs):
+            self.create_kwargs.append(kwargs)
+            call_index = len(self.create_kwargs)
+
+            async def first_stream():
+                yield FakeEvent(
+                    "response.output_item.done",
+                    item=ResponseFunctionToolCall(
+                        arguments='{"message": "hello"}',
+                        call_id="call_1",
+                        name="missing_tool",
+                        type="function_call",
+                    ),
+                )
+
+            async def second_stream():
+                yield FakeEvent("response.output_text.delta", "Recovered")
+
+            return first_stream() if call_index == 1 else second_stream()
+
+    class FakeOpenAIClient:
+        def __init__(self):
+            self.responses = FakeResponses()
+
+    fake_client = FakeOpenAIClient()
+    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+    assistant = HumConnectAssistant()
+
+    async def run():
+        return [
+            chunk
+            async for chunk in assistant.stream_response([], "Use a tool")
+        ]
+
+    assert asyncio.run(run()) == [
+        AssistantStreamPayloadUpdate(
+            0,
+            CHUNK_TYPE_TOOL_CALL,
+            ToolCallPayload(
+                tool_name="missing_tool",
+                tool_label="missing_tool",
+                call_id="call_1",
+                arguments={"message": "hello"},
+                status="running",
+            ),
+        ),
+        AssistantStreamPayloadUpdate(
+            0,
+            CHUNK_TYPE_TOOL_CALL,
+            ToolCallPayload(
+                tool_name="missing_tool",
+                tool_label="missing_tool",
+                call_id="call_1",
+                arguments={"message": "hello"},
+                status="failed",
+                error="Unknown tool: missing_tool",
+            ),
+        ),
+        AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "Recovered"),
+    ]
+    output = fake_client.responses.create_kwargs[1]["input"][-1]["output"]
+    assert '"ok": false' in output
+    assert "Unknown tool: missing_tool" in output
 
 
 def test_registry_returns_same_room_for_same_chat_and_different_rooms_for_different_chats():

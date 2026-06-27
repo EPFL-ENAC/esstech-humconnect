@@ -20,6 +20,7 @@ from api.models.chat import (
     ChatSnapshotResponse,
     Message,
     MessageChunkType,
+    ToolCallPayload,
     utc_now,
 )
 
@@ -139,6 +140,24 @@ class PersistentChatMessagesHistory:
 
         if self._should_commit():
             await self._commit_active_message_chunks()
+        return ResponseProgressResult(chunk_index=chunk_index)
+
+    async def response_payload_update(
+        self, chunk_index: int, chunk_type: MessageChunkType, payload: ToolCallPayload
+    ) -> ResponseProgressResult | None:
+        message = self._active_assistant_message
+        if message is None:
+            return None
+        elif message.status != MESSAGE_STATUS_STREAMING:
+            return None
+        else:
+            message.update_chunk_payload(chunk_index, chunk_type, payload)
+
+        if message.id not in self._persisted_message_ids:
+            await self._insert_active_message()
+            return ResponseProgressResult(chunk_index=chunk_index)
+
+        await self._commit_active_message_chunks()
         return ResponseProgressResult(chunk_index=chunk_index)
 
     async def complete_response(self) -> None:
