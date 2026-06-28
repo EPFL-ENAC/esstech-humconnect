@@ -24,9 +24,6 @@
                 </div>
                 <q-spinner-dots v-else size="18px" color="grey-7" />
             </template>
-            <template v-else-if="legacyToolOutput">
-                {{ legacyToolOutput }}
-            </template>
             <q-spinner-dots v-else size="18px" color="grey-7" />
         </div>
     </q-expansion-item>
@@ -62,15 +59,6 @@ const toolName = computed(() => {
     return firstLine.value || 'Tool call';
 });
 
-const legacyToolOutput = computed(() => {
-    const firstNewlineIndex = props.chunk.content.search(/\r?\n/);
-    if (firstNewlineIndex === -1) {
-        return '';
-    }
-
-    return props.chunk.content.slice(firstNewlineIndex).trim();
-});
-
 const formattedArguments = computed(() => {
     if (!payload.value?.arguments) {
         return 'null';
@@ -81,7 +69,7 @@ const formattedArguments = computed(() => {
 
 const statusLabel = computed(() => {
     if (!payload.value) {
-        return legacyToolOutput.value ? 'Finished' : 'Calling';
+        return 'Calling';
     }
 
     return {

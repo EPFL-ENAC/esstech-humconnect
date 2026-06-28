@@ -29,7 +29,8 @@ from api.services.chat_room.chat_assistant import (
     AssistantStreamPayloadUpdate,
     ChatAssistant,
 )
-from api.services.chat_room.tools import DEFAULT_TOOLS, ToolSet
+from api.services.chat_room.tools import ToolSet
+from api.services.chat_room.tools.dummy import DUMMY_TOOL
 
 ModelInputMessage = EasyInputMessageParam
 MAX_TOOL_CALL_ROUNDS = 5
@@ -92,7 +93,11 @@ def parse_tool_arguments(raw_arguments: str) -> dict[str, Any] | None:
 
 class HumConnectAssistant(ChatAssistant):
     def __init__(self, tool_set: ToolSet | None = None) -> None:
-        self._tool_set = tool_set or ToolSet(DEFAULT_TOOLS)
+        self._tool_set = tool_set or ToolSet(
+            [
+                DUMMY_TOOL,
+            ]
+        )
 
     @staticmethod
     def chat_history_to_model_input(
