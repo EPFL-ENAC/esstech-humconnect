@@ -1,7 +1,6 @@
-import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, Sequence, cast
+from typing import Sequence, cast
 
 from openai.types.responses import (
     EasyInputMessageParam,
@@ -29,7 +28,7 @@ from api.services.chat_room.chat_assistant import (
     AssistantStreamPayloadUpdate,
     ChatAssistant,
 )
-from api.services.chat_room.tools import ToolSet
+from api.services.chat_room.tools import ToolSet, parse_tool_call_arguments
 from api.services.chat_room.tools.dummy import DUMMY_TOOL
 
 ModelInputMessage = EasyInputMessageParam
@@ -48,14 +47,10 @@ class StreamChunkCursor:
         *,
         force_new_chunk: bool = False,
     ) -> AssistantStreamChunkDelta:
-        chunk_index = self.chunk_index
-        if self.last_chunk_type is not None and (
-            force_new_chunk or chunk_type != self.last_chunk_type
-        ):
-            chunk_index += 1
-
-        self.chunk_index = chunk_index
-        self.last_chunk_type = chunk_type
+        chunk_index = self.next_chunk_index(
+            chunk_type,
+            force_new_chunk=force_new_chunk,
+        )
 
         return AssistantStreamChunkDelta(
             chunk_index,
@@ -78,17 +73,6 @@ class StreamChunkCursor:
         self.chunk_index = chunk_index
         self.last_chunk_type = chunk_type
         return chunk_index
-
-
-def parse_tool_arguments(raw_arguments: str) -> dict[str, Any] | None:
-    try:
-        arguments = json.loads(raw_arguments)
-    except json.JSONDecodeError:
-        return None
-
-    if isinstance(arguments, dict):
-        return arguments
-    return None
 
 
 class HumConnectAssistant(ChatAssistant):
@@ -164,7 +148,7 @@ class HumConnectAssistant(ChatAssistant):
             tool_input_items: list[ResponseInputItemParam] = []
             for function_call in function_calls:
                 tool_label = self._tool_set.label_for(function_call)
-                tool_arguments = parse_tool_arguments(function_call.arguments)
+                tool_arguments = parse_tool_call_arguments(function_call.arguments)
                 tool_chunk_index = chunk_cursor.next_chunk_index(
                     CHUNK_TYPE_TOOL_CALL,
                     force_new_chunk=True,

@@ -94,6 +94,17 @@ class ToolCallInputItem:
         return cast(ResponseInputItemParam, item)
 
 
+def parse_tool_call_arguments(raw_arguments: str) -> dict[str, Any] | None:
+    try:
+        arguments = json.loads(raw_arguments)
+    except json.JSONDecodeError:
+        return None
+
+    if isinstance(arguments, dict):
+        return arguments
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class ToolCallOutputItem:
     call_id: str
