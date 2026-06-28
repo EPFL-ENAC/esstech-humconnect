@@ -18,6 +18,9 @@ export default {
         emptyState: 'Send a message to start.',
         writeMessage: 'Write a message',
         send: 'Send',
+        copyMessage: 'Copy message',
+        copiedMessage: 'Message copied',
+        copyMessageFailed: 'Could not copy message.',
         status: {
             streaming: 'Streaming',
             interrupted: 'Interrupted',

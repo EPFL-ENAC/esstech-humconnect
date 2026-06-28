@@ -26,11 +26,18 @@ from api.services import chat as chat_service
 from api.services.chat_room import chat_assistant as chat_assistant_module
 from api.services.chat_room import chat_db as chat_db_module
 from api.services.chat_room import humconnect_assistant as humconnect_assistant_module
+from api.services.chat_room.tools import events as events_tool_module
+from api.services.chat_room.tools import meditron as meditron_tool_module
 from api.services.chat_room.chat_assistant import (
     AssistantStreamChunkDelta,
     AssistantStreamPayloadUpdate,
 )
-from api.services.chat_room.tools import ToolCallInputItem, ToolCallOutput
+from api.services.chat_room.tools import (
+    ASK_MEDITRON_TOOL,
+    RECORD_EVENT_TOOL,
+    ToolCallInputItem,
+    ToolCallOutput,
+)
 from api.services.chat import (
     MESSAGE_ROLE_ASSISTANT,
     MESSAGE_ROLE_USER,
@@ -994,7 +1001,13 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
         AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "lo"),
     ]
     assert fake_client.responses.create_kwargs["stream"] is True
-    assert fake_client.responses.create_kwargs["tools"][0]["name"] == "dummy_tool"
+    assert [
+        tool["name"] for tool in fake_client.responses.create_kwargs["tools"]
+    ] == [
+        "dummy_tool",
+        "ask_meditron",
+        "record_event",
+    ]
     assert fake_client.responses.create_kwargs["input"] == [
         {
             "role": MESSAGE_ROLE_USER,
@@ -1041,6 +1054,87 @@ def test_tool_call_input_item_preserves_function_call_optional_fields():
         "arguments": '{"message": "hello"}',
         "status": "completed",
     }
+
+
+def test_ask_meditron_tool_calls_meditron_with_prompt(monkeypatch):
+    calls = []
+
+    def fake_ask_meditron(*, prompt, system_prompt):
+        calls.append((prompt, system_prompt))
+        return "Meditron answer"
+
+    monkeypatch.setattr(meditron_tool_module, "ask_meditron", fake_ask_meditron)
+
+    async def run():
+        return await ASK_MEDITRON_TOOL.execute({"prompt": "What is cholera?"})
+
+    assert asyncio.run(run()) == "Meditron answer"
+    assert calls == [("What is cholera?", "")]
+
+
+def test_ask_meditron_tool_passes_system_prompt(monkeypatch):
+    calls = []
+
+    def fake_ask_meditron(*, prompt, system_prompt):
+        calls.append((prompt, system_prompt))
+        return "Clinical answer"
+
+    monkeypatch.setattr(meditron_tool_module, "ask_meditron", fake_ask_meditron)
+
+    async def run():
+        return await ASK_MEDITRON_TOOL.execute(
+            {
+                "prompt": "How should dehydration be assessed?",
+                "system_prompt": "Answer concisely.",
+            }
+        )
+
+    assert asyncio.run(run()) == "Clinical answer"
+    assert calls == [("How should dehydration be assessed?", "Answer concisely.")]
+
+
+@pytest.mark.parametrize("prompt", ["", 123, None])
+def test_ask_meditron_tool_rejects_missing_or_empty_prompt(prompt):
+    async def run():
+        return await ASK_MEDITRON_TOOL.execute({"prompt": prompt})
+
+    with pytest.raises(ValueError, match="non-empty string prompt"):
+        asyncio.run(run())
+
+
+def test_ask_meditron_tool_rejects_non_string_system_prompt():
+    async def run():
+        return await ASK_MEDITRON_TOOL.execute(
+            {"prompt": "What is cholera?", "system_prompt": 42}
+        )
+
+    with pytest.raises(ValueError, match="system_prompt to be a string"):
+        asyncio.run(run())
+
+
+def test_record_event_tool_appends_event_to_memory():
+    events_tool_module.RECORDED_EVENTS.clear()
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(
+            {"event": "I have 3 kids that cough since yesterday"}
+        )
+
+    assert asyncio.run(run()) == (
+        "Recorded event #1: I have 3 kids that cough since yesterday"
+    )
+    assert events_tool_module.RECORDED_EVENTS == [
+        "I have 3 kids that cough since yesterday"
+    ]
+
+
+@pytest.mark.parametrize("event", ["", 123, None])
+def test_record_event_tool_rejects_missing_or_empty_event(event):
+    async def run():
+        return await RECORD_EVENT_TOOL.execute({"event": event})
+
+    with pytest.raises(ValueError, match="non-empty string event"):
+        asyncio.run(run())
 
 
 def test_humconnect_chat_assistant_executes_dummy_tool_calls(monkeypatch):
@@ -1128,6 +1222,208 @@ def test_humconnect_chat_assistant_executes_dummy_tool_calls(monkeypatch):
         "type": "function_call_output",
         "call_id": "call_1",
         "output": '{"ok": true, "result": "Dummy tool received: hello"}',
+    }
+
+
+def test_humconnect_chat_assistant_executes_ask_meditron_tool_calls(monkeypatch):
+    def fake_ask_meditron(*, prompt, system_prompt):
+        assert prompt == "What are cholera symptoms?"
+        assert system_prompt == "Answer for a clinician."
+        return "Watery diarrhea and dehydration."
+
+    class FakeEvent:
+        def __init__(self, event_type, delta="", item=None):
+            self.type = event_type
+            self.delta = delta
+            self.item = item
+
+    class FakeResponses:
+        def __init__(self):
+            self.create_kwargs = []
+
+        async def create(self, **kwargs):
+            self.create_kwargs.append(kwargs)
+            call_index = len(self.create_kwargs)
+
+            async def first_stream():
+                yield FakeEvent(
+                    "response.output_item.done",
+                    item=ResponseFunctionToolCall(
+                        arguments=(
+                            '{"prompt": "What are cholera symptoms?", '
+                            '"system_prompt": "Answer for a clinician."}'
+                        ),
+                        call_id="call_meditron",
+                        name="ask_meditron",
+                        type="function_call",
+                        status="completed",
+                    ),
+                )
+
+            async def second_stream():
+                yield FakeEvent("response.output_text.delta", "Summarized")
+
+            return first_stream() if call_index == 1 else second_stream()
+
+    class FakeOpenAIClient:
+        def __init__(self):
+            self.responses = FakeResponses()
+
+    fake_client = FakeOpenAIClient()
+    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+    monkeypatch.setattr(meditron_tool_module, "ask_meditron", fake_ask_meditron)
+    assistant = HumConnectAssistant()
+
+    async def run():
+        return [
+            chunk
+            async for chunk in assistant.stream_response([], "Use Meditron")
+        ]
+
+    assert asyncio.run(run()) == [
+        AssistantStreamPayloadUpdate(
+            0,
+            CHUNK_TYPE_TOOL_CALL,
+            ToolCallPayload(
+                tool_name="ask_meditron",
+                tool_label="Ask Meditron",
+                call_id="call_meditron",
+                arguments={
+                    "prompt": "What are cholera symptoms?",
+                    "system_prompt": "Answer for a clinician.",
+                },
+                status="running",
+            ),
+        ),
+        AssistantStreamPayloadUpdate(
+            0,
+            CHUNK_TYPE_TOOL_CALL,
+            ToolCallPayload(
+                tool_name="ask_meditron",
+                tool_label="Ask Meditron",
+                call_id="call_meditron",
+                arguments={
+                    "prompt": "What are cholera symptoms?",
+                    "system_prompt": "Answer for a clinician.",
+                },
+                status="finished",
+                answer="Watery diarrhea and dehydration.",
+            ),
+        ),
+        AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "Summarized"),
+    ]
+
+    second_input = fake_client.responses.create_kwargs[1]["input"]
+    assert second_input[-2] == {
+        "type": "function_call",
+        "call_id": "call_meditron",
+        "name": "ask_meditron",
+        "arguments": (
+            '{"prompt": "What are cholera symptoms?", '
+            '"system_prompt": "Answer for a clinician."}'
+        ),
+        "status": "completed",
+    }
+    assert second_input[-1] == {
+        "type": "function_call_output",
+        "call_id": "call_meditron",
+        "output": (
+            '{"ok": true, "result": "Watery diarrhea and dehydration."}'
+        ),
+    }
+
+
+def test_humconnect_chat_assistant_executes_record_event_tool_calls(monkeypatch):
+    events_tool_module.RECORDED_EVENTS.clear()
+
+    class FakeEvent:
+        def __init__(self, event_type, delta="", item=None):
+            self.type = event_type
+            self.delta = delta
+            self.item = item
+
+    class FakeResponses:
+        def __init__(self):
+            self.create_kwargs = []
+
+        async def create(self, **kwargs):
+            self.create_kwargs.append(kwargs)
+            call_index = len(self.create_kwargs)
+
+            async def first_stream():
+                yield FakeEvent(
+                    "response.output_item.done",
+                    item=ResponseFunctionToolCall(
+                        arguments=(
+                            '{"event": "I have 3 kids that cough since yesterday"}'
+                        ),
+                        call_id="call_record_event",
+                        name="record_event",
+                        type="function_call",
+                        status="completed",
+                    ),
+                )
+
+            async def second_stream():
+                yield FakeEvent("response.output_text.delta", "Noted")
+
+            return first_stream() if call_index == 1 else second_stream()
+
+    class FakeOpenAIClient:
+        def __init__(self):
+            self.responses = FakeResponses()
+
+    fake_client = FakeOpenAIClient()
+    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+    assistant = HumConnectAssistant()
+
+    async def run():
+        return [
+            chunk
+            async for chunk in assistant.stream_response([], "Remember this")
+        ]
+
+    assert asyncio.run(run()) == [
+        AssistantStreamPayloadUpdate(
+            0,
+            CHUNK_TYPE_TOOL_CALL,
+            ToolCallPayload(
+                tool_name="record_event",
+                tool_label="Record event",
+                call_id="call_record_event",
+                arguments={"event": "I have 3 kids that cough since yesterday"},
+                status="running",
+            ),
+        ),
+        AssistantStreamPayloadUpdate(
+            0,
+            CHUNK_TYPE_TOOL_CALL,
+            ToolCallPayload(
+                tool_name="record_event",
+                tool_label="Record event",
+                call_id="call_record_event",
+                arguments={"event": "I have 3 kids that cough since yesterday"},
+                status="finished",
+                answer=(
+                    "Recorded event #1: "
+                    "I have 3 kids that cough since yesterday"
+                ),
+            ),
+        ),
+        AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "Noted"),
+    ]
+    assert events_tool_module.RECORDED_EVENTS == [
+        "I have 3 kids that cough since yesterday"
+    ]
+
+    second_input = fake_client.responses.create_kwargs[1]["input"]
+    assert second_input[-1] == {
+        "type": "function_call_output",
+        "call_id": "call_record_event",
+        "output": (
+            '{"ok": true, "result": "Recorded event #1: '
+            'I have 3 kids that cough since yesterday"}'
+        ),
     }
 
 

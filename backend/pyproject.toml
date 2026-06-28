@@ -55,6 +55,9 @@ testpaths = ["tests"]
 [tool.uv.sources]
 meditron-mcp = { workspace = true }
 
+[tool.ty.environment]
+extra-paths = ["mcps/meditron"]
+
 [tool.uv.workspace]
 members = [
     "mcps/meditron",

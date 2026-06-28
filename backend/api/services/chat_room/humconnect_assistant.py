@@ -30,6 +30,8 @@ from api.services.chat_room.chat_assistant import (
 )
 from api.services.chat_room.tools import ToolSet, parse_tool_call_arguments
 from api.services.chat_room.tools.dummy import DUMMY_TOOL
+from api.services.chat_room.tools.events import RECORD_EVENT_TOOL
+from api.services.chat_room.tools.meditron import ASK_MEDITRON_TOOL
 
 ModelInputMessage = EasyInputMessageParam
 MAX_TOOL_CALL_ROUNDS = 5
@@ -80,6 +82,8 @@ class HumConnectAssistant(ChatAssistant):
         self._tool_set = tool_set or ToolSet(
             [
                 DUMMY_TOOL,
+                ASK_MEDITRON_TOOL,
+                RECORD_EVENT_TOOL,
             ]
         )
 
@@ -110,10 +114,12 @@ class HumConnectAssistant(ChatAssistant):
 
         while True:
             function_calls: list[ResponseFunctionToolCall] = []
+            print(model_input)
             stream = await openai_client.responses.create(
                 input=model_input,
                 model=config.MODEL_NAME,
                 stream=True,
+                instructions="When you need to call multiple tools, make sure to call them in separate function calls. For that, call the first tooland wait for its output, then think again, and only then can you call the next tool. You cannot call multiple tools in one go by providing multiple JSON objects in the function_call field. You must call one tool at a time, and wait for its output before calling the next tool.",
                 text={"format": {"type": "json_object"}},
                 tools=self._tool_set.definitions(),
             )
