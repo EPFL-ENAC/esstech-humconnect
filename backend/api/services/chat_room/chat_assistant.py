@@ -8,6 +8,7 @@ from api.models.chat import (
     CHUNK_TYPE_MESSAGE_CONTENT,
     ChatMessageResponse,
     MessageChunkType,
+    ToolCallPayload,
 )
 
 PLACEHOLDER_TOKEN_DELAY_SECONDS = 0.05
@@ -20,12 +21,22 @@ class AssistantStreamChunkDelta:
     content_delta: str
 
 
+@dataclass(frozen=True, slots=True)
+class AssistantStreamPayloadUpdate:
+    index: int
+    type: MessageChunkType
+    payload: ToolCallPayload
+
+
+AssistantStreamEvent = AssistantStreamChunkDelta | AssistantStreamPayloadUpdate
+
+
 class ChatAssistant(Protocol):
     def stream_response(
         self,
         chat_history: Sequence[ChatMessageResponse],
         question: str,
-    ) -> AsyncIterator[AssistantStreamChunkDelta]:
+    ) -> AsyncIterator[AssistantStreamEvent]:
         raise NotImplementedError
 
 
@@ -34,7 +45,7 @@ class PlaceholderChatAssistant(ChatAssistant):
         self,
         chat_history: Sequence[ChatMessageResponse],
         question: str,
-    ) -> AsyncIterator[AssistantStreamChunkDelta]:
+    ) -> AsyncIterator[AssistantStreamEvent]:
         random_number = random.randint(0, 999999)
         response = f"Random number: {random_number}"
         for token in response:

@@ -18,6 +18,7 @@ MESSAGE_STATUS_STREAMING = "streaming"
 
 CHUNK_TYPE_MESSAGE_CONTENT = "message_content"
 CHUNK_TYPE_REASONING_TEXT = "reasoning_text"
+CHUNK_TYPE_TOOL_CALL = "tool_call"
 
 
 def utc_now() -> datetime:
@@ -105,22 +106,97 @@ class Message(SQLModel, table=True):
 
 MessageRole = Literal["user", "assistant"]
 MessageStatus = Literal["complete", "streaming", "interrupted", "error"]
-MessageChunkType = Literal["message_content", "reasoning_text"]
+MessageChunkType = Literal["message_content", "reasoning_text", "tool_call"]
+ToolCallStatus = Literal["running", "finished", "failed"]
+
+
+class ToolCallPayload(BaseModel):
+    tool_name: str
+    tool_label: str
+    call_id: str
+    arguments: dict[str, Any] | None = None
+    status: ToolCallStatus
+    answer: str | None = None
+    error: str | None = None
+
+    @staticmethod
+    def from_running(
+        *,
+        tool_name: str,
+        tool_label: str,
+        call_id: str,
+        arguments: dict[str, Any] | None,
+    ) -> "ToolCallPayload":
+        return ToolCallPayload(
+            tool_name=tool_name,
+            tool_label=tool_label,
+            call_id=call_id,
+            arguments=arguments,
+            status="running",
+        )
+
+    @staticmethod
+    def from_finished(
+        *,
+        tool_name: str,
+        tool_label: str,
+        call_id: str,
+        arguments: dict[str, Any] | None,
+        answer: str,
+    ) -> "ToolCallPayload":
+        return ToolCallPayload(
+            tool_name=tool_name,
+            tool_label=tool_label,
+            call_id=call_id,
+            arguments=arguments,
+            status="finished",
+            answer=answer,
+        )
+
+    @staticmethod
+    def from_failed(
+        *,
+        tool_name: str,
+        tool_label: str,
+        call_id: str,
+        arguments: dict[str, Any] | None,
+        error: str,
+    ) -> "ToolCallPayload":
+        return ToolCallPayload(
+            tool_name=tool_name,
+            tool_label=tool_label,
+            call_id=call_id,
+            arguments=arguments,
+            status="failed",
+            error=error,
+        )
 
 
 class ChatMessageChunk(BaseModel):
     index: int
     type: MessageChunkType
     content: str
+    payload: ToolCallPayload | None = None
 
     @staticmethod
     def create(
-        chunk_index: int, chunk_type: MessageChunkType, content: str = ""
+        chunk_index: int,
+        chunk_type: MessageChunkType,
+        content: str = "",
+        payload: ToolCallPayload | None = None,
     ) -> "ChatMessageChunk":
-        return ChatMessageChunk(index=chunk_index, type=chunk_type, content=content)
+        return ChatMessageChunk(
+            index=chunk_index,
+            type=chunk_type,
+            content=content,
+            payload=payload,
+        )
 
     def append(self, delta: str) -> None:
         self.content += delta
+
+    def update_payload(self, payload: ToolCallPayload) -> None:
+        self.payload = payload
 
 
 class CreateChatRequest(BaseModel):
@@ -209,6 +285,23 @@ class ChatMessageResponse(BaseModel):
         self.updated_at = utc_now()
         return chunk.index
 
+    def update_chunk_payload(
+        self, chunk_index: int, chunk_type: MessageChunkType, payload: ToolCallPayload
+    ) -> int:
+        if (
+            len(self.chunks) > chunk_index
+            and self.chunks[chunk_index].type == chunk_type
+        ):
+            self.chunks[chunk_index].update_payload(payload)
+            self.updated_at = utc_now()
+            return chunk_index
+
+        chunk = ChatMessageChunk.create(chunk_index, chunk_type, payload=payload)
+        self.chunks.append(chunk)
+        self.chunks.sort(key=lambda item: item.index)
+        self.updated_at = utc_now()
+        return chunk.index
+
     def content_for_model(self) -> str:
         return "".join(
             chunk.content
@@ -248,6 +341,14 @@ class MessageDeltaEvent(BaseModel):
     chunk_index: int
     chunk_type: MessageChunkType
     delta: str
+
+
+class MessageUpdatePayloadEvent(BaseModel):
+    type: Literal["message_update_payload"] = "message_update_payload"
+    message_id: UUID
+    chunk_index: int
+    chunk_type: MessageChunkType
+    payload: ToolCallPayload
 
 
 class MessageDoneEvent(BaseModel):

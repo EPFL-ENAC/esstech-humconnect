@@ -92,17 +92,17 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
         if (event.type === 'message_delta') {
             const message = messages.value.find((item) => item.id === event.message_id);
             if (message) {
-                let chunk = message.chunks.find((item) => item.index === event.chunk_index);
-                if (!chunk) {
-                    chunk = {
-                        index: event.chunk_index,
-                        type: event.chunk_type,
-                        content: '',
-                    };
-                    message.chunks.push(chunk);
-                    message.chunks.sort((a, b) => a.index - b.index);
-                }
+                const chunk = upsertChunk(message, event.chunk_index, event.chunk_type);
                 chunk.content += event.delta;
+            }
+            return;
+        }
+
+        if (event.type === 'message_update_payload') {
+            const message = messages.value.find((item) => item.id === event.message_id);
+            if (message) {
+                const chunk = upsertChunk(message, event.chunk_index, event.chunk_type);
+                chunk.payload = event.payload;
             }
             return;
         }
@@ -128,6 +128,24 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
         } else {
             messages.value[index] = message;
         }
+    }
+
+    function upsertChunk(
+        message: ChatMessage,
+        chunkIndex: number,
+        chunkType: ChatMessage['chunks'][number]['type'],
+    ) {
+        let chunk = message.chunks.find((item) => item.index === chunkIndex);
+        if (!chunk) {
+            chunk = {
+                index: chunkIndex,
+                type: chunkType,
+                content: '',
+            };
+            message.chunks.push(chunk);
+            message.chunks.sort((a, b) => a.index - b.index);
+        }
+        return chunk;
     }
 
     function sendEvent(event: ChatClientEvent): boolean {

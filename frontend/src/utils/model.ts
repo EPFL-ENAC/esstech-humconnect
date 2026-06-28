@@ -1,11 +1,23 @@
 export type ChatMessageRole = 'user' | 'assistant';
 export type ChatMessageStatus = 'complete' | 'streaming' | 'interrupted' | 'error';
-export type ChatMessageChunkType = 'message_content' | 'reasoning_text';
+export type ChatMessageChunkType = 'message_content' | 'reasoning_text' | 'tool_call';
+export type ToolCallStatus = 'running' | 'finished' | 'failed';
+
+export interface ToolCallPayload {
+    tool_name: string;
+    tool_label: string;
+    call_id: string;
+    arguments: Record<string, unknown> | null;
+    status: ToolCallStatus;
+    answer: string | null;
+    error: string | null;
+}
 
 export interface ChatMessageChunk {
     index: number;
     type: ChatMessageChunkType;
     content: string;
+    payload?: ToolCallPayload | null;
 }
 
 export interface CreateChatRequest {
@@ -57,6 +69,14 @@ export interface MessageDeltaEvent {
     delta: string;
 }
 
+export interface MessageUpdatePayloadEvent {
+    type: 'message_update_payload';
+    message_id: string;
+    chunk_index: number;
+    chunk_type: ChatMessageChunkType;
+    payload: ToolCallPayload;
+}
+
 export interface MessageDoneEvent {
     type: 'message_done';
     message_id: string;
@@ -77,6 +97,7 @@ export type ChatSocketEvent =
     | ChatSnapshotResponse
     | MessageCreatedEvent
     | MessageDeltaEvent
+    | MessageUpdatePayloadEvent
     | MessageDoneEvent
     | ChatErrorEvent;
 

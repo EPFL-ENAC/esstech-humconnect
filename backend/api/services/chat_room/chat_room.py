@@ -13,8 +13,12 @@ from api.models.chat import (
     MessageDeltaEvent,
     MessageDoneEvent,
     MessageStatus,
+    MessageUpdatePayloadEvent,
+    ToolCallPayload,
 )
 from api.services.chat_room.chat_assistant import (
+    AssistantStreamChunkDelta,
+    AssistantStreamPayloadUpdate,
     ChatAssistant,
 )
 from api.services.chat_room.chat_connection import ChatRoomConnectionHub
@@ -171,18 +175,32 @@ class ChatRoomService:
             chat_history,
             question,
         ):
-            progress = await self._messages_history.response_progress(
-                chunk.index, chunk.type, chunk.content_delta
-            )
-            assistant_message_id = self._messages_history.active_response_message_id
-            if assistant_message_id is None or progress is None:
-                continue
-            await self._broadcast_assistant_response_delta(
-                assistant_message_id,
-                progress.chunk_index,
-                chunk.type,
-                chunk.content_delta,
-            )
+            if isinstance(chunk, AssistantStreamChunkDelta):
+                progress = await self._messages_history.response_progress(
+                    chunk.index, chunk.type, chunk.content_delta
+                )
+                assistant_message_id = self._messages_history.active_response_message_id
+                if assistant_message_id is None or progress is None:
+                    continue
+                await self._broadcast_assistant_response_delta(
+                    assistant_message_id,
+                    progress.chunk_index,
+                    chunk.type,
+                    chunk.content_delta,
+                )
+            elif isinstance(chunk, AssistantStreamPayloadUpdate):
+                progress = await self._messages_history.response_payload_update(
+                    chunk.index, chunk.type, chunk.payload
+                )
+                assistant_message_id = self._messages_history.active_response_message_id
+                if assistant_message_id is None or progress is None:
+                    continue
+                await self._broadcast_assistant_response_payload_update(
+                    assistant_message_id,
+                    progress.chunk_index,
+                    chunk.type,
+                    chunk.payload,
+                )
 
     async def _broadcast_assistant_response_delta(
         self,
@@ -197,6 +215,22 @@ class ChatRoomService:
                 chunk_index=chunk_index,
                 chunk_type=chunk_type,
                 delta=delta,
+            ).model_dump(mode="json"),
+        )
+
+    async def _broadcast_assistant_response_payload_update(
+        self,
+        assistant_message_id: UUID,
+        chunk_index: int,
+        chunk_type: MessageChunkType,
+        payload: ToolCallPayload,
+    ) -> None:
+        await self.broadcast(
+            MessageUpdatePayloadEvent(
+                message_id=assistant_message_id,
+                chunk_index=chunk_index,
+                chunk_type=chunk_type,
+                payload=payload,
             ).model_dump(mode="json"),
         )
 
