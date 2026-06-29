@@ -35,10 +35,19 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["api", "api.agent", "api.models", "api.services", "api.views"]
+packages = [
+    "api",
+    "api.agent",
+    "api.models",
+    "api.services",
+    "api.services.chat_room",
+    "api.services.chat_room.tools",
+    "api.utils",
+    "api.views",
+]
 
 [tool.codespell]
-skip = 'uv.lock'
+skip = 'uv.lock,tests/**,mcps/meditron/tests/**'
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -46,6 +55,9 @@ testpaths = ["tests"]
 
 [tool.uv.sources]
 meditron-mcp = { workspace = true }
+
+[tool.ty.environment]
+extra-paths = ["mcps/meditron"]
 
 [tool.uv.workspace]
 members = [

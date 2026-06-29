@@ -22,6 +22,7 @@
         "@annotorious/core": "https://github.com/EPFL-ENAC/annotorious/releases/download/v3.8.2-feat-undo-point/annotorious-core-3.8.2.tgz",
         "@annotorious/openseadragon": "https://github.com/EPFL-ENAC/annotorious/releases/download/v3.8.2-feat-undo-point/annotorious-openseadragon-3.8.2.tgz",
         "@quasar/extras": "^1.16.4",
+        "@quasar/quasar-ui-qmarkdown": "^3.0.0-rc.2",
         "lefthook": "^2.1.4",
         "maplibre-gl": "^5.23.0",
         "openseadragon": "^6.0.2",
@@ -50,9 +51,9 @@
         "vue-tsc": "^3.0.7"
     },
     "engines": {
-        "node": "^28 || ^26 || ^24 || ^22 || ^20",
+        "node": ">=22.13",
         "npm": ">= 6.13.4",
         "yarn": ">= 1.21.1",
-        "pnpm": ">= 10.0.0"
+        "pnpm": ">=11.5.0"
     }
 }
