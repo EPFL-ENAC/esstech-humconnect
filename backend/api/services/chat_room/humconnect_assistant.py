@@ -114,12 +114,11 @@ class HumConnectAssistant(ChatAssistant):
 
         while True:
             function_calls: list[ResponseFunctionToolCall] = []
-            print(model_input)
             stream = await openai_client.responses.create(
                 input=model_input,
                 model=config.MODEL_NAME,
                 stream=True,
-                instructions="When you need to call multiple tools, make sure to call them in separate function calls. For that, call the first tooland wait for its output, then think again, and only then can you call the next tool. You cannot call multiple tools in one go by providing multiple JSON objects in the function_call field. You must call one tool at a time, and wait for its output before calling the next tool.",
+                instructions="When you need to call multiple tools, make sure to call them in separate function calls. For that, call the first tool and wait for its output, then think again, and only then can you call the next tool. You cannot call multiple tools in one go by providing multiple JSON objects in the function_call field. You must call one tool at a time, and wait for its output before calling the next tool.",
                 text={"format": {"type": "json_object"}},
                 tools=self._tool_set.definitions(),
             )
