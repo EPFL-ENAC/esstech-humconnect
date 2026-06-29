@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -7,14 +8,18 @@ from fastapi import WebSocket
 from api.models.chat import (
     ChatMessageResponse,
     ChatSnapshotResponse,
+    MessageChunkType,
     MessageCreatedEvent,
     MessageDeltaEvent,
     MessageDoneEvent,
     MessageStatus,
+    MessageUpdatePayloadEvent,
+    ToolCallPayload,
 )
 from api.services.chat_room.chat_assistant import (
+    AssistantStreamChunkDelta,
+    AssistantStreamPayloadUpdate,
     ChatAssistant,
-    PlaceholderChatAssistant,
 )
 from api.services.chat_room.chat_connection import ChatRoomConnectionHub
 from api.services.chat_room.chat_db import (
@@ -23,6 +28,10 @@ from api.services.chat_room.chat_db import (
     ActiveGenerationChecker,
     PersistentChatMessagesHistory,
 )
+from api.services.chat_room.humconnect_assistant import HumConnectAssistant
+from api.services.chat_room.tools.base import ToolExecutionContext
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class ChatRoomService:
@@ -41,7 +50,7 @@ class ChatRoomService:
             chat_id,
             has_active_generation=has_active_generation,
         )
-        self._chat_assistant = chat_assistant or PlaceholderChatAssistant()
+        self._chat_assistant = chat_assistant or HumConnectAssistant()
         self._generation_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
         self._submission_lock = asyncio.Lock()
@@ -89,6 +98,11 @@ class ChatRoomService:
             await self._start_assistant_response(
                 chat_history,
                 content,
+                ToolExecutionContext(
+                    chat_id=self.chat_id,
+                    client_id=client_id,
+                    source_message_id=user_message.id,
+                ),
             )
 
     async def _ensure_no_active_response(self) -> None:
@@ -99,15 +113,24 @@ class ChatRoomService:
         self,
         chat_history: Sequence[ChatMessageResponse],
         question: str,
+        tool_context: ToolExecutionContext | None = None,
     ) -> None:
         async with self._lock:
             if self._has_active_generation_locked():
                 raise RuntimeError("A response is already streaming for this chat.")
 
+            assistant_message = await self._messages_history.start_response()
+            await self.broadcast(
+                MessageCreatedEvent(
+                    message=assistant_message,
+                ).model_dump(mode="json"),
+            )
+
             self._generation_task = asyncio.create_task(
                 self._stream_assistant_response(
                     chat_history,
                     question,
+                    tool_context,
                 )
             )
 
@@ -115,16 +138,20 @@ class ChatRoomService:
         self,
         chat_history: Sequence[ChatMessageResponse] | None = None,
         question: str = "",
+        tool_context: ToolExecutionContext | None = None,
     ) -> None:
         try:
             try:
                 await self._push_assistant_response_stream(
                     chat_history or [],
                     question,
+                    tool_context,
                 )
             except Exception as e:
-                print("Error during assistant response streaming:", flush=True)
-                print(e)
+                logger.exception(
+                    "Error during assistant response streaming: %s",
+                    e,
+                )
                 await self._fail_assistant_response()
                 return
 
@@ -134,8 +161,10 @@ class ChatRoomService:
             try:
                 await self._messages_history.complete_response()
             except Exception as e:
-                print("Error during assistant response completion:", flush=True)
-                print(e)
+                logger.exception(
+                    "Error during assistant response completion: %s",
+                    e,
+                )
                 await self._fail_assistant_response()
                 return
             await self._broadcast_assistant_response_done(
@@ -151,31 +180,69 @@ class ChatRoomService:
         self,
         chat_history: Sequence[ChatMessageResponse],
         question: str,
+        tool_context: ToolExecutionContext | None,
     ) -> None:
-        async for token in self._chat_assistant.stream_response(
+        async for chunk in self._chat_assistant.stream_response(
             chat_history,
             question,
+            tool_context,
         ):
-            created_message = await self._messages_history.response_progress(token)
-            if created_message is not None:
-                await self.broadcast(
-                    MessageCreatedEvent(
-                        message=created_message,
-                    ).model_dump(mode="json"),
+            if isinstance(chunk, AssistantStreamChunkDelta):
+                progress = await self._messages_history.response_progress(
+                    chunk.index, chunk.type, chunk.content_delta
                 )
-                continue
-            assistant_message_id = self._messages_history.active_response_message_id
-            if assistant_message_id is None:
-                continue
-            await self._broadcast_assistant_response_delta(assistant_message_id, token)
+                assistant_message_id = self._messages_history.active_response_message_id
+                if assistant_message_id is None or progress is None:
+                    continue
+                await self._broadcast_assistant_response_delta(
+                    assistant_message_id,
+                    progress.chunk_index,
+                    chunk.type,
+                    chunk.content_delta,
+                )
+            elif isinstance(chunk, AssistantStreamPayloadUpdate):
+                progress = await self._messages_history.response_payload_update(
+                    chunk.index, chunk.type, chunk.payload
+                )
+                assistant_message_id = self._messages_history.active_response_message_id
+                if assistant_message_id is None or progress is None:
+                    continue
+                await self._broadcast_assistant_response_payload_update(
+                    assistant_message_id,
+                    progress.chunk_index,
+                    chunk.type,
+                    chunk.payload,
+                )
 
     async def _broadcast_assistant_response_delta(
-        self, assistant_message_id: UUID, token: str
+        self,
+        assistant_message_id: UUID,
+        chunk_index: int,
+        chunk_type: MessageChunkType,
+        delta: str,
     ) -> None:
         await self.broadcast(
             MessageDeltaEvent(
                 message_id=assistant_message_id,
-                delta=token,
+                chunk_index=chunk_index,
+                chunk_type=chunk_type,
+                delta=delta,
+            ).model_dump(mode="json"),
+        )
+
+    async def _broadcast_assistant_response_payload_update(
+        self,
+        assistant_message_id: UUID,
+        chunk_index: int,
+        chunk_type: MessageChunkType,
+        payload: ToolCallPayload,
+    ) -> None:
+        await self.broadcast(
+            MessageUpdatePayloadEvent(
+                message_id=assistant_message_id,
+                chunk_index=chunk_index,
+                chunk_type=chunk_type,
+                payload=payload,
             ).model_dump(mode="json"),
         )
 

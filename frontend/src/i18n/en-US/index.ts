@@ -2,6 +2,10 @@ export default {
     appTitle: 'HumConnect',
     notFoundMessage: 'Oops. Nothing here...',
     goHome: 'Go home',
+    navigation: {
+        chats: 'Chats',
+        dashboard: 'Dashboard',
+    },
     chats: {
         title: 'Chats',
         subtitle: 'Start a new conversation or reopen a previous one.',
@@ -9,6 +13,25 @@ export default {
         loading: 'Loading chats...',
         empty: 'No chats yet.',
         untitledChat: 'Untitled chat',
+    },
+    dashboard: {
+        title: 'Recorded events',
+        subtitle: 'Review every event extracted and stored by the assistant.',
+        refresh: 'Refresh',
+        loading: 'Loading recorded events...',
+        empty: 'No recorded events yet.',
+        fields: {
+            createdAt: 'Recorded',
+            eventDate: 'Event date',
+            dateQuality: 'Date quality',
+            location: 'Location',
+            tags: 'Tags',
+            chatId: 'Chat ID',
+            clientId: 'Client ID',
+            sourceMessageId: 'Source message',
+            dateInput: 'Date input',
+            locationInput: 'Location input',
+        },
     },
     chat: {
         backToChats: 'Back to chats',
@@ -18,6 +41,9 @@ export default {
         emptyState: 'Send a message to start.',
         writeMessage: 'Write a message',
         send: 'Send',
+        copyMessage: 'Copy message',
+        copiedMessage: 'Message copied',
+        copyMessageFailed: 'Could not copy message.',
         status: {
             streaming: 'Streaming',
             interrupted: 'Interrupted',
@@ -28,5 +54,6 @@ export default {
         connection: 'Connection error.',
         createChat: 'Could not create chat.',
         loadChats: 'Could not load chats.',
+        loadRecordedEvents: 'Could not load recorded events.',
     },
 };

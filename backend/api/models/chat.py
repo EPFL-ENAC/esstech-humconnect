@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
+from openai.types.responses import EasyInputMessageParam
 from pydantic import BaseModel
 from pydantic import Field as PydanticField
-from sqlalchemy import Column, DateTime
+from sqlalchemy import JSON, Column, DateTime
 from sqlmodel import Field, Relationship, SQLModel
 
 MESSAGE_ROLE_ASSISTANT = "assistant"
@@ -14,6 +15,10 @@ MESSAGE_STATUS_COMPLETE = "complete"
 MESSAGE_STATUS_ERROR = "error"
 MESSAGE_STATUS_INTERRUPTED = "interrupted"
 MESSAGE_STATUS_STREAMING = "streaming"
+
+CHUNK_TYPE_MESSAGE_CONTENT = "message_content"
+CHUNK_TYPE_REASONING_TEXT = "reasoning_text"
+CHUNK_TYPE_TOOL_CALL = "tool_call"
 
 
 def utc_now() -> datetime:
@@ -48,7 +53,10 @@ class Message(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     chat_id: UUID = Field(foreign_key="chatsession.id", index=True)
     role: str = Field(index=True)
-    content: str = ""
+    chunks: list[dict[str, Any]] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
     status: str = Field(index=True)
     created_at: datetime = Field(
         default_factory=utc_now,
@@ -66,7 +74,11 @@ class Message(SQLModel, table=True):
         return Message(
             chat_id=chat_id,
             role=MESSAGE_ROLE_USER,
-            content=content,
+            chunks=[
+                ChatMessageChunk.create(
+                    0, CHUNK_TYPE_MESSAGE_CONTENT, content
+                ).model_dump(mode="json")
+            ],
             status=MESSAGE_STATUS_COMPLETE,
         )
 
@@ -76,14 +88,16 @@ class Message(SQLModel, table=True):
             id=response.id,
             chat_id=response.chat_id,
             role=response.role,
-            content=response.content,
+            chunks=[chunk.model_dump(mode="json") for chunk in response.chunks],
             status=response.status,
             created_at=response.created_at,
             updated_at=response.updated_at,
         )
 
-    def update_content_status(self, new_content: str, new_status: str | None) -> None:
-        self.content = new_content
+    def update_chunks_status(
+        self, new_chunks: list["ChatMessageChunk"], new_status: str | None
+    ) -> None:
+        self.chunks = [chunk.model_dump(mode="json") for chunk in new_chunks]
         if new_status is not None:
             self.status = new_status
 
@@ -92,6 +106,97 @@ class Message(SQLModel, table=True):
 
 MessageRole = Literal["user", "assistant"]
 MessageStatus = Literal["complete", "streaming", "interrupted", "error"]
+MessageChunkType = Literal["message_content", "reasoning_text", "tool_call"]
+ToolCallStatus = Literal["running", "finished", "failed"]
+
+
+class ToolCallPayload(BaseModel):
+    tool_name: str
+    tool_label: str
+    call_id: str
+    arguments: dict[str, Any] | None = None
+    status: ToolCallStatus
+    answer: str | None = None
+    error: str | None = None
+
+    @staticmethod
+    def from_running(
+        *,
+        tool_name: str,
+        tool_label: str,
+        call_id: str,
+        arguments: dict[str, Any] | None,
+    ) -> "ToolCallPayload":
+        return ToolCallPayload(
+            tool_name=tool_name,
+            tool_label=tool_label,
+            call_id=call_id,
+            arguments=arguments,
+            status="running",
+        )
+
+    @staticmethod
+    def from_finished(
+        *,
+        tool_name: str,
+        tool_label: str,
+        call_id: str,
+        arguments: dict[str, Any] | None,
+        answer: str,
+    ) -> "ToolCallPayload":
+        return ToolCallPayload(
+            tool_name=tool_name,
+            tool_label=tool_label,
+            call_id=call_id,
+            arguments=arguments,
+            status="finished",
+            answer=answer,
+        )
+
+    @staticmethod
+    def from_failed(
+        *,
+        tool_name: str,
+        tool_label: str,
+        call_id: str,
+        arguments: dict[str, Any] | None,
+        error: str,
+    ) -> "ToolCallPayload":
+        return ToolCallPayload(
+            tool_name=tool_name,
+            tool_label=tool_label,
+            call_id=call_id,
+            arguments=arguments,
+            status="failed",
+            error=error,
+        )
+
+
+class ChatMessageChunk(BaseModel):
+    index: int
+    type: MessageChunkType
+    content: str
+    payload: ToolCallPayload | None = None
+
+    @staticmethod
+    def create(
+        chunk_index: int,
+        chunk_type: MessageChunkType,
+        content: str = "",
+        payload: ToolCallPayload | None = None,
+    ) -> "ChatMessageChunk":
+        return ChatMessageChunk(
+            index=chunk_index,
+            type=chunk_type,
+            content=content,
+            payload=payload,
+        )
+
+    def append(self, delta: str) -> None:
+        self.content += delta
+
+    def update_payload(self, payload: ToolCallPayload) -> None:
+        self.payload = payload
 
 
 class CreateChatRequest(BaseModel):
@@ -124,7 +229,7 @@ class ChatMessageResponse(BaseModel):
     id: UUID
     chat_id: UUID
     role: MessageRole
-    content: str
+    chunks: list[ChatMessageChunk]
     status: MessageStatus
     created_at: datetime
     updated_at: datetime
@@ -135,28 +240,80 @@ class ChatMessageResponse(BaseModel):
             id=message.id,
             chat_id=message.chat_id,
             role=cast(MessageRole, message.role),
-            content=message.content,
+            chunks=[ChatMessageChunk.model_validate(chunk) for chunk in message.chunks],
             status=cast(MessageStatus, message.status),
             created_at=message.created_at,
             updated_at=message.updated_at,
         )
 
     @staticmethod
-    def make_assistant_message(chat_id: UUID, content: str) -> "ChatMessageResponse":
+    def make_assistant_message(
+        chat_id: UUID,
+        chunk_index: int | None = None,
+        chunk_type: MessageChunkType | None = None,
+        content: str = "",
+    ) -> "ChatMessageResponse":
         created_at = utc_now()
+        chunks = []
+        if chunk_index is not None and chunk_type is not None:
+            chunks.append(ChatMessageChunk.create(chunk_index, chunk_type, content))
+
         return ChatMessageResponse(
             id=uuid4(),
             chat_id=chat_id,
             role=MESSAGE_ROLE_ASSISTANT,
-            content=content,
+            chunks=chunks,
             status=MESSAGE_STATUS_STREAMING,
             created_at=created_at,
             updated_at=created_at,
         )
 
-    def update_content(self, new_content: str) -> None:
-        self.content = new_content
+    def append_chunk_delta(
+        self, chunk_index: int, chunk_type: MessageChunkType, delta: str
+    ) -> int:
+        if (
+            len(self.chunks) > chunk_index
+            and self.chunks[chunk_index].type == chunk_type
+        ):
+            self.chunks[chunk_index].append(delta)
+            self.updated_at = utc_now()
+            return chunk_index
+
+        chunk = ChatMessageChunk.create(chunk_index, chunk_type, delta)
+        self.chunks.append(chunk)
+        self.chunks.sort(key=lambda item: item.index)
         self.updated_at = utc_now()
+        return chunk.index
+
+    def update_chunk_payload(
+        self, chunk_index: int, chunk_type: MessageChunkType, payload: ToolCallPayload
+    ) -> int:
+        if (
+            len(self.chunks) > chunk_index
+            and self.chunks[chunk_index].type == chunk_type
+        ):
+            self.chunks[chunk_index].update_payload(payload)
+            self.updated_at = utc_now()
+            return chunk_index
+
+        chunk = ChatMessageChunk.create(chunk_index, chunk_type, payload=payload)
+        self.chunks.append(chunk)
+        self.chunks.sort(key=lambda item: item.index)
+        self.updated_at = utc_now()
+        return chunk.index
+
+    def content_for_model(self) -> str:
+        return "".join(
+            chunk.content
+            for chunk in self.chunks
+            if chunk.type == CHUNK_TYPE_MESSAGE_CONTENT
+        )
+
+    def to_ai_model_input(self) -> EasyInputMessageParam:
+        return {
+            "role": self.role,
+            "content": self.content_for_model(),
+        }
 
     def update_status(self, new_status: MessageStatus) -> None:
         self.status = new_status
@@ -181,7 +338,17 @@ class MessageCreatedEvent(BaseModel):
 class MessageDeltaEvent(BaseModel):
     type: Literal["message_delta"] = "message_delta"
     message_id: UUID
+    chunk_index: int
+    chunk_type: MessageChunkType
     delta: str
+
+
+class MessageUpdatePayloadEvent(BaseModel):
+    type: Literal["message_update_payload"] = "message_update_payload"
+    message_id: UUID
+    chunk_index: int
+    chunk_type: MessageChunkType
+    payload: ToolCallPayload
 
 
 class MessageDoneEvent(BaseModel):
