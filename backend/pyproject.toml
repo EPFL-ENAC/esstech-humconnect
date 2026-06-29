@@ -42,6 +42,7 @@ packages = [
     "api.services",
     "api.services.chat_room",
     "api.services.chat_room.tools",
+    "api.utils",
     "api.views",
 ]
 

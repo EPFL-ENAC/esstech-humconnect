@@ -118,7 +118,7 @@ class HumConnectAssistant(ChatAssistant):
                 input=model_input,
                 model=config.MODEL_NAME,
                 stream=True,
-                instructions="When you need to call multiple tools, make sure to call them in separate function calls. For that, call the first tool and wait for its output, then think again, and only then can you call the next tool. You cannot call multiple tools in one go by providing multiple JSON objects in the function_call field. You must call one tool at a time, and wait for its output before calling the next tool.",
+                instructions="Don't hesitate to record events when they could be useful for later queries.",
                 text={"format": {"type": "json_object"}},
                 tools=self._tool_set.definitions(),
             )

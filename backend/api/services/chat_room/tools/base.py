@@ -3,11 +3,13 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Sequence, cast
 
+from openai import pydantic_function_tool
 from openai.types.responses import (
     FunctionToolParam,
     ResponseFunctionToolCall,
     ResponseInputItemParam,
 )
+from pydantic import BaseModel
 
 ToolExecutor = Callable[[dict[str, object]], Awaitable[str]]
 
@@ -18,6 +20,23 @@ class HumConnectTool:
     label: str
     definition: FunctionToolParam
     execute: ToolExecutor
+
+
+def pydantic_response_function_tool(
+    model: type[BaseModel], *, name: str, description: str
+) -> FunctionToolParam:
+    chat_tool = pydantic_function_tool(model, name=name, description=description)
+    function = chat_tool["function"]
+    return cast(
+        FunctionToolParam,
+        {
+            "type": "function",
+            "name": function["name"],
+            "description": function["description"],
+            "strict": function["strict"],
+            "parameters": function["parameters"],
+        },
+    )
 
 
 @dataclass(frozen=True, slots=True)
