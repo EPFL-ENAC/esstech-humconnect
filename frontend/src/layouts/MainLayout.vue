@@ -7,7 +7,23 @@
             </q-toolbar>
         </q-header>
 
-        <q-drawer v-model="leftDrawerOpen" :breakpoint="0" :width="314" bordered> </q-drawer>
+        <q-drawer v-model="leftDrawerOpen" :breakpoint="0" :width="314" bordered>
+            <q-list padding>
+                <q-item v-ripple clickable to="/" exact>
+                    <q-item-section avatar>
+                        <q-icon name="chat" />
+                    </q-item-section>
+                    <q-item-section>{{ t('navigation.chats') }}</q-item-section>
+                </q-item>
+
+                <q-item v-ripple clickable to="/dashboard">
+                    <q-item-section avatar>
+                        <q-icon name="dashboard" />
+                    </q-item-section>
+                    <q-item-section>{{ t('navigation.dashboard') }}</q-item-section>
+                </q-item>
+            </q-list>
+        </q-drawer>
 
         <q-page-container>
             <router-view />

@@ -50,6 +50,26 @@ export interface ListChatsResponse {
     chats: ChatSessionResponse[];
 }
 
+export interface RecordedEventResponse {
+    id: string;
+    chat_id: string;
+    initiated_by_client_id: string;
+    source_message_id: string;
+    original_text: string;
+    event_name: string;
+    event_datetime: string | null;
+    event_date_granularity: string;
+    event_date_precision: string;
+    event_date_input: Record<string, unknown>;
+    event_location: Record<string, unknown>;
+    tags: string[];
+    created_at: string;
+}
+
+export interface ListRecordedEventsResponse {
+    events: RecordedEventResponse[];
+}
+
 export interface ChatSnapshotResponse {
     type: 'snapshot';
     chat: ChatSessionResponse;
@@ -104,3 +124,4 @@ export type ChatSocketEvent =
 export type ChatClientEvent = UserMessageEvent;
 export type ChatSession = ChatSessionResponse;
 export type ChatMessage = ChatMessageResponse;
+export type RecordedEvent = RecordedEventResponse;

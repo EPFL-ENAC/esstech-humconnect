@@ -2,14 +2,28 @@ import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Sequence, cast
+from uuid import UUID
 
+from openai import pydantic_function_tool
 from openai.types.responses import (
     FunctionToolParam,
     ResponseFunctionToolCall,
     ResponseInputItemParam,
 )
+from pydantic import BaseModel
 
-ToolExecutor = Callable[[dict[str, object]], Awaitable[str]]
+
+@dataclass(frozen=True, slots=True)
+class ToolExecutionContext:
+    chat_id: UUID
+    client_id: str
+    source_message_id: UUID
+
+
+ToolExecutor = Callable[
+    [dict[str, object], ToolExecutionContext | None],
+    Awaitable[str],
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +32,23 @@ class HumConnectTool:
     label: str
     definition: FunctionToolParam
     execute: ToolExecutor
+
+
+def pydantic_response_function_tool(
+    model: type[BaseModel], *, name: str, description: str
+) -> FunctionToolParam:
+    chat_tool = pydantic_function_tool(model, name=name, description=description)
+    function = chat_tool["function"]
+    return cast(
+        FunctionToolParam,
+        {
+            "type": "function",
+            "name": function["name"],
+            "description": function["description"],
+            "strict": function["strict"],
+            "parameters": function["parameters"],
+        },
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,9 +165,11 @@ class ToolSet:
         return tool.label if tool is not None else function_call.name
 
     async def execute(
-        self, function_call: ResponseFunctionToolCall
+        self,
+        function_call: ResponseFunctionToolCall,
+        context: ToolExecutionContext | None = None,
     ) -> ToolCallExecution:
-        tool_output = await self._execute_tool_call(function_call)
+        tool_output = await self._execute_tool_call(function_call, context)
         output = tool_output.to_json()
         input_item = ToolCallInputItem.from_function_call(function_call)
         output_item = ToolCallOutputItem.from_output(function_call.call_id, output)
@@ -149,7 +182,9 @@ class ToolSet:
         )
 
     async def _execute_tool_call(
-        self, function_call: ResponseFunctionToolCall
+        self,
+        function_call: ResponseFunctionToolCall,
+        context: ToolExecutionContext | None,
     ) -> ToolCallOutput:
         tool = self._tools.get(function_call.name)
         if tool is None:
@@ -161,7 +196,7 @@ class ToolSet:
             arguments = json.loads(function_call.arguments)
             if not isinstance(arguments, dict):
                 raise ValueError("Tool arguments must be a JSON object.")
-            result = await tool.execute(cast(dict[str, object], arguments))
+            result = await tool.execute(cast(dict[str, object], arguments), context)
         except Exception as e:
             return ToolCallOutput.from_failure(str(e))
 

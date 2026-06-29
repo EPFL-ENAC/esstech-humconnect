@@ -1,5 +1,7 @@
 import asyncio
+import json
 import os
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -22,7 +24,9 @@ from api.models.chat import (
     ToolCallPayload,
     utc_now,
 )
+from api.models.recorded_event import RecordedEvent
 from api.services import chat as chat_service
+from api.services import recorded_events as recorded_events_module
 from api.services.chat_room import chat_assistant as chat_assistant_module
 from api.services.chat_room import chat_db as chat_db_module
 from api.services.chat_room import humconnect_assistant as humconnect_assistant_module
@@ -34,7 +38,9 @@ from api.services.chat_room.chat_assistant import (
 )
 from api.services.chat_room.tools import (
     ASK_MEDITRON_TOOL,
+    RECALL_EVENTS_TOOL,
     RECORD_EVENT_TOOL,
+    ToolExecutionContext,
     ToolCallInputItem,
     ToolCallOutput,
 )
@@ -69,9 +75,11 @@ class FakeResult:
 class FakeAsyncSession:
     commit_count = 0
     instances = []
+    last_query = None
     rows = {
         ChatSession: {},
         Message: {},
+        RecordedEvent: {},
     }
 
     def __init__(self, *args, **kwargs):
@@ -91,9 +99,14 @@ class FakeAsyncSession:
         return self.rows[model].get(row_id)
 
     async def exec(self, query):
+        self.__class__.last_query = query
         query_text = str(query)
         if "chatsession" in query_text:
             return FakeResult(list(self.rows[ChatSession].values()))
+        if "recordedevent" in query_text:
+            events = list(self.rows[RecordedEvent].values())
+            events.sort(key=lambda event: event.created_at, reverse=True)
+            return FakeResult(events)
 
         messages = list(self.rows[Message].values())
         if "WHERE message.status" in query_text:
@@ -111,6 +124,8 @@ class FakeAsyncSession:
             self.rows[ChatSession][row.id] = row
         if isinstance(row, Message):
             self.rows[Message][row.id] = row
+        if isinstance(row, RecordedEvent):
+            self.rows[RecordedEvent][row.id] = row
 
     async def commit(self):
         self.local_commit_count += 1
@@ -123,9 +138,11 @@ class FakeAsyncSession:
     def reset(cls):
         cls.commit_count = 0
         cls.instances = []
+        cls.last_query = None
         cls.rows = {
             ChatSession: {},
             Message: {},
+            RecordedEvent: {},
         }
 
 
@@ -214,8 +231,8 @@ class FakeAssistant:
         self.chunks = chunks
         self.calls = []
 
-    async def stream_response(self, chat_history, question):
-        self.calls.append((list(chat_history), question))
+    async def stream_response(self, chat_history, question, tool_context=None):
+        self.calls.append((list(chat_history), question, tool_context))
         for chunk in self.chunks:
             if isinstance(chunk, Exception):
                 raise chunk
@@ -586,8 +603,8 @@ def test_service_handles_user_message_through_history_and_hub(monkeypatch):
             messages_history=history,
         )
 
-        async def start_assistant_response(chat_history, question):
-            started_responses.append((chat_history, question))
+        async def start_assistant_response(chat_history, question, tool_context=None):
+            started_responses.append((chat_history, question, tool_context))
 
         monkeypatch.setattr(
             room,
@@ -604,7 +621,13 @@ def test_service_handles_user_message_through_history_and_hub(monkeypatch):
         assert history.created_turns == [("client-1", "Hello there")]
         assert len(created_events) == 1
         assert created_events[0]["message"]["role"] == MESSAGE_ROLE_USER
-        assert started_responses == [([], "Hello there")]
+        [(started_history, started_question, tool_context)] = started_responses
+        assert started_history == []
+        assert started_question == "Hello there"
+        assert tool_context is not None
+        assert tool_context.chat_id == room.chat_id
+        assert tool_context.client_id == "client-1"
+        assert str(tool_context.source_message_id) == created_events[0]["message"]["id"]
 
     asyncio.run(run())
 
@@ -645,7 +668,7 @@ def test_service_passes_chat_history_and_question_to_assistant():
     )
     asyncio.run(start_and_wait_for_response(room, history.chat_history, "Latest question"))
 
-    assert assistant.calls == [([history_message], "Latest question")]
+    assert assistant.calls == [([history_message], "Latest question", None)]
     assert history.progress_tokens == [
         (0, CHUNK_TYPE_MESSAGE_CONTENT, "O"),
         (0, CHUNK_TYPE_MESSAGE_CONTENT, "K"),
@@ -772,7 +795,7 @@ def test_assistant_stream_returns_without_done_event_when_no_tokens_are_generate
         "status": MESSAGE_STATUS_COMPLETE,
     }
     assert history.progress_tokens == []
-    assert assistant.calls == [([], "")]
+    assert assistant.calls == [([], "", None)]
 
 
 def test_assistant_stream_marks_message_error_when_streaming_fails(monkeypatch):
@@ -1007,6 +1030,7 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
         "dummy_tool",
         "ask_meditron",
         "record_event",
+        "recall_events",
     ]
     assert fake_client.responses.create_kwargs["input"] == [
         {
@@ -1112,29 +1136,615 @@ def test_ask_meditron_tool_rejects_non_string_system_prompt():
         asyncio.run(run())
 
 
-def test_record_event_tool_appends_event_to_memory():
-    events_tool_module.RECORDED_EVENTS.clear()
+def structured_record_event_arguments():
+    return {
+        "original_text": "My son started coughing 3 days ago",
+        "event_name": "Son started coughing",
+        "event_date": {
+            "kind": "relative",
+            "granularity": "day",
+            "precision": "exact",
+            "relative": {
+                "direction": "past",
+                "days": 3,
+                "precision": "exact",
+            },
+        },
+        "event_location": {"value": None, "precision": "unknown"},
+        "tags": ["symptom", "cough"],
+    }
+
+
+RECORDED_EVENT_CHAT_ID = uuid4()
+RECORDED_EVENT_SOURCE_MESSAGE_ID = uuid4()
+
+
+def record_event_tool_context() -> ToolExecutionContext:
+    return ToolExecutionContext(
+        chat_id=RECORDED_EVENT_CHAT_ID,
+        client_id="client-1",
+        source_message_id=RECORDED_EVENT_SOURCE_MESSAGE_ID,
+    )
+
+
+def configure_recorded_event_service(
+    monkeypatch,
+    *,
+    now: datetime | None = None,
+) -> None:
+    fixed_now = now or datetime(2026, 6, 29, 12, 0, tzinfo=UTC)
+
+    def service_factory():
+        return recorded_events_module.RecordedEventService(
+            session_factory=FakeAsyncSession,
+            engine_factory=lambda: object(),
+            now_factory=lambda: fixed_now,
+        )
+
+    monkeypatch.setattr(events_tool_module, "RecordedEventService", service_factory)
+
+
+def recorded_events() -> list[RecordedEvent]:
+    return list(FakeAsyncSession.rows[RecordedEvent].values())
+
+
+def expected_record_event_tool_output(
+    event: RecordedEvent,
+) -> str:
+    return json.dumps(
+        {
+            "message": f"Recorded event: {event.event_name}",
+            "event": event.model_dump(mode="json"),
+        },
+        indent=2,
+    )
+
+
+def make_recorded_event(
+    *,
+    chat_id=RECORDED_EVENT_CHAT_ID,
+    original_text="My son started coughing 3 days ago",
+    event_name="Son started coughing",
+    event_datetime=datetime(2026, 6, 26, 12, 0, tzinfo=UTC),
+    event_location=None,
+    tags=None,
+    created_at=datetime(2026, 6, 29, 12, 0, tzinfo=UTC),
+) -> RecordedEvent:
+    return RecordedEvent(
+        chat_id=chat_id,
+        initiated_by_client_id="client-1",
+        source_message_id=RECORDED_EVENT_SOURCE_MESSAGE_ID,
+        original_text=original_text,
+        event_name=event_name,
+        event_datetime=event_datetime,
+        event_date_granularity="day" if event_datetime is not None else "unknown",
+        event_date_precision="exact" if event_datetime is not None else "unknown",
+        event_date_input={
+            "kind": "absolute" if event_datetime is not None else "unknown",
+            "granularity": "day" if event_datetime is not None else "unknown",
+            "precision": "exact" if event_datetime is not None else "unknown",
+            "value": event_datetime.date().isoformat()
+            if event_datetime is not None
+            else None,
+            "relative": None,
+        },
+        event_location=event_location or {"value": None, "precision": "unknown"},
+        tags=tags or ["symptom", "cough"],
+        created_at=created_at,
+    )
+
+
+def expected_recall_events_tool_output(events: list[RecordedEvent]) -> str:
+    return json.dumps(
+        {
+            "message": f"Recalled {len(events)} event(s).",
+            "events": [event.model_dump(mode="json") for event in events],
+        },
+        indent=2,
+    )
+
+
+def test_recorded_event_service_persists_event_with_initiator_metadata():
+    FakeAsyncSession.reset()
+    event_input = events_tool_module.RecordEventToolInput.model_validate(
+        structured_record_event_arguments()
+    )
+    service = recorded_events_module.RecordedEventService(
+        session_factory=FakeAsyncSession,
+        engine_factory=lambda: object(),
+        now_factory=lambda: datetime(2026, 6, 29, 12, 0, tzinfo=UTC),
+    )
+
+    async def run():
+        return await service.record_event_from_tool(
+            event_input=event_input,
+            chat_id=RECORDED_EVENT_CHAT_ID,
+            client_id="client-1",
+            source_message_id=RECORDED_EVENT_SOURCE_MESSAGE_ID,
+        )
+
+    response = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.chat_id == RECORDED_EVENT_CHAT_ID
+    assert persisted_event.initiated_by_client_id == "client-1"
+    assert persisted_event.source_message_id == RECORDED_EVENT_SOURCE_MESSAGE_ID
+    assert persisted_event.original_text == "My son started coughing 3 days ago"
+    assert persisted_event.event_name == "Son started coughing"
+    assert persisted_event.event_datetime == datetime(2026, 6, 26, 12, 0, tzinfo=UTC)
+    assert persisted_event.event_date_granularity == "day"
+    assert persisted_event.event_date_precision == "exact"
+    assert persisted_event.event_date_input == {
+        "kind": "relative",
+        "granularity": "day",
+        "precision": "exact",
+        "value": None,
+        "relative": {
+            "direction": "past",
+            "years": None,
+            "months": None,
+            "weeks": None,
+            "days": 3,
+            "hours": None,
+            "minutes": None,
+            "precision": "exact",
+        },
+    }
+    assert persisted_event.event_location == {"value": None, "precision": "unknown"}
+    assert persisted_event.tags == ["symptom", "cough"]
+    assert response == persisted_event
+
+
+def test_recorded_event_service_builds_global_filtered_recall_query():
+    FakeAsyncSession.reset()
+    cough_event = make_recorded_event()
+    other_chat_event = make_recorded_event(
+        chat_id=uuid4(),
+        created_at=datetime(2026, 6, 30, 12, 0, tzinfo=UTC),
+    )
+    FakeAsyncSession.rows[RecordedEvent][cough_event.id] = cough_event
+    FakeAsyncSession.rows[RecordedEvent][other_chat_event.id] = other_chat_event
+
+    recall_input = events_tool_module.RecallEventsToolInput.model_validate(
+        {
+            "keyword": "cough",
+            "date_start": "2026-06-20T00:00:00+00:00",
+            "date_end": "2026-06-30T00:00:00+00:00",
+            "tags": ["symptom"],
+            "tag_match": "all",
+            "limit": 10,
+        }
+    )
+    service = recorded_events_module.RecordedEventService(
+        session_factory=FakeAsyncSession,
+        engine_factory=lambda: object(),
+    )
+
+    async def run():
+        return await service.recall_events_from_tool(
+            recall_input=recall_input,
+        )
+
+    assert asyncio.run(run()) == [other_chat_event, cough_event]
+
+    query_text = str(FakeAsyncSession.last_query)
+    assert "WHERE recordedevent.chat_id" not in query_text
+    assert "AND recordedevent.chat_id" not in query_text
+    assert "recordedevent.event_datetime >= " in query_text
+    assert "recordedevent.event_datetime <= " in query_text
+    assert "lower(recordedevent.event_name) LIKE lower(" in query_text
+    assert "lower(recordedevent.original_text) LIKE lower(" in query_text
+    assert "CAST(recordedevent.event_location AS VARCHAR)" in query_text
+    assert "CAST(recordedevent.tags AS JSONB)" in query_text
+    assert " LIMIT " in query_text
+
+
+def test_record_event_tool_delegates_to_recorded_event_service(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
 
     async def run():
         return await RECORD_EVENT_TOOL.execute(
-            {"event": "I have 3 kids that cough since yesterday"}
+            structured_record_event_arguments(),
+            record_event_tool_context(),
         )
 
-    assert asyncio.run(run()) == (
-        "Recorded event #1: I have 3 kids that cough since yesterday"
+    output = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.chat_id == RECORDED_EVENT_CHAT_ID
+    assert persisted_event.initiated_by_client_id == "client-1"
+    assert persisted_event.source_message_id == RECORDED_EVENT_SOURCE_MESSAGE_ID
+    assert output == expected_record_event_tool_output(persisted_event)
+
+
+def test_recall_events_tool_delegates_to_recorded_event_service(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    cough_event = make_recorded_event()
+    fever_event = make_recorded_event(
+        original_text="My son had a fever yesterday",
+        event_name="Son had fever",
+        event_datetime=datetime(2026, 6, 28, 12, 0, tzinfo=UTC),
+        tags=["symptom", "fever"],
+        created_at=datetime(2026, 6, 30, 12, 0, tzinfo=UTC),
     )
-    assert events_tool_module.RECORDED_EVENTS == [
-        "I have 3 kids that cough since yesterday"
+    FakeAsyncSession.rows[RecordedEvent][cough_event.id] = cough_event
+    FakeAsyncSession.rows[RecordedEvent][fever_event.id] = fever_event
+
+    arguments = {
+        "keyword": "son",
+        "date_start": "2026-06-20T00:00:00+00:00",
+        "date_end": "2026-06-30T00:00:00+00:00",
+        "tags": ["cough", "fever"],
+        "tag_match": "any",
+        "limit": 5,
+    }
+
+    async def run():
+        return await RECALL_EVENTS_TOOL.execute(arguments, record_event_tool_context())
+
+    output = asyncio.run(run())
+    assert output == expected_recall_events_tool_output([fever_event, cough_event])
+
+
+def test_recall_events_tool_does_not_require_execution_context(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    cough_event = make_recorded_event()
+    FakeAsyncSession.rows[RecordedEvent][cough_event.id] = cough_event
+
+    async def run():
+        return await RECALL_EVENTS_TOOL.execute(
+            {
+                "keyword": "cough",
+                "date_start": None,
+                "date_end": None,
+                "tags": [],
+                "tag_match": "all",
+                "limit": 10,
+            }
+        )
+
+    assert asyncio.run(run()) == expected_recall_events_tool_output([cough_event])
+
+
+def test_recall_events_tool_rejects_invalid_date_range():
+    async def run():
+        return await RECALL_EVENTS_TOOL.execute(
+            {
+                "keyword": None,
+                "date_start": "2026-06-30T00:00:00+00:00",
+                "date_end": "2026-06-20T00:00:00+00:00",
+                "tags": [],
+                "tag_match": "all",
+                "limit": 10,
+            },
+            record_event_tool_context(),
+        )
+
+    with pytest.raises(ValueError, match="invalid query data"):
+        asyncio.run(run())
+
+
+def test_record_event_tool_schema_exposes_relative_date_shape():
+    parameters = RECORD_EVENT_TOOL.definition["parameters"]
+    defs = parameters["$defs"]
+    event_date_schema = defs["RecordEventDateInput"]
+    relative_schema = defs["RecordEventRelativeDateInput"]
+
+    assert RECORD_EVENT_TOOL.definition["type"] == "function"
+    assert RECORD_EVENT_TOOL.definition["strict"] is True
+    assert parameters["additionalProperties"] is False
+    assert event_date_schema["additionalProperties"] is False
+    assert relative_schema["additionalProperties"] is False
+    assert parameters["properties"]["event_date"] == {
+        "$ref": "#/$defs/RecordEventDateInput"
+    }
+    assert event_date_schema["required"] == [
+        "kind",
+        "granularity",
+        "precision",
+        "value",
+        "relative",
+    ]
+    assert relative_schema["required"] == [
+        "direction",
+        "years",
+        "months",
+        "weeks",
+        "days",
+        "hours",
+        "minutes",
+        "precision",
+    ]
+    assert parameters["properties"]["original_text"]["description"] == (
+        "The exact user text that contains the event."
+    )
+    assert event_date_schema["properties"]["value"]["description"].startswith(
+        "For absolute dates"
+    )
+    assert relative_schema["properties"]["direction"]["enum"] == ["past", "future"]
+    assert relative_schema["properties"]["days"]["anyOf"] == [
+        {"minimum": 0, "type": "integer"},
+        {"type": "null"},
     ]
 
 
-@pytest.mark.parametrize("event", ["", 123, None])
-def test_record_event_tool_rejects_missing_or_empty_event(event):
-    async def run():
-        return await RECORD_EVENT_TOOL.execute({"event": event})
+def test_record_event_tool_accepts_json_stringified_structured_fields(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    arguments = structured_record_event_arguments()
+    arguments["event_date"] = json.dumps(arguments["event_date"])
+    arguments["event_location"] = json.dumps(arguments["event_location"])
+    arguments["tags"] = json.dumps(arguments["tags"])
 
-    with pytest.raises(ValueError, match="non-empty string event"):
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    output = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.event_datetime == datetime(2026, 6, 26, 12, 0, tzinfo=UTC)
+    assert persisted_event.tags == ["symptom", "cough"]
+    assert output == expected_record_event_tool_output(persisted_event)
+
+
+def test_record_event_tool_requires_execution_context(monkeypatch):
+    configure_recorded_event_service(monkeypatch)
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(structured_record_event_arguments())
+
+    with pytest.raises(ValueError, match="requires chat execution context"):
         asyncio.run(run())
+
+
+@pytest.mark.parametrize("original_text", ["", "   ", 123, None])
+def test_record_event_tool_rejects_missing_or_empty_original_text(original_text):
+    arguments = structured_record_event_arguments()
+    arguments["original_text"] = original_text
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments)
+
+    with pytest.raises(ValueError, match="invalid event data"):
+        asyncio.run(run())
+
+
+def test_record_event_tool_accepts_absolute_datetime(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    arguments = structured_record_event_arguments()
+    arguments["event_date"] = {
+        "kind": "absolute",
+        "granularity": "minute",
+        "precision": "exact",
+        "value": "2026-06-29T08:15:00+02:00",
+        "relative": None,
+    }
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    output = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.event_datetime is not None
+    assert persisted_event.event_datetime.isoformat() == "2026-06-29T08:15:00+02:00"
+    assert output == expected_record_event_tool_output(persisted_event)
+
+
+def test_record_event_tool_accepts_absolute_date(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    arguments = structured_record_event_arguments()
+    arguments["event_date"] = {
+        "kind": "absolute",
+        "granularity": "day",
+        "precision": "exact",
+        "value": "2026-06-29",
+        "relative": None,
+    }
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    output = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.event_datetime == datetime(
+        2026, 6, 29, 0, 0, tzinfo=UTC
+    )
+    assert output == expected_record_event_tool_output(persisted_event)
+
+
+def test_record_event_tool_accepts_fuzzy_relative_datetime(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    arguments = structured_record_event_arguments()
+    arguments["event_date"]["granularity"] = "week"
+    arguments["event_date"]["precision"] = "fuzzy"
+    arguments["event_date"]["relative"]["weeks"] = 3
+    del arguments["event_date"]["relative"]["days"]
+    arguments["event_date"]["relative"]["precision"] = "fuzzy"
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    output = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.event_datetime == datetime(2026, 6, 8, 12, 0, tzinfo=UTC)
+    assert persisted_event.event_date_precision == "fuzzy"
+    assert output == expected_record_event_tool_output(persisted_event)
+
+
+def test_record_event_tool_accepts_sparse_relative_datetime(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    arguments = structured_record_event_arguments()
+    arguments["event_date"] = {
+        "kind": "relative",
+        "granularity": "minute",
+        "precision": "exact",
+        "relative": {
+            "direction": "past",
+            "minutes": 30,
+            "precision": "exact",
+        },
+    }
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    output = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.event_datetime == datetime(2026, 6, 29, 11, 30, tzinfo=UTC)
+    assert output == expected_record_event_tool_output(persisted_event)
+
+
+def test_record_event_tool_accepts_strict_nullable_relative_datetime(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    arguments = structured_record_event_arguments()
+    arguments["event_date"] = {
+        "kind": "relative",
+        "granularity": "minute",
+        "precision": "exact",
+        "value": None,
+        "relative": {
+            "direction": "past",
+            "years": None,
+            "months": None,
+            "weeks": None,
+            "days": None,
+            "hours": None,
+            "minutes": 30,
+            "precision": "exact",
+        },
+    }
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    output = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.event_datetime == datetime(2026, 6, 29, 11, 30, tzinfo=UTC)
+    assert output == expected_record_event_tool_output(persisted_event)
+
+
+def test_record_event_tool_accepts_unknown_datetime(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    arguments = structured_record_event_arguments()
+    arguments["event_date"] = {
+        "kind": "unknown",
+        "granularity": "unknown",
+        "precision": "unknown",
+        "value": None,
+        "relative": None,
+    }
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    output = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.event_datetime is None
+    assert output == expected_record_event_tool_output(persisted_event)
+
+
+@pytest.mark.parametrize(
+    "event_date",
+    [
+        {
+            "kind": "relative",
+            "granularity": "day",
+            "precision": "exact",
+            "relative": {
+                "direction": "past",
+                "precision": "exact",
+            },
+        },
+        {
+            "kind": "relative",
+            "granularity": "day",
+            "precision": "exact",
+            "value": None,
+            "relative": {
+                "direction": "past",
+                "years": None,
+                "months": None,
+                "weeks": None,
+                "days": None,
+                "hours": None,
+                "minutes": None,
+                "precision": "exact",
+            },
+        },
+        {
+            "kind": "relative",
+            "granularity": "day",
+            "precision": "exact",
+            "relative": {
+                "direction": "past",
+                "days": -1,
+                "precision": "exact",
+            },
+        },
+        {
+            "kind": "absolute",
+            "granularity": "day",
+            "precision": "exact",
+            "value": None,
+        },
+        {
+            "kind": "absolute",
+            "granularity": "day",
+            "precision": "exact",
+            "value": "not-a-date",
+        },
+        {
+            "kind": "unknown",
+            "granularity": "day",
+            "precision": "unknown",
+        },
+    ],
+)
+def test_record_event_tool_rejects_invalid_event_date(event_date):
+    arguments = structured_record_event_arguments()
+    arguments["event_date"] = event_date
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments)
+
+    with pytest.raises(ValueError, match="invalid event data"):
+        asyncio.run(run())
+
+
+def test_record_event_tool_rejects_non_string_tags():
+    arguments = structured_record_event_arguments()
+    arguments["tags"] = ["symptom", 123]
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments)
+
+    with pytest.raises(ValueError, match="invalid event data"):
+        asyncio.run(run())
+
+
+def test_resolve_relative_datetime_handles_calendar_and_clock_units():
+    reference = datetime(2026, 6, 29, 12, 0, tzinfo=UTC)
+    relative = events_tool_module.RecordEventRelativeDateInput(
+        direction="past",
+        years=1,
+        months=2,
+        weeks=1,
+        days=3,
+        hours=4,
+        minutes=5,
+        precision="exact",
+    )
+
+    assert (
+        relative.resolve_relative_to_datetime(reference).isoformat()
+        == "2025-04-19T07:55:00+00:00"
+    )
 
 
 def test_humconnect_chat_assistant_executes_dummy_tool_calls(monkeypatch):
@@ -1334,7 +1944,9 @@ def test_humconnect_chat_assistant_executes_ask_meditron_tool_calls(monkeypatch)
 
 
 def test_humconnect_chat_assistant_executes_record_event_tool_calls(monkeypatch):
-    events_tool_module.RECORDED_EVENTS.clear()
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    tool_arguments = structured_record_event_arguments()
 
     class FakeEvent:
         def __init__(self, event_type, delta="", item=None):
@@ -1354,9 +1966,7 @@ def test_humconnect_chat_assistant_executes_record_event_tool_calls(monkeypatch)
                 yield FakeEvent(
                     "response.output_item.done",
                     item=ResponseFunctionToolCall(
-                        arguments=(
-                            '{"event": "I have 3 kids that cough since yesterday"}'
-                        ),
+                        arguments=json.dumps(tool_arguments),
                         call_id="call_record_event",
                         name="record_event",
                         type="function_call",
@@ -1380,10 +1990,17 @@ def test_humconnect_chat_assistant_executes_record_event_tool_calls(monkeypatch)
     async def run():
         return [
             chunk
-            async for chunk in assistant.stream_response([], "Remember this")
+            async for chunk in assistant.stream_response(
+                [],
+                "Remember this",
+                record_event_tool_context(),
+            )
         ]
 
-    assert asyncio.run(run()) == [
+    chunks = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    expected_output = expected_record_event_tool_output(persisted_event)
+    assert chunks == [
         AssistantStreamPayloadUpdate(
             0,
             CHUNK_TYPE_TOOL_CALL,
@@ -1391,7 +2008,7 @@ def test_humconnect_chat_assistant_executes_record_event_tool_calls(monkeypatch)
                 tool_name="record_event",
                 tool_label="Record event",
                 call_id="call_record_event",
-                arguments={"event": "I have 3 kids that cough since yesterday"},
+                arguments=tool_arguments,
                 status="running",
             ),
         ),
@@ -1402,28 +2019,22 @@ def test_humconnect_chat_assistant_executes_record_event_tool_calls(monkeypatch)
                 tool_name="record_event",
                 tool_label="Record event",
                 call_id="call_record_event",
-                arguments={"event": "I have 3 kids that cough since yesterday"},
+                arguments=tool_arguments,
                 status="finished",
-                answer=(
-                    "Recorded event #1: "
-                    "I have 3 kids that cough since yesterday"
-                ),
+                answer=expected_output,
             ),
         ),
         AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "Noted"),
     ]
-    assert events_tool_module.RECORDED_EVENTS == [
-        "I have 3 kids that cough since yesterday"
-    ]
+    assert persisted_event.chat_id == RECORDED_EVENT_CHAT_ID
+    assert persisted_event.initiated_by_client_id == "client-1"
+    assert persisted_event.source_message_id == RECORDED_EVENT_SOURCE_MESSAGE_ID
 
     second_input = fake_client.responses.create_kwargs[1]["input"]
     assert second_input[-1] == {
         "type": "function_call_output",
         "call_id": "call_record_event",
-        "output": (
-            '{"ok": true, "result": "Recorded event #1: '
-            'I have 3 kids that cough since yesterday"}'
-        ),
+        "output": json.dumps({"ok": True, "result": expected_output}),
     }
 
 
