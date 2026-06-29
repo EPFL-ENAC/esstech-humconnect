@@ -29,6 +29,7 @@ from api.services.chat_room.chat_db import (
     PersistentChatMessagesHistory,
 )
 from api.services.chat_room.humconnect_assistant import HumConnectAssistant
+from api.services.chat_room.tools.base import ToolExecutionContext
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -97,6 +98,11 @@ class ChatRoomService:
             await self._start_assistant_response(
                 chat_history,
                 content,
+                ToolExecutionContext(
+                    chat_id=self.chat_id,
+                    client_id=client_id,
+                    source_message_id=user_message.id,
+                ),
             )
 
     async def _ensure_no_active_response(self) -> None:
@@ -107,6 +113,7 @@ class ChatRoomService:
         self,
         chat_history: Sequence[ChatMessageResponse],
         question: str,
+        tool_context: ToolExecutionContext | None = None,
     ) -> None:
         async with self._lock:
             if self._has_active_generation_locked():
@@ -123,6 +130,7 @@ class ChatRoomService:
                 self._stream_assistant_response(
                     chat_history,
                     question,
+                    tool_context,
                 )
             )
 
@@ -130,12 +138,14 @@ class ChatRoomService:
         self,
         chat_history: Sequence[ChatMessageResponse] | None = None,
         question: str = "",
+        tool_context: ToolExecutionContext | None = None,
     ) -> None:
         try:
             try:
                 await self._push_assistant_response_stream(
                     chat_history or [],
                     question,
+                    tool_context,
                 )
             except Exception as e:
                 logger.exception(
@@ -170,10 +180,12 @@ class ChatRoomService:
         self,
         chat_history: Sequence[ChatMessageResponse],
         question: str,
+        tool_context: ToolExecutionContext | None,
     ) -> None:
         async for chunk in self._chat_assistant.stream_response(
             chat_history,
             question,
+            tool_context,
         ):
             if isinstance(chunk, AssistantStreamChunkDelta):
                 progress = await self._messages_history.response_progress(

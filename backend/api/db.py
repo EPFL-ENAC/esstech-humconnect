@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
@@ -10,10 +10,10 @@ from api.config import config
 
 logger = logging.getLogger("uvicorn.error")
 
-engine = None
+engine: AsyncEngine | None = None
 
 
-def get_engine(db_url: str | None = None):
+def get_engine(db_url: str | None = None) -> AsyncEngine:
     global engine
     if engine is None:
         url = db_url or config.DB_URL

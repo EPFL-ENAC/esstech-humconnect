@@ -13,10 +13,11 @@ from pydantic import (
 
 from api.services.chat_room.tools.base import (
     HumConnectTool,
+    ToolExecutionContext,
     pydantic_response_function_tool,
 )
+from api.services.recorded_events import RecordedEventService
 from api.utils.relative_dates import (
-    current_datetime,
     iso_date_to_utc_datetime,
     parse_iso_datetime,
 )
@@ -31,6 +32,7 @@ EventDateGranularity = Literal[
 EventDatePrecision = Literal["exact", "fuzzy", "unknown"]
 EventRelativeDirection = Literal["past", "future"]
 EventLocationPrecision = Literal["exact", "city", "region", "country", "unknown"]
+TagMatchMode = Literal["all", "any"]
 
 NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
@@ -185,60 +187,132 @@ class RecordEventToolInput(RecordEventBaseModel):
         return decoded
 
 
-class StoredEventLocation(RecordEventBaseModel):
-    value: NonEmptyString | None
-    precision: EventLocationPrecision
+class RecallEventsToolInput(RecordEventBaseModel):
+    keyword: NonEmptyString | None = Field(
+        default=None,
+        description=(
+            "Optional keyword or phrase to find in event names, original text, "
+            "locations, or tags."
+        ),
+    )
+    date_start: str | None = Field(
+        default=None,
+        description=(
+            "Optional inclusive ISO 8601 datetime lower bound for event_datetime. "
+            "Use null if no lower bound is needed."
+        ),
+    )
+    date_end: str | None = Field(
+        default=None,
+        description=(
+            "Optional inclusive ISO 8601 datetime upper bound for event_datetime. "
+            "Use null if no upper bound is needed."
+        ),
+    )
+    tags: list[NonEmptyString] = Field(
+        default_factory=list,
+        description="Optional tags to match against recorded event tags.",
+    )
+    tag_match: TagMatchMode = Field(
+        default="all",
+        description="Use all to require every tag, or any to match at least one tag.",
+    )
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum number of matching events to return.",
+    )
 
+    @model_validator(mode="before")
+    @classmethod
+    def decode_json_string_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
 
-class StoredRecordedEvent(RecordEventBaseModel):
-    original_text: NonEmptyString
-    event_name: NonEmptyString
-    event_datetime: str | None
-    event_date_granularity: EventDateGranularity
-    event_date_precision: EventDatePrecision
-    event_date_input: RecordEventDateInput
-    event_location: StoredEventLocation
-    tags: list[NonEmptyString]
+        decoded = dict(data)
+        tags = decoded.get("tags")
+        if isinstance(tags, str):
+            try:
+                decoded["tags"] = json.loads(tags)
+            except json.JSONDecodeError:
+                pass
+        return decoded
 
-    @staticmethod
-    def from_tool_input(
-        event_input: RecordEventToolInput, reference: datetime
-    ) -> "StoredRecordedEvent":
-        return StoredRecordedEvent(
-            original_text=event_input.original_text,
-            event_name=event_input.event_name,
-            event_datetime=event_input.event_date.resolve_event_datetime(reference),
-            event_date_granularity=event_input.event_date.granularity,
-            event_date_precision=event_input.event_date.precision,
-            event_date_input=event_input.event_date,
-            event_location=StoredEventLocation(
-                value=event_input.event_location.value,
-                precision=event_input.event_location.precision,
-            ),
-            tags=event_input.tags,
-        )
+    @model_validator(mode="after")
+    def validate_date_bounds(self) -> Self:
+        date_start = self.parsed_date_start()
+        date_end = self.parsed_date_end()
+        if date_start is not None and date_end is not None and date_start > date_end:
+            raise ValueError("date_start must be before or equal to date_end")
+        return self
 
+    def parsed_date_start(self) -> datetime | None:
+        if self.date_start is None:
+            return None
+        return parse_iso_datetime(self.date_start)
 
-RECORDED_EVENTS: list[StoredRecordedEvent] = []
+    def parsed_date_end(self) -> datetime | None:
+        if self.date_end is None:
+            return None
+        return parse_iso_datetime(self.date_end)
 
 
 RECORD_EVENT_TOOL_DESCRIPTION = (
-    "Record a user-provided fact or event in temporary in-memory storage. "
+    "Record a user-provided fact or event in persistent storage. "
     "Use relative dates for phrases like '3 days ago' so the backend can "
     "resolve them against the current datetime. For fuzzy phrases like "
     "'a few weeks ago', use the numeric value 3 and precision 'fuzzy'."
 )
 
 
-async def execute_record_event_tool(arguments: dict[str, object]) -> str:
+RECALL_EVENTS_TOOL_DESCRIPTION = (
+    "Recall previously recorded events across all chats by keyword, event "
+    "datetime range, and tags. Use this before answering questions that ask "
+    "about prior events, timelines, repeated symptoms, or links between events."
+)
+
+
+async def execute_record_event_tool(
+    arguments: dict[str, object],
+    context: ToolExecutionContext | None = None,
+) -> str:
     try:
         event_input = RecordEventToolInput.model_validate(arguments)
     except ValidationError as e:
         raise ValueError(f"record_event received invalid event data: {e}") from e
 
-    event = StoredRecordedEvent.from_tool_input(event_input, current_datetime())
-    RECORDED_EVENTS.append(event)
-    return f"Recorded event #{len(RECORDED_EVENTS)}: {event.event_name}"
+    if context is None:
+        raise ValueError("record_event requires chat execution context.")
+
+    event = await RecordedEventService().record_event_from_tool(
+        event_input=event_input,
+        chat_id=context.chat_id,
+        client_id=context.client_id,
+        source_message_id=context.source_message_id,
+    )
+    return event.to_tool_response()
+
+
+async def execute_recall_events_tool(
+    arguments: dict[str, object],
+    context: ToolExecutionContext | None = None,
+) -> str:
+    try:
+        recall_input = RecallEventsToolInput.model_validate(arguments)
+    except ValidationError as e:
+        raise ValueError(f"recall_events received invalid query data: {e}") from e
+
+    events = await RecordedEventService().recall_events_from_tool(
+        recall_input=recall_input,
+    )
+    return json.dumps(
+        {
+            "message": f"Recalled {len(events)} event(s).",
+            "events": [event.model_dump(mode="json") for event in events],
+        },
+        indent=2,
+    )
 
 
 RECORD_EVENT_TOOL = HumConnectTool(
@@ -250,4 +324,15 @@ RECORD_EVENT_TOOL = HumConnectTool(
         description=RECORD_EVENT_TOOL_DESCRIPTION,
     ),
     execute=execute_record_event_tool,
+)
+
+RECALL_EVENTS_TOOL = HumConnectTool(
+    name="recall_events",
+    label="Recall events",
+    definition=pydantic_response_function_tool(
+        RecallEventsToolInput,
+        name="recall_events",
+        description=RECALL_EVENTS_TOOL_DESCRIPTION,
+    ),
+    execute=execute_recall_events_tool,
 )

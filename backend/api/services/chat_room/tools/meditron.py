@@ -2,10 +2,13 @@ import asyncio
 
 from meditron_mcp.main import ask as ask_meditron
 
-from api.services.chat_room.tools.base import HumConnectTool
+from api.services.chat_room.tools.base import HumConnectTool, ToolExecutionContext
 
 
-async def execute_ask_meditron_tool(arguments: dict[str, object]) -> str:
+async def execute_ask_meditron_tool(
+    arguments: dict[str, object],
+    context: ToolExecutionContext | None = None,
+) -> str:
     prompt = arguments.get("prompt")
     if not isinstance(prompt, str) or not prompt:
         raise ValueError("ask_meditron requires a non-empty string prompt.")

@@ -2,6 +2,10 @@ export default {
     appTitle: 'HumConnect',
     notFoundMessage: "Oups. Il n'y a rien ici...",
     goHome: "Retour à l'accueil",
+    navigation: {
+        chats: 'Discussions',
+        dashboard: 'Tableau de bord',
+    },
     chats: {
         title: 'Discussions',
         subtitle: 'Démarrez une nouvelle conversation ou rouvrez-en une précédente.',
@@ -9,6 +13,25 @@ export default {
         loading: 'Chargement des discussions...',
         empty: 'Aucune discussion pour le moment.',
         untitledChat: 'Discussion sans titre',
+    },
+    dashboard: {
+        title: 'Événements enregistrés',
+        subtitle: "Consultez chaque événement extrait et stocké par l'assistant.",
+        refresh: 'Actualiser',
+        loading: 'Chargement des événements enregistrés...',
+        empty: 'Aucun événement enregistré pour le moment.',
+        fields: {
+            createdAt: 'Enregistré',
+            eventDate: "Date de l'événement",
+            dateQuality: 'Qualité de la date',
+            location: 'Lieu',
+            tags: 'Tags',
+            chatId: 'ID discussion',
+            clientId: 'ID client',
+            sourceMessageId: 'Message source',
+            dateInput: 'Entrée date',
+            locationInput: 'Entrée lieu',
+        },
     },
     chat: {
         backToChats: 'Retour aux discussions',
@@ -31,5 +54,6 @@ export default {
         connection: 'Erreur de connexion.',
         createChat: 'Impossible de créer la discussion.',
         loadChats: 'Impossible de charger les discussions.',
+        loadRecordedEvents: 'Impossible de charger les événements enregistrés.',
     },
 };

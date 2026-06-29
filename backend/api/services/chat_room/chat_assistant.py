@@ -10,6 +10,7 @@ from api.models.chat import (
     MessageChunkType,
     ToolCallPayload,
 )
+from api.services.chat_room.tools.base import ToolExecutionContext
 
 PLACEHOLDER_TOKEN_DELAY_SECONDS = 0.05
 
@@ -36,6 +37,7 @@ class ChatAssistant(Protocol):
         self,
         chat_history: Sequence[ChatMessageResponse],
         question: str,
+        tool_context: ToolExecutionContext | None = None,
     ) -> AsyncIterator[AssistantStreamEvent]:
         raise NotImplementedError
 
@@ -45,6 +47,7 @@ class PlaceholderChatAssistant(ChatAssistant):
         self,
         chat_history: Sequence[ChatMessageResponse],
         question: str,
+        tool_context: ToolExecutionContext | None = None,
     ) -> AsyncIterator[AssistantStreamEvent]:
         random_number = random.randint(0, 999999)
         response = f"Random number: {random_number}"

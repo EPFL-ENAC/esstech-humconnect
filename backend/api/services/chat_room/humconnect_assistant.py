@@ -29,8 +29,9 @@ from api.services.chat_room.chat_assistant import (
     ChatAssistant,
 )
 from api.services.chat_room.tools import ToolSet, parse_tool_call_arguments
+from api.services.chat_room.tools.base import ToolExecutionContext
 from api.services.chat_room.tools.dummy import DUMMY_TOOL
-from api.services.chat_room.tools.events import RECORD_EVENT_TOOL
+from api.services.chat_room.tools.events import RECALL_EVENTS_TOOL, RECORD_EVENT_TOOL
 from api.services.chat_room.tools.meditron import ASK_MEDITRON_TOOL
 
 ModelInputMessage = EasyInputMessageParam
@@ -84,6 +85,7 @@ class HumConnectAssistant(ChatAssistant):
                 DUMMY_TOOL,
                 ASK_MEDITRON_TOOL,
                 RECORD_EVENT_TOOL,
+                RECALL_EVENTS_TOOL,
             ]
         )
 
@@ -101,6 +103,7 @@ class HumConnectAssistant(ChatAssistant):
         self,
         chat_history: Sequence[ChatMessageResponse],
         question: str,
+        tool_context: ToolExecutionContext | None = None,
     ) -> AsyncIterator[AssistantStreamEvent]:
         model_input: ResponseInputParam = [
             *self.chat_history_to_model_input(chat_history),
@@ -118,7 +121,16 @@ class HumConnectAssistant(ChatAssistant):
                 input=model_input,
                 model=config.MODEL_NAME,
                 stream=True,
-                instructions="Don't hesitate to record events when they could be useful for later queries.",
+                instructions=(
+                    "Don't hesitate to record events when they could be useful for later queries. Events are used in a global context to help with emergencies, health hazard, etc..."
+                    "In the case that you don't have all the information needed to create an event, but you feel the user is giving you important enough information that would make creating one worth it, ask questions to the user until you can record the event."
+                    "When you feel that the user is talking about "
+                    "something that could have been caused by a prior event, use the "
+                    "recall_events tool to retrieve potentially relevant events "
+                    "across chats. If you are unsure about the relevance of an event, "
+                    "you can still recall it and then decide whether to use it or not."
+                    "If you need to ask Meditron, a medical LLM trained on a curated medical corpus, make sure you gather all the relevant information from the user or the other tools to get better context."
+                ),
                 text={"format": {"type": "json_object"}},
                 tools=self._tool_set.definitions(),
             )
@@ -170,7 +182,10 @@ class HumConnectAssistant(ChatAssistant):
                     ),
                 )
 
-                tool_execution = await self._tool_set.execute(function_call)
+                tool_execution = await self._tool_set.execute(
+                    function_call,
+                    tool_context,
+                )
                 if tool_execution.succeeded:
                     payload = ToolCallPayload.from_finished(
                         tool_name=function_call.name,
