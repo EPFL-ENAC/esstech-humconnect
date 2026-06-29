@@ -30,91 +30,96 @@
                     <q-item-section>{{ t('dashboard.empty') }}</q-item-section>
                 </q-item>
 
-                <q-expansion-item
-                    v-for="event in events"
-                    v-else
-                    :key="event.id"
-                    expand-separator
-                    group="recorded-events"
-                >
-                    <template #header>
-                        <q-item-section>
-                            <q-item-label class="event-title">{{ event.event_name }}</q-item-label>
-                            <q-item-label caption>{{ event.original_text }}</q-item-label>
-                        </q-item-section>
-                        <q-item-section side class="event-meta">
-                            <span>{{ formatDate(event.event_datetime || event.created_at) }}</span>
-                        </q-item-section>
-                    </template>
+                <template v-else>
+                    <q-expansion-item
+                        v-for="event in events"
+                        :key="event.id"
+                        expand-separator
+                        group="recorded-events"
+                    >
+                        <template #header>
+                            <q-item-section>
+                                <q-item-label class="event-title">{{
+                                    event.event_name
+                                }}</q-item-label>
+                                <q-item-label caption>{{ event.original_text }}</q-item-label>
+                            </q-item-section>
+                            <q-item-section side class="event-meta">
+                                <span>{{
+                                    formatDate(event.event_datetime || event.created_at)
+                                }}</span>
+                            </q-item-section>
+                        </template>
 
-                    <div class="event-details">
-                        <dl>
-                            <div>
-                                <dt>{{ t('dashboard.fields.createdAt') }}</dt>
-                                <dd>{{ formatDate(event.created_at) }}</dd>
-                            </div>
-                            <div>
-                                <dt>{{ t('dashboard.fields.eventDate') }}</dt>
-                                <dd>
-                                    {{
-                                        event.event_datetime
-                                            ? formatDate(event.event_datetime)
-                                            : '-'
-                                    }}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt>{{ t('dashboard.fields.dateQuality') }}</dt>
-                                <dd>
-                                    {{ event.event_date_granularity }} /
-                                    {{ event.event_date_precision }}
-                                </dd>
-                            </div>
-                            <div>
-                                <dt>{{ t('dashboard.fields.location') }}</dt>
-                                <dd>{{ formatLocation(event.event_location) }}</dd>
-                            </div>
-                            <div>
-                                <dt>{{ t('dashboard.fields.tags') }}</dt>
-                                <dd>
-                                    <q-chip
-                                        v-for="tag in event.tags"
-                                        :key="tag"
-                                        dense
-                                        color="primary"
-                                        text-color="white"
-                                    >
-                                        {{ tag }}
-                                    </q-chip>
-                                    <span v-if="event.tags.length === 0">-</span>
-                                </dd>
-                            </div>
-                            <div>
-                                <dt>{{ t('dashboard.fields.chatId') }}</dt>
-                                <dd class="monospace">{{ event.chat_id }}</dd>
-                            </div>
-                            <div>
-                                <dt>{{ t('dashboard.fields.clientId') }}</dt>
-                                <dd class="monospace">{{ event.initiated_by_client_id }}</dd>
-                            </div>
-                            <div>
-                                <dt>{{ t('dashboard.fields.sourceMessageId') }}</dt>
-                                <dd class="monospace">{{ event.source_message_id }}</dd>
-                            </div>
-                        </dl>
+                        <div class="event-details">
+                            <dl>
+                                <div>
+                                    <dt>{{ t('dashboard.fields.createdAt') }}</dt>
+                                    <dd>{{ formatDate(event.created_at) }}</dd>
+                                </div>
+                                <div>
+                                    <dt>{{ t('dashboard.fields.eventDate') }}</dt>
+                                    <dd>
+                                        {{
+                                            event.event_datetime
+                                                ? formatDate(event.event_datetime)
+                                                : '-'
+                                        }}
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>{{ t('dashboard.fields.dateQuality') }}</dt>
+                                    <dd>
+                                        {{ event.event_date_granularity }} /
+                                        {{ event.event_date_precision }}
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>{{ t('dashboard.fields.location') }}</dt>
+                                    <dd>{{ formatLocation(event.event_location) }}</dd>
+                                </div>
+                                <div>
+                                    <dt>{{ t('dashboard.fields.tags') }}</dt>
+                                    <dd>
+                                        <q-chip
+                                            v-for="tag in event.tags"
+                                            :key="tag"
+                                            dense
+                                            color="primary"
+                                            text-color="white"
+                                        >
+                                            {{ tag }}
+                                        </q-chip>
+                                        <span v-if="event.tags.length === 0">-</span>
+                                    </dd>
+                                </div>
+                                <div>
+                                    <dt>{{ t('dashboard.fields.chatId') }}</dt>
+                                    <dd class="monospace">{{ event.chat_id }}</dd>
+                                </div>
+                                <div>
+                                    <dt>{{ t('dashboard.fields.clientId') }}</dt>
+                                    <dd class="monospace">{{ event.initiated_by_client_id }}</dd>
+                                </div>
+                                <div>
+                                    <dt>{{ t('dashboard.fields.sourceMessageId') }}</dt>
+                                    <dd class="monospace">{{ event.source_message_id }}</dd>
+                                </div>
+                            </dl>
 
-                        <div class="json-grid">
-                            <div>
-                                <h2>{{ t('dashboard.fields.dateInput') }}</h2>
-                                <pre>{{ formatJson(event.event_date_input) }}</pre>
-                            </div>
-                            <div>
-                                <h2>{{ t('dashboard.fields.locationInput') }}</h2>
-                                <pre>{{ formatJson(event.event_location) }}</pre>
+                            <div class="json-grid">
+                                <div>
+                                    <h2>{{ t('dashboard.fields.dateInput') }}</h2>
+                                    <pre>{{ formatJson(event.event_date_input) }}</pre>
+                                </div>
+                                <div>
+                                    <h2>{{ t('dashboard.fields.locationInput') }}</h2>
+                                    <pre>{{ formatJson(event.event_location) }}</pre>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                </q-expansion-item>
+                    </q-expansion-item>
+                </template>
             </q-list>
         </section>
     </q-page>
@@ -152,7 +157,7 @@ function formatDate(value: string) {
 }
 
 function formatLocation(location: Record<string, unknown>) {
-    const value = location.value;
+    const value = location['value'];
     if (typeof value === 'string' && value.trim()) {
         return value;
     }
