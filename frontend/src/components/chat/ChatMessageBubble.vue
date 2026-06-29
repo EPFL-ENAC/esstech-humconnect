@@ -15,6 +15,20 @@
             </template>
         </template>
         <MessageContentChunk v-else :chunk="emptyChunk" :status="message.status" />
+        <div v-if="canCopy" class="message-actions">
+            <q-btn
+                flat
+                dense
+                round
+                size="sm"
+                :icon="copied ? 'check' : 'content_copy'"
+                :color="message.role === 'user' ? 'white' : 'grey-7'"
+                :aria-label="t('chat.copyMessage')"
+                @click="copyMessage"
+            >
+                <q-tooltip>{{ t('chat.copyMessage') }}</q-tooltip>
+            </q-btn>
+        </div>
         <div v-if="message.status !== 'complete'" class="message-status">
             {{ statusLabel }}
         </div>
@@ -22,7 +36,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { copyToClipboard, useQuasar } from 'quasar';
+import { computed, onBeforeUnmount, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { ChatMessage } from 'src/utils/model';
 import MessageContentChunk from './MessageContentChunk.vue';
 import ReasoningTextChunk from './ReasoningTextChunk.vue';
@@ -32,6 +48,11 @@ const props = defineProps<{
     message: ChatMessage;
     statusLabel: string;
 }>();
+
+const $q = useQuasar();
+const { t } = useI18n();
+const copied = ref(false);
+let copiedTimeout: number | undefined;
 
 const isPendingAssistant = computed(
     () =>
@@ -45,6 +66,45 @@ const emptyChunk = computed(() => ({
     type: 'message_content' as const,
     content: '',
 }));
+
+const copyText = computed(() =>
+    props.message.chunks
+        .filter((chunk) => chunk.type === 'message_content')
+        .map((chunk) => chunk.content)
+        .join(''),
+);
+
+const canCopy = computed(() => copyText.value.trim().length > 0);
+
+async function copyMessage() {
+    try {
+        await copyToClipboard(copyText.value);
+        copied.value = true;
+        if (copiedTimeout !== undefined) {
+            window.clearTimeout(copiedTimeout);
+        }
+        copiedTimeout = window.setTimeout(() => {
+            copied.value = false;
+            copiedTimeout = undefined;
+        }, 1600);
+        $q.notify({
+            type: 'positive',
+            message: t('chat.copiedMessage'),
+            timeout: 900,
+        });
+    } catch {
+        $q.notify({
+            type: 'negative',
+            message: t('chat.copyMessageFailed'),
+        });
+    }
+}
+
+onBeforeUnmount(() => {
+    if (copiedTimeout !== undefined) {
+        window.clearTimeout(copiedTimeout);
+    }
+});
 </script>
 
 <style scoped lang="scss">
@@ -54,6 +114,14 @@ const emptyChunk = computed(() => ({
     border-radius: 8px;
     max-width: min(680px, 86%);
     padding: 10px 12px;
+    user-select: text;
+}
+
+.message-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+    user-select: none;
 }
 
 .message-status {
