@@ -19,11 +19,9 @@ from api.services.chat_room.chat_assistant import (
     AssistantStreamPayloadUpdate,
     ChatAssistant,
 )
-from api.services.chat_room.chat_connection import ChatRoomConnectionHub
 from api.services.chat_room.chat_db import (
     MESSAGE_STATUS_COMPLETE,
     MESSAGE_STATUS_ERROR,
-    ActiveGenerationChecker,
     PersistentChatMessagesHistory,
 )
 from api.services.chat_room.humconnect_assistant import HumConnectAssistant
@@ -37,16 +35,13 @@ class ChatRoomService:
         self,
         chat_id: UUID,
         *,
-        connection_hub: ChatRoomConnectionHub | None = None,
         messages_history: PersistentChatMessagesHistory | None = None,
         chat_assistant: ChatAssistant | None = None,
-        has_active_generation: ActiveGenerationChecker | None = None,
     ) -> None:
         self.chat_id = chat_id
-        self._connection_hub = connection_hub or ChatRoomConnectionHub()
+        self._subscribers: set[asyncio.Queue[dict | None]] = set()
         self._messages_history = messages_history or PersistentChatMessagesHistory(
-            chat_id,
-            has_active_generation=has_active_generation,
+            chat_id
         )
         self._chat_assistant = chat_assistant or HumConnectAssistant()
         self._generation_task: asyncio.Task | None = None
@@ -54,7 +49,8 @@ class ChatRoomService:
         self._submission_lock = asyncio.Lock()
 
     async def broadcast(self, event: dict) -> None:
-        await self._connection_hub.broadcast(event)
+        for queue in list(self._subscribers):
+            queue.put_nowait(event)
 
     async def subscribe(
         self,
@@ -62,7 +58,9 @@ class ChatRoomService:
         *,
         with_snapshot: bool = False,
     ) -> AsyncIterator[dict]:
-        async with self._connection_hub.subscribe() as queue:
+        queue: asyncio.Queue[dict | None] = asyncio.Queue()
+        self._subscribers.add(queue)
+        try:
             if with_snapshot:
                 if client_id is None:
                     raise ValueError("client_id is required when with_snapshot is true")
@@ -77,22 +75,24 @@ class ChatRoomService:
                 if event is None:
                     break
                 yield event
+        finally:
+            self._subscribers.discard(queue)
 
     async def has_active_generation(self) -> bool:
         async with self._lock:
             return self._has_active_generation_locked()
 
     async def is_idle(self) -> bool:
-        return (
-            await self._connection_hub.is_empty()
-            and not await self.has_active_generation()
-        )
+        return not self._subscribers and not await self.has_active_generation()
 
     async def verify_client_access(self, client_id: str) -> bool:
         return await self._messages_history.client_has_access(client_id)
 
     async def build_snapshot(self, client_id: str) -> ChatSnapshotResponse | None:
-        return await self._messages_history.build_snapshot(client_id)
+        return await self._messages_history.build_snapshot(
+            client_id,
+            interrupt_stale_streaming_messages=not await self.has_active_generation(),
+        )
 
     async def handle_user_message(self, client_id: str, content: str) -> None:
         async with self._submission_lock:

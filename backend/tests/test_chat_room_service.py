@@ -53,7 +53,6 @@ from api.services.chat import (
     MESSAGE_STATUS_ERROR,
     MESSAGE_STATUS_INTERRUPTED,
     MESSAGE_STATUS_STREAMING,
-    ChatRoomConnectionHub,
     ChatRoomRegistry,
     ChatRoomService,
     HumConnectAssistant,
@@ -164,10 +163,14 @@ class FakeHistory:
     async def client_has_access(self, client_id):
         return client_id == "client-1"
 
-    async def build_snapshot(self, client_id):
+    async def build_snapshot(
+        self, client_id, *, interrupt_stale_streaming_messages=True
+    ):
         return self.snapshot
 
-    async def get_assistant_chat_history(self):
+    async def get_assistant_chat_history(
+        self, *, interrupt_stale_streaming_messages=True
+    ):
         return list(self.chat_history)
 
     async def submit_question(self, client_id, question):
@@ -240,12 +243,23 @@ async def start_and_wait_for_response(room, chat_history=None, question=""):
 
 
 async def collect_events_during_response(room, chat_history=None, question=""):
-    async with room._connection_hub.subscribe() as queue:
+    events = []
+
+    async def collect_events():
+        async for event in room.subscribe():
+            events.append(event)
+
+    collector = asyncio.create_task(collect_events())
+    await asyncio.sleep(0)
+    try:
         await start_and_wait_for_response(room, chat_history, question)
-        events = []
-        while not queue.empty():
-            events.append(queue.get_nowait())
         return events
+    finally:
+        collector.cancel()
+        try:
+            await collector
+        except asyncio.CancelledError:
+            pass
 
 
 async def collect_room_events_after(action, room, event_count=1):
@@ -312,33 +326,6 @@ def make_db_message(chat_id, role, content, status):
     )
 
 
-def test_connection_hub_broadcasts_to_stream_subscribers():
-    async def run():
-        first_hub = ChatRoomConnectionHub()
-        second_hub = ChatRoomConnectionHub()
-
-        async with first_hub.subscribe() as first_queue:
-            async with second_hub.subscribe() as second_queue:
-                await first_hub.broadcast({"type": "event"})
-
-                assert await first_queue.get() == {"type": "event"}
-                assert second_queue.empty()
-
-    asyncio.run(run())
-
-
-def test_connection_hub_removes_stream_subscribers_on_exit():
-    async def run():
-        hub = ChatRoomConnectionHub()
-
-        async with hub.subscribe():
-            assert not await hub.is_empty()
-
-        assert await hub.is_empty()
-
-    asyncio.run(run())
-
-
 def test_persistent_history_loads_messages_for_snapshot(monkeypatch):
     install_fake_session(monkeypatch)
     chat = ChatSession(client_id="client-1")
@@ -359,6 +346,24 @@ def test_persistent_history_loads_messages_for_snapshot(monkeypatch):
         "First",
         "Second",
     ]
+
+
+def test_room_snapshot_preserves_streaming_message_when_generation_is_active(monkeypatch):
+    install_fake_session(monkeypatch)
+    chat, message = make_chat_and_message()
+    room = ChatRoomService(chat.id)
+
+    async def has_active_generation():
+        return True
+
+    monkeypatch.setattr(room, "has_active_generation", has_active_generation)
+
+    snapshot = asyncio.run(room.build_snapshot("client-1"))
+
+    assert snapshot is not None
+    assert message.status == MESSAGE_STATUS_STREAMING
+    assert snapshot.messages[0].status == MESSAGE_STATUS_STREAMING
+    assert FakeAsyncSession.commit_count == 0
 
 
 def test_persistent_history_submit_question_writes_user_and_caches_response(monkeypatch):
@@ -611,11 +616,9 @@ def test_persistent_history_fail_response_marks_error_in_db_and_memory(monkeypat
 def test_service_handles_user_message_through_history_and_hub(monkeypatch):
     async def run():
         history = FakeHistory()
-        hub = ChatRoomConnectionHub()
         started_responses = []
         room = ChatRoomService(
             uuid4(),
-            connection_hub=hub,
             messages_history=history,
         )
 
@@ -710,7 +713,6 @@ def test_service_passes_chat_history_and_question_to_assistant():
 
 def test_assistant_stream_pushes_every_chunk_and_broadcasts_deltas():
     history = FakeHistory()
-    hub = ChatRoomConnectionHub()
     assistant = FakeAssistant(
         [
             AssistantStreamChunkDelta(
@@ -724,7 +726,6 @@ def test_assistant_stream_pushes_every_chunk_and_broadcasts_deltas():
     )
     room = ChatRoomService(
         uuid4(),
-        connection_hub=hub,
         messages_history=history,
         chat_assistant=assistant,
     )
@@ -759,7 +760,6 @@ def test_assistant_stream_pushes_every_chunk_and_broadcasts_deltas():
 
 def test_assistant_stream_broadcasts_payload_updates():
     history = FakeHistory()
-    hub = ChatRoomConnectionHub()
     payload = ToolCallPayload(
         tool_name="dummy_tool",
         tool_label="Dummy tool",
@@ -774,7 +774,6 @@ def test_assistant_stream_broadcasts_payload_updates():
     )
     room = ChatRoomService(
         uuid4(),
-        connection_hub=hub,
         messages_history=history,
         chat_assistant=assistant,
     )
@@ -794,11 +793,9 @@ def test_assistant_stream_broadcasts_payload_updates():
 
 def test_assistant_stream_returns_without_done_event_when_no_tokens_are_generated():
     history = FakeHistory()
-    hub = ChatRoomConnectionHub()
     assistant = FakeAssistant([])
     room = ChatRoomService(
         uuid4(),
-        connection_hub=hub,
         messages_history=history,
         chat_assistant=assistant,
     )
@@ -818,18 +815,17 @@ def test_assistant_stream_returns_without_done_event_when_no_tokens_are_generate
 
 def test_assistant_stream_marks_message_error_when_streaming_fails(monkeypatch):
     history = FakeHistory()
-    hub = ChatRoomConnectionHub()
     room = ChatRoomService(
         uuid4(),
-        connection_hub=hub,
         messages_history=history,
         chat_assistant=FakeAssistant(["created", "broken"]),
     )
+    original_broadcast = room.broadcast
 
     async def broadcast(event):
         if event["type"] == "message_delta":
             raise RuntimeError("stream failed")
-        await hub.broadcast(event)
+        await original_broadcast(event)
 
     monkeypatch.setattr(room, "broadcast", broadcast)
 
@@ -852,18 +848,17 @@ def test_assistant_stream_marks_message_error_when_streaming_fails(monkeypatch):
 
 def test_assistant_stream_does_not_mark_error_when_done_broadcast_fails(monkeypatch):
     history = FakeHistory()
-    hub = ChatRoomConnectionHub()
     room = ChatRoomService(
         uuid4(),
-        connection_hub=hub,
         messages_history=history,
         chat_assistant=FakeAssistant(["done"]),
     )
+    original_broadcast = room.broadcast
 
     async def broadcast(event):
         if event["type"] == "message_done":
             raise RuntimeError("done broadcast failed")
-        await hub.broadcast(event)
+        await original_broadcast(event)
 
     monkeypatch.setattr(room, "broadcast", broadcast)
 
@@ -882,10 +877,8 @@ def test_assistant_stream_does_not_mark_error_when_done_broadcast_fails(monkeypa
 
 def test_assistant_stream_marks_message_error_when_assistant_fails():
     history = FakeHistory()
-    hub = ChatRoomConnectionHub()
     room = ChatRoomService(
         uuid4(),
-        connection_hub=hub,
         messages_history=history,
         chat_assistant=FakeAssistant([RuntimeError("assistant failed")]),
     )
@@ -2291,7 +2284,7 @@ def test_registry_releases_idle_room_after_stream_subscription_exits():
         subscription_task = asyncio.create_task(anext(subscription))
         await asyncio.sleep(0)
 
-        await registry.release_room(chat_id)
+        await registry.release_room_if_idle(chat_id)
         assert chat_id in registry._rooms
 
         subscription_task.cancel()
@@ -2300,7 +2293,7 @@ def test_registry_releases_idle_room_after_stream_subscription_exits():
         except asyncio.CancelledError:
             pass
 
-        await registry.release_room(chat_id)
+        await registry.release_room_if_idle(chat_id)
 
         assert chat_id not in registry._rooms
 
@@ -2311,35 +2304,7 @@ def test_stale_streaming_messages_are_marked_interrupted(monkeypatch):
     install_fake_session(monkeypatch)
     _, message = make_chat_and_message()
 
-    async def has_active_generation(chat_id):
-        return False
-
-    monkeypatch.setattr(
-        chat_service.chat_room_registry,
-        "has_active_generation",
-        has_active_generation,
-    )
-
     asyncio.run(mark_stale_streaming_messages_interrupted(FakeAsyncSession()))
 
     assert message.status == MESSAGE_STATUS_INTERRUPTED
     assert FakeAsyncSession.commit_count == 1
-
-
-def test_active_generation_is_not_marked_interrupted(monkeypatch):
-    install_fake_session(monkeypatch)
-    _, message = make_chat_and_message()
-
-    async def has_active_generation(chat_id):
-        return True
-
-    monkeypatch.setattr(
-        chat_service.chat_room_registry,
-        "has_active_generation",
-        has_active_generation,
-    )
-
-    asyncio.run(mark_stale_streaming_messages_interrupted(FakeAsyncSession()))
-
-    assert message.status == MESSAGE_STATUS_STREAMING
-    assert FakeAsyncSession.commit_count == 0

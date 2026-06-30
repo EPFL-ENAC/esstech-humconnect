@@ -73,7 +73,7 @@ async def get_chat(
 
         return snapshot
     finally:
-        await chat_room_registry.release_room(chat_id)
+        await chat_room_registry.release_room_if_idle(chat_id)
 
 
 @router.post("/{chat_id}/messages", status_code=status.HTTP_202_ACCEPTED)
@@ -106,7 +106,7 @@ async def create_chat_message(
                 detail="Wait for the current response to finish.",
             ) from None
     finally:
-        await chat_room_registry.release_room(chat_id)
+        await chat_room_registry.release_room_if_idle(chat_id)
 
     return Response(status_code=status.HTTP_202_ACCEPTED)
 
@@ -118,7 +118,7 @@ async def chat_events(
 ) -> StreamingResponse:
     room = await chat_room_registry.get_room(chat_id)
     if not await room.verify_client_access(client_id):
-        await chat_room_registry.release_room(chat_id)
+        await chat_room_registry.release_room_if_idle(chat_id)
         raise HTTPException(status_code=404, detail="Chat not found")
 
     async def stream_events() -> AsyncIterator[str]:
@@ -128,7 +128,7 @@ async def chat_events(
         except ClientDisconnect:
             return
         finally:
-            await chat_room_registry.release_room(chat_id)
+            await chat_room_registry.release_room_if_idle(chat_id)
 
     return StreamingResponse(
         stream_events(),

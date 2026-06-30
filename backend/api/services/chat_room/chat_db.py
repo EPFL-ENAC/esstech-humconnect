@@ -1,5 +1,4 @@
 import asyncio
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -27,8 +26,6 @@ from api.models.chat import (
 STREAM_COMMIT_TOKEN_BATCH_SIZE = 32
 STREAM_COMMIT_INTERVAL_SECONDS = 1.0
 
-ActiveGenerationChecker = Callable[[UUID], Awaitable[bool]]
-
 
 @dataclass(frozen=True, slots=True)
 class ResponseProgressResult:
@@ -36,14 +33,8 @@ class ResponseProgressResult:
 
 
 class PersistentChatMessagesHistory:
-    def __init__(
-        self,
-        chat_id: UUID,
-        *,
-        has_active_generation: ActiveGenerationChecker | None = None,
-    ) -> None:
+    def __init__(self, chat_id: UUID) -> None:
         self.chat_id = chat_id
-        self._has_active_generation = has_active_generation
         self._chat: ChatSessionResponse | None = None
         self._messages: list[ChatMessageResponse] = []
         self._active_assistant_message_id: UUID | None = None
@@ -55,8 +46,13 @@ class PersistentChatMessagesHistory:
     async def client_has_access(self, client_id: str) -> bool:
         return await self._ensure_loaded(client_id)
 
-    async def build_snapshot(self, client_id: str) -> ChatSnapshotResponse | None:
-        if not await self._ensure_loaded(client_id):
+    async def build_snapshot(
+        self, client_id: str, *, interrupt_stale_streaming_messages: bool = True
+    ) -> ChatSnapshotResponse | None:
+        if not await self._ensure_loaded(
+            client_id,
+            interrupt_stale_streaming_messages=interrupt_stale_streaming_messages,
+        ):
             return None
 
         if self._chat is None:
@@ -67,8 +63,12 @@ class PersistentChatMessagesHistory:
             messages=list(self._messages),
         )
 
-    async def get_assistant_chat_history(self) -> list[ChatMessageResponse]:
-        await self._ensure_loaded()
+    async def get_assistant_chat_history(
+        self, *, interrupt_stale_streaming_messages: bool = True
+    ) -> list[ChatMessageResponse]:
+        await self._ensure_loaded(
+            interrupt_stale_streaming_messages=interrupt_stale_streaming_messages
+        )
         return [
             message
             for message in self._messages
@@ -229,7 +229,12 @@ class PersistentChatMessagesHistory:
                 return message
         return None
 
-    async def _ensure_loaded(self, client_id: str | None = None) -> bool:
+    async def _ensure_loaded(
+        self,
+        client_id: str | None = None,
+        *,
+        interrupt_stale_streaming_messages: bool = True,
+    ) -> bool:
         async with self._load_lock:
             if self._chat is not None:
                 return client_id is None or self._chat.client_id == client_id
@@ -246,11 +251,11 @@ class PersistentChatMessagesHistory:
                 if chat is None:
                     return False
 
-                await mark_stale_streaming_messages_interrupted(
-                    session,
-                    chat_id=chat.id,
-                    has_active_generation=self._has_active_generation,
-                )
+                if interrupt_stale_streaming_messages:
+                    await mark_stale_streaming_messages_interrupted(
+                        session,
+                        chat_id=chat.id,
+                    )
                 messages = await session.exec(
                     select(Message)
                     .where(Message.chat_id == chat.id)
@@ -339,7 +344,6 @@ async def mark_stale_streaming_messages_interrupted(
     session: AsyncSQLModelSession,
     *,
     chat_id: UUID | None = None,
-    has_active_generation: ActiveGenerationChecker | None = None,
 ) -> None:
     query = select(Message).where(Message.status == MESSAGE_STATUS_STREAMING)
     if chat_id is not None:
@@ -349,12 +353,6 @@ async def mark_stale_streaming_messages_interrupted(
     messages = result.all()
     changed_messages = False
     for message in messages:
-        message_chat_id = chat_id or message.chat_id
-        if has_active_generation is not None and await has_active_generation(
-            message_chat_id
-        ):
-            continue
-
         message.status = MESSAGE_STATUS_INTERRUPTED
         message.updated_at = utc_now()
         session.add(message)
@@ -368,13 +366,13 @@ async def build_chat_snapshot(
     session: AsyncSQLModelSession,
     chat: ChatSession,
     *,
-    has_active_generation: ActiveGenerationChecker | None = None,
+    interrupt_stale_streaming_messages: bool = True,
 ) -> ChatSnapshotResponse:
-    await mark_stale_streaming_messages_interrupted(
-        session,
-        chat_id=chat.id,
-        has_active_generation=has_active_generation,
-    )
+    if interrupt_stale_streaming_messages:
+        await mark_stale_streaming_messages_interrupted(
+            session,
+            chat_id=chat.id,
+        )
 
     messages = await session.exec(
         select(Message)
