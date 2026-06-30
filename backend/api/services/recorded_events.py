@@ -37,7 +37,7 @@ class RecordedEventService:
         *,
         event_input: "RecordEventToolInput",
         chat_id: UUID,
-        client_id: str,
+        user_id: UUID,
         source_message_id: UUID,
     ) -> RecordedEvent:
         event_datetime_value = event_input.event_date.resolve_event_datetime(
@@ -50,7 +50,7 @@ class RecordedEventService:
         )
         recorded_event = RecordedEvent(
             chat_id=chat_id,
-            initiated_by_client_id=client_id,
+            initiated_by_user_id=user_id,
             source_message_id=source_message_id,
             original_text=event_input.original_text,
             event_name=event_input.event_name,
@@ -76,9 +76,11 @@ class RecordedEventService:
         self,
         *,
         recall_input: "RecallEventsToolInput",
+        user_id: UUID,
     ) -> list[RecordedEvent]:
         query = (
             select(RecordedEvent)
+            .where(RecordedEvent.initiated_by_user_id == user_id)
             .order_by(col(RecordedEvent.created_at).desc())
             .limit(recall_input.limit)
         )

@@ -6,6 +6,12 @@ export default {
         chats: 'Discussions',
         dashboard: 'Tableau de bord',
     },
+    auth: {
+        signinTitle: 'Connexion à HumConnect',
+        signinSubtitle: 'Utilisez votre compte ENAC pour accéder à vos discussions.',
+        signin: 'Se connecter',
+        logout: 'Se déconnecter',
+    },
     chats: {
         title: 'Discussions',
         subtitle: 'Démarrez une nouvelle conversation ou rouvrez-en une précédente.',
@@ -27,7 +33,7 @@ export default {
             location: 'Lieu',
             tags: 'Tags',
             chatId: 'ID discussion',
-            clientId: 'ID client',
+            userId: 'ID utilisateur',
             sourceMessageId: 'Message source',
             dateInput: 'Entrée date',
             locationInput: 'Entrée lieu',

@@ -20,6 +20,7 @@
     "dependencies": {
         "@quasar/extras": "^1.16.4",
         "@quasar/quasar-ui-qmarkdown": "^3.0.0-rc.2",
+        "keycloak-js": "^26.2.4",
         "lefthook": "^2.1.4",
         "maplibre-gl": "^5.23.0",
         "pinia": "^3.0.1",

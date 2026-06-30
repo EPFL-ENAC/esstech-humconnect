@@ -16,7 +16,7 @@ from pydantic import BaseModel
 @dataclass(frozen=True, slots=True)
 class ToolExecutionContext:
     chat_id: UUID
-    client_id: str
+    user_id: UUID
     source_message_id: UUID
 
 

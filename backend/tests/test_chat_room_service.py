@@ -12,6 +12,8 @@ os.environ.setdefault("DB_PASSWORD", "test")
 os.environ.setdefault("OPENAI_API_URL", "http://test.local")
 os.environ.setdefault("OPENAI_API_KEY", "test")
 os.environ.setdefault("MEDITRON_MCP_API_KEY", "test")
+os.environ.setdefault("KEYCLOAK_API_ID", "test")
+os.environ.setdefault("KEYCLOAK_API_SECRET", "test")
 
 from api.models.chat import (
     CHUNK_TYPE_MESSAGE_CONTENT,
@@ -60,6 +62,8 @@ from api.services.chat import (
     PlaceholderChatAssistant,
     mark_stale_streaming_messages_interrupted,
 )
+
+TEST_USER_ID = uuid4()
 
 
 class FakeResult:
@@ -160,11 +164,11 @@ class FakeHistory:
         self.started_message = None
         self.snapshot = None
 
-    async def client_has_access(self, client_id):
-        return client_id == "client-1"
+    async def user_has_access(self, user_id):
+        return user_id == TEST_USER_ID
 
     async def build_snapshot(
-        self, client_id, *, interrupt_stale_streaming_messages=True
+        self, user_id, *, interrupt_stale_streaming_messages=True
     ):
         return self.snapshot
 
@@ -173,8 +177,8 @@ class FakeHistory:
     ):
         return list(self.chat_history)
 
-    async def submit_question(self, client_id, question):
-        self.created_turns.append((client_id, question))
+    async def submit_question(self, user_id, question):
+        self.created_turns.append((user_id, question))
         chat_id = uuid4()
         user_message = Message.create_user_message(chat_id, question)
         return ChatMessageResponse.from_db_model(user_message)
@@ -297,7 +301,7 @@ def install_fake_session(monkeypatch):
 
 
 def make_chat_and_message():
-    chat = ChatSession(client_id="client-1")
+    chat = ChatSession(user_id=TEST_USER_ID)
     message = Message(
         chat_id=chat.id,
         role=MESSAGE_ROLE_ASSISTANT,
@@ -328,7 +332,7 @@ def make_db_message(chat_id, role, content, status):
 
 def test_persistent_history_loads_messages_for_snapshot(monkeypatch):
     install_fake_session(monkeypatch)
-    chat = ChatSession(client_id="client-1")
+    chat = ChatSession(user_id=TEST_USER_ID)
     first = make_db_message(chat.id, MESSAGE_ROLE_USER, "First", MESSAGE_STATUS_COMPLETE)
     second = make_db_message(
         chat.id, MESSAGE_ROLE_ASSISTANT, "Second", MESSAGE_STATUS_COMPLETE
@@ -338,7 +342,7 @@ def test_persistent_history_loads_messages_for_snapshot(monkeypatch):
     FakeAsyncSession.rows[Message][second.id] = second
     history = PersistentChatMessagesHistory(chat.id)
 
-    snapshot = asyncio.run(history.build_snapshot("client-1"))
+    snapshot = asyncio.run(history.build_snapshot(TEST_USER_ID))
 
     assert snapshot is not None
     assert snapshot.chat.id == chat.id
@@ -358,7 +362,7 @@ def test_room_snapshot_preserves_streaming_message_when_generation_is_active(mon
 
     monkeypatch.setattr(room, "has_active_generation", has_active_generation)
 
-    snapshot = asyncio.run(room.build_snapshot("client-1"))
+    snapshot = asyncio.run(room.build_snapshot(TEST_USER_ID))
 
     assert snapshot is not None
     assert message.status == MESSAGE_STATUS_STREAMING
@@ -368,13 +372,13 @@ def test_room_snapshot_preserves_streaming_message_when_generation_is_active(mon
 
 def test_persistent_history_submit_question_writes_user_and_caches_response(monkeypatch):
     install_fake_session(monkeypatch)
-    chat = ChatSession(client_id="client-1")
+    chat = ChatSession(user_id=TEST_USER_ID)
     FakeAsyncSession.rows[ChatSession][chat.id] = chat
     history = PersistentChatMessagesHistory(chat.id)
 
-    user_message = asyncio.run(history.submit_question("client-1", "Hello there"))
+    user_message = asyncio.run(history.submit_question(TEST_USER_ID, "Hello there"))
 
-    snapshot = asyncio.run(history.build_snapshot("client-1"))
+    snapshot = asyncio.run(history.build_snapshot(TEST_USER_ID))
     assert user_message.role == MESSAGE_ROLE_USER
     assert snapshot is not None
     assert [message_content(message) for message in snapshot.messages] == [
@@ -391,15 +395,15 @@ def test_persistent_history_submit_question_writes_user_and_caches_response(monk
 
 def test_persistent_history_start_response_creates_empty_response_record(monkeypatch):
     install_fake_session(monkeypatch)
-    chat = ChatSession(client_id="client-1")
+    chat = ChatSession(user_id=TEST_USER_ID)
     FakeAsyncSession.rows[ChatSession][chat.id] = chat
     history = PersistentChatMessagesHistory(chat.id)
 
-    asyncio.run(history.submit_question("client-1", "Hello"))
+    asyncio.run(history.submit_question(TEST_USER_ID, "Hello"))
 
     async def run():
         created_message = await history.start_response()
-        snapshot = await history.build_snapshot("client-1")
+        snapshot = await history.build_snapshot(TEST_USER_ID)
         return created_message, snapshot
 
     created_message, snapshot = asyncio.run(run())
@@ -415,11 +419,11 @@ def test_persistent_history_start_response_creates_empty_response_record(monkeyp
 
 def test_persistent_history_response_progress_throttles_after_initial_insert(monkeypatch):
     install_fake_session(monkeypatch)
-    chat = ChatSession(client_id="client-1")
+    chat = ChatSession(user_id=TEST_USER_ID)
     FakeAsyncSession.rows[ChatSession][chat.id] = chat
     history = PersistentChatMessagesHistory(chat.id)
 
-    asyncio.run(history.submit_question("client-1", "Hello"))
+    asyncio.run(history.submit_question(TEST_USER_ID, "Hello"))
     chunk_index = 0
 
     async def run():
@@ -430,7 +434,7 @@ def test_persistent_history_response_progress_throttles_after_initial_insert(mon
                 chunk_index, CHUNK_TYPE_MESSAGE_CONTENT, "a"
             )
 
-        snapshot = await history.build_snapshot("client-1")
+        snapshot = await history.build_snapshot(TEST_USER_ID)
         assert snapshot is not None
         assert message_content(snapshot.messages[-1]) == "a" * (
             chat_service.STREAM_COMMIT_TOKEN_BATCH_SIZE
@@ -452,13 +456,13 @@ def test_persistent_history_response_progress_throttles_after_initial_insert(mon
 
 def test_persistent_history_uses_chunk_index_not_type_to_append(monkeypatch):
     install_fake_session(monkeypatch)
-    chat = ChatSession(client_id="client-1")
+    chat = ChatSession(user_id=TEST_USER_ID)
     FakeAsyncSession.rows[ChatSession][chat.id] = chat
     history = PersistentChatMessagesHistory(chat.id)
     first_chunk_index = 0
     second_chunk_index = 1
 
-    asyncio.run(history.submit_question("client-1", "Hello"))
+    asyncio.run(history.submit_question(TEST_USER_ID, "Hello"))
 
     async def run():
         await history.start_response()
@@ -468,7 +472,7 @@ def test_persistent_history_uses_chunk_index_not_type_to_append(monkeypatch):
         await history.response_progress(
             second_chunk_index, CHUNK_TYPE_REASONING_TEXT, "Second"
         )
-        snapshot = await history.build_snapshot("client-1")
+        snapshot = await history.build_snapshot(TEST_USER_ID)
         return snapshot
 
     snapshot = asyncio.run(run())
@@ -486,7 +490,7 @@ def test_persistent_history_uses_chunk_index_not_type_to_append(monkeypatch):
 
 def test_persistent_history_response_payload_update_upserts_chunk(monkeypatch):
     install_fake_session(monkeypatch)
-    chat = ChatSession(client_id="client-1")
+    chat = ChatSession(user_id=TEST_USER_ID)
     FakeAsyncSession.rows[ChatSession][chat.id] = chat
     history = PersistentChatMessagesHistory(chat.id)
     payload = ToolCallPayload(
@@ -497,12 +501,12 @@ def test_persistent_history_response_payload_update_upserts_chunk(monkeypatch):
         status="running",
     )
 
-    asyncio.run(history.submit_question("client-1", "Hello"))
+    asyncio.run(history.submit_question(TEST_USER_ID, "Hello"))
 
     async def run():
         assistant_message = await history.start_response()
         await history.response_payload_update(0, CHUNK_TYPE_TOOL_CALL, payload)
-        snapshot = await history.build_snapshot("client-1")
+        snapshot = await history.build_snapshot(TEST_USER_ID)
         return assistant_message, snapshot
 
     assistant_message, snapshot = asyncio.run(run())
@@ -517,7 +521,7 @@ def test_persistent_history_response_payload_update_upserts_chunk(monkeypatch):
 
 def test_persistent_history_response_payload_update_replaces_payload(monkeypatch):
     install_fake_session(monkeypatch)
-    chat = ChatSession(client_id="client-1")
+    chat = ChatSession(user_id=TEST_USER_ID)
     FakeAsyncSession.rows[ChatSession][chat.id] = chat
     history = PersistentChatMessagesHistory(chat.id)
     running_payload = ToolCallPayload(
@@ -536,13 +540,13 @@ def test_persistent_history_response_payload_update_replaces_payload(monkeypatch
         answer="Dummy tool received: hello",
     )
 
-    asyncio.run(history.submit_question("client-1", "Hello"))
+    asyncio.run(history.submit_question(TEST_USER_ID, "Hello"))
 
     async def run():
         assistant_message = await history.start_response()
         await history.response_payload_update(0, CHUNK_TYPE_TOOL_CALL, running_payload)
         await history.response_payload_update(0, CHUNK_TYPE_TOOL_CALL, finished_payload)
-        snapshot = await history.build_snapshot("client-1")
+        snapshot = await history.build_snapshot(TEST_USER_ID)
         return assistant_message, snapshot
 
     assistant_message, snapshot = asyncio.run(run())
@@ -559,18 +563,18 @@ def test_persistent_history_response_payload_update_replaces_payload(monkeypatch
 
 def test_persistent_history_complete_response_flushes_and_marks_complete(monkeypatch):
     install_fake_session(monkeypatch)
-    chat = ChatSession(client_id="client-1")
+    chat = ChatSession(user_id=TEST_USER_ID)
     FakeAsyncSession.rows[ChatSession][chat.id] = chat
     history = PersistentChatMessagesHistory(chat.id)
 
-    asyncio.run(history.submit_question("client-1", "Hello"))
+    asyncio.run(history.submit_question(TEST_USER_ID, "Hello"))
     chunk_index = 0
 
     async def run():
         assistant_message = await history.start_response()
         await history.response_progress(chunk_index, CHUNK_TYPE_MESSAGE_CONTENT, "OK")
         await history.complete_response()
-        snapshot = await history.build_snapshot("client-1")
+        snapshot = await history.build_snapshot(TEST_USER_ID)
         return assistant_message, snapshot
 
     assistant_message, snapshot = asyncio.run(run())
@@ -586,11 +590,11 @@ def test_persistent_history_complete_response_flushes_and_marks_complete(monkeyp
 
 def test_persistent_history_fail_response_marks_error_in_db_and_memory(monkeypatch):
     install_fake_session(monkeypatch)
-    chat = ChatSession(client_id="client-1")
+    chat = ChatSession(user_id=TEST_USER_ID)
     FakeAsyncSession.rows[ChatSession][chat.id] = chat
     history = PersistentChatMessagesHistory(chat.id)
 
-    asyncio.run(history.submit_question("client-1", "Hello"))
+    asyncio.run(history.submit_question(TEST_USER_ID, "Hello"))
     chunk_index = 0
 
     async def run():
@@ -599,7 +603,7 @@ def test_persistent_history_fail_response_marks_error_in_db_and_memory(monkeypat
             chunk_index, CHUNK_TYPE_MESSAGE_CONTENT, "Nope"
         )
         await history.fail_response()
-        snapshot = await history.build_snapshot("client-1")
+        snapshot = await history.build_snapshot(TEST_USER_ID)
         return assistant_message, snapshot
 
     assistant_message, snapshot = asyncio.run(run())
@@ -632,13 +636,13 @@ def test_service_handles_user_message_through_history_and_hub(monkeypatch):
         )
 
         async def submit_message():
-            await room.handle_user_message("client-1", "Hello there")
+            await room.handle_user_message(TEST_USER_ID, "Hello there")
 
         events = await collect_room_events_after(submit_message, room)
         created_events = [
             event for event in events if event["type"] == "message_created"
         ]
-        assert history.created_turns == [("client-1", "Hello there")]
+        assert history.created_turns == [(TEST_USER_ID, "Hello there")]
         assert len(created_events) == 1
         assert created_events[0]["message"]["role"] == MESSAGE_ROLE_USER
         [(started_history, started_question, tool_context)] = started_responses
@@ -646,7 +650,7 @@ def test_service_handles_user_message_through_history_and_hub(monkeypatch):
         assert started_question == "Hello there"
         assert tool_context is not None
         assert tool_context.chat_id == room.chat_id
-        assert tool_context.client_id == "client-1"
+        assert tool_context.user_id == TEST_USER_ID
         assert str(tool_context.source_message_id) == created_events[0]["message"]["id"]
 
     asyncio.run(run())
@@ -662,14 +666,14 @@ def test_service_rejects_second_message_while_generation_is_active(monkeypatch):
     monkeypatch.setattr(room, "has_active_generation", has_active_generation)
 
     with pytest.raises(RuntimeError, match="already streaming"):
-        asyncio.run(room.handle_user_message("client-1", "Hello"))
+        asyncio.run(room.handle_user_message(TEST_USER_ID, "Hello"))
 
     assert history.created_turns == []
 
 
 def test_service_subscription_can_start_with_snapshot():
     history = FakeHistory()
-    chat = ChatSession(client_id="client-1")
+    chat = ChatSession(user_id=TEST_USER_ID)
     history.snapshot = ChatSnapshotResponse(
         chat=ChatSessionResponse.from_db_model(chat),
         messages=[],
@@ -677,7 +681,7 @@ def test_service_subscription_can_start_with_snapshot():
     room = ChatRoomService(uuid4(), messages_history=history)
 
     async def run():
-        async for event in room.subscribe("client-1", with_snapshot=True):
+        async for event in room.subscribe(TEST_USER_ID, with_snapshot=True):
             return event
 
     assert asyncio.run(run()) == history.snapshot.model_dump(mode="json")
@@ -1167,7 +1171,7 @@ RECORDED_EVENT_SOURCE_MESSAGE_ID = uuid4()
 def record_event_tool_context() -> ToolExecutionContext:
     return ToolExecutionContext(
         chat_id=RECORDED_EVENT_CHAT_ID,
-        client_id="client-1",
+        user_id=TEST_USER_ID,
         source_message_id=RECORDED_EVENT_SOURCE_MESSAGE_ID,
     )
 
@@ -1217,7 +1221,7 @@ def make_recorded_event(
 ) -> RecordedEvent:
     return RecordedEvent(
         chat_id=chat_id,
-        initiated_by_client_id="client-1",
+        initiated_by_user_id=TEST_USER_ID,
         source_message_id=RECORDED_EVENT_SOURCE_MESSAGE_ID,
         original_text=original_text,
         event_name=event_name,
@@ -1264,14 +1268,14 @@ def test_recorded_event_service_persists_event_with_initiator_metadata():
         return await service.record_event_from_tool(
             event_input=event_input,
             chat_id=RECORDED_EVENT_CHAT_ID,
-            client_id="client-1",
+            user_id=TEST_USER_ID,
             source_message_id=RECORDED_EVENT_SOURCE_MESSAGE_ID,
         )
 
     response = asyncio.run(run())
     [persisted_event] = recorded_events()
     assert persisted_event.chat_id == RECORDED_EVENT_CHAT_ID
-    assert persisted_event.initiated_by_client_id == "client-1"
+    assert persisted_event.initiated_by_user_id == TEST_USER_ID
     assert persisted_event.source_message_id == RECORDED_EVENT_SOURCE_MESSAGE_ID
     assert persisted_event.original_text == "My son started coughing 3 days ago"
     assert persisted_event.event_name == "Son started coughing"
@@ -1299,7 +1303,7 @@ def test_recorded_event_service_persists_event_with_initiator_metadata():
     assert response == persisted_event
 
 
-def test_recorded_event_service_builds_global_filtered_recall_query():
+def test_recorded_event_service_builds_user_scoped_filtered_recall_query():
     FakeAsyncSession.reset()
     cough_event = make_recorded_event()
     other_chat_event = make_recorded_event(
@@ -1327,11 +1331,13 @@ def test_recorded_event_service_builds_global_filtered_recall_query():
     async def run():
         return await service.recall_events_from_tool(
             recall_input=recall_input,
+            user_id=TEST_USER_ID,
         )
 
     assert asyncio.run(run()) == [other_chat_event, cough_event]
 
     query_text = str(FakeAsyncSession.last_query)
+    assert "recordedevent.initiated_by_user_id" in query_text
     assert "WHERE recordedevent.chat_id" not in query_text
     assert "AND recordedevent.chat_id" not in query_text
     assert "recordedevent.event_datetime >= " in query_text
@@ -1356,7 +1362,7 @@ def test_record_event_tool_delegates_to_recorded_event_service(monkeypatch):
     output = asyncio.run(run())
     [persisted_event] = recorded_events()
     assert persisted_event.chat_id == RECORDED_EVENT_CHAT_ID
-    assert persisted_event.initiated_by_client_id == "client-1"
+    assert persisted_event.initiated_by_user_id == TEST_USER_ID
     assert persisted_event.source_message_id == RECORDED_EVENT_SOURCE_MESSAGE_ID
     assert output == expected_record_event_tool_output(persisted_event)
 
@@ -1391,7 +1397,7 @@ def test_recall_events_tool_delegates_to_recorded_event_service(monkeypatch):
     assert output == expected_recall_events_tool_output([fever_event, cough_event])
 
 
-def test_recall_events_tool_does_not_require_execution_context(monkeypatch):
+def test_recall_events_tool_requires_execution_context(monkeypatch):
     FakeAsyncSession.reset()
     configure_recorded_event_service(monkeypatch)
     cough_event = make_recorded_event()
@@ -1409,7 +1415,8 @@ def test_recall_events_tool_does_not_require_execution_context(monkeypatch):
             }
         )
 
-    assert asyncio.run(run()) == expected_recall_events_tool_output([cough_event])
+    with pytest.raises(ValueError, match="requires chat execution context"):
+        asyncio.run(run())
 
 
 def test_recall_events_tool_rejects_invalid_date_range():
@@ -2032,7 +2039,7 @@ def test_humconnect_chat_assistant_executes_record_event_tool_calls(monkeypatch)
         AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "Noted"),
     ]
     assert persisted_event.chat_id == RECORDED_EVENT_CHAT_ID
-    assert persisted_event.initiated_by_client_id == "client-1"
+    assert persisted_event.initiated_by_user_id == TEST_USER_ID
     assert persisted_event.source_message_id == RECORDED_EVENT_SOURCE_MESSAGE_ID
 
     second_input = fake_client.responses.create_kwargs[1]["input"]

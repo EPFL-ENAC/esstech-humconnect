@@ -20,22 +20,17 @@ export interface ChatMessageChunk {
     payload?: ToolCallPayload | null;
 }
 
-export interface CreateChatRequest {
-    client_id: string;
-}
-
 export interface CreateChatResponse {
     id: string;
 }
 
 export interface CreateChatMessageRequest {
-    client_id: string;
     content: string;
 }
 
 export interface ChatSessionResponse {
     id: string;
-    client_id: string;
+    user_id: string;
     title: string | null;
     created_at: string;
     updated_at: string;
@@ -58,7 +53,7 @@ export interface ListChatsResponse {
 export interface RecordedEventResponse {
     id: string;
     chat_id: string;
-    initiated_by_client_id: string;
+    initiated_by_user_id: string;
     source_message_id: string;
     original_text: string;
     event_name: string;

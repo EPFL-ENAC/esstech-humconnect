@@ -43,14 +43,14 @@ class PersistentChatMessagesHistory:
         self._tokens_since_commit = 0
         self._load_lock = asyncio.Lock()
 
-    async def client_has_access(self, client_id: str) -> bool:
-        return await self._ensure_loaded(client_id)
+    async def user_has_access(self, user_id: UUID) -> bool:
+        return await self._ensure_loaded(user_id)
 
     async def build_snapshot(
-        self, client_id: str, *, interrupt_stale_streaming_messages: bool = True
+        self, user_id: UUID, *, interrupt_stale_streaming_messages: bool = True
     ) -> ChatSnapshotResponse | None:
         if not await self._ensure_loaded(
-            client_id,
+            user_id,
             interrupt_stale_streaming_messages=interrupt_stale_streaming_messages,
         ):
             return None
@@ -76,15 +76,15 @@ class PersistentChatMessagesHistory:
         ]
 
     async def submit_question(
-        self, client_id: str, question: str
+        self, user_id: UUID, question: str
     ) -> ChatMessageResponse:
-        if not await self._ensure_loaded(client_id):
+        if not await self._ensure_loaded(user_id):
             raise PermissionError("Chat not found")
 
         async with AsyncSQLModelSession(
             get_engine(), expire_on_commit=False
         ) as session:
-            chat = await get_chat_for_client(session, self.chat_id, client_id)
+            chat = await get_chat_for_user(session, self.chat_id, user_id)
             if chat is None:
                 raise PermissionError("Chat not found")
 
@@ -231,22 +231,22 @@ class PersistentChatMessagesHistory:
 
     async def _ensure_loaded(
         self,
-        client_id: str | None = None,
+        user_id: UUID | None = None,
         *,
         interrupt_stale_streaming_messages: bool = True,
     ) -> bool:
         async with self._load_lock:
             if self._chat is not None:
-                return client_id is None or self._chat.client_id == client_id
+                return user_id is None or self._chat.user_id == user_id
 
             async with AsyncSQLModelSession(
                 get_engine(), expire_on_commit=False
             ) as session:
                 chat = None
-                if client_id is None:
+                if user_id is None:
                     chat = await session.get(ChatSession, self.chat_id)
                 else:
-                    chat = await get_chat_for_client(session, self.chat_id, client_id)
+                    chat = await get_chat_for_user(session, self.chat_id, user_id)
 
                 if chat is None:
                     return False
@@ -328,13 +328,13 @@ class PersistentChatMessagesHistory:
         self._last_commit_at = asyncio.get_running_loop().time()
 
 
-async def get_chat_for_client(
-    session: AsyncSQLModelSession, chat_id: UUID, client_id: str
+async def get_chat_for_user(
+    session: AsyncSQLModelSession, chat_id: UUID, user_id: UUID
 ) -> ChatSession | None:
     result = await session.exec(
         select(ChatSession).where(
             ChatSession.id == chat_id,
-            ChatSession.client_id == client_id,
+            ChatSession.user_id == user_id,
         )
     )
     return result.first()
