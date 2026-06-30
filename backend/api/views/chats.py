@@ -17,7 +17,6 @@ from starlette.responses import StreamingResponse
 
 from api.db import get_engine, get_session
 from api.models.chat import (
-    ChatErrorEvent,
     ChatSession,
     ChatSessionResponse,
     ChatSnapshotResponse,
@@ -124,20 +123,8 @@ async def chat_events(
 
     async def stream_events() -> AsyncIterator[str]:
         try:
-            async with room.subscribe() as queue:
-                snapshot = await room.build_snapshot(client_id)
-                if snapshot is None:
-                    yield _format_sse_event(
-                        ChatErrorEvent(message="Chat not found").model_dump(mode="json")
-                    )
-                    return
-
-                yield _format_sse_event(snapshot.model_dump(mode="json"))
-                while True:
-                    event = await queue.get()
-                    if event is None:
-                        break
-                    yield _format_sse_event(event)
+            async for event in room.subscribe(client_id, with_snapshot=True):
+                yield _format_sse_event(event)
         except ClientDisconnect:
             return
         finally:

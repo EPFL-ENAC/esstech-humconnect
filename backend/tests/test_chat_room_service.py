@@ -19,6 +19,8 @@ from api.models.chat import (
     CHUNK_TYPE_TOOL_CALL,
     ChatMessageChunk,
     ChatMessageResponse,
+    ChatSessionResponse,
+    ChatSnapshotResponse,
     ChatSession,
     Message,
     ToolCallPayload,
@@ -157,12 +159,13 @@ class FakeHistory:
         self.active = True
         self.active_response_message_id = None
         self.started_message = None
+        self.snapshot = None
 
     async def client_has_access(self, client_id):
         return client_id == "client-1"
 
     async def build_snapshot(self, client_id):
-        return None
+        return self.snapshot
 
     async def get_assistant_chat_history(self):
         return list(self.chat_history)
@@ -237,12 +240,36 @@ async def start_and_wait_for_response(room, chat_history=None, question=""):
 
 
 async def collect_events_during_response(room, chat_history=None, question=""):
-    async with room.subscribe() as queue:
+    async with room._connection_hub.subscribe() as queue:
         await start_and_wait_for_response(room, chat_history, question)
         events = []
         while not queue.empty():
             events.append(queue.get_nowait())
         return events
+
+
+async def collect_room_events_after(action, room, event_count=1):
+    events = []
+
+    async def collect_events():
+        async for event in room.subscribe():
+            events.append(event)
+            if len(events) >= event_count:
+                break
+
+    collector = asyncio.create_task(collect_events())
+    await asyncio.sleep(0)
+    try:
+        await action()
+        await collector
+        return events
+    finally:
+        if not collector.done():
+            collector.cancel()
+            try:
+                await collector
+            except asyncio.CancelledError:
+                pass
 
 
 async def immediate_sleep(delay):
@@ -601,14 +628,13 @@ def test_service_handles_user_message_through_history_and_hub(monkeypatch):
             start_assistant_response,
         )
 
-        async with room.subscribe() as queue:
+        async def submit_message():
             await room.handle_user_message("client-1", "Hello there")
 
-            created_events = []
-            while not queue.empty():
-                event = queue.get_nowait()
-                if event["type"] == "message_created":
-                    created_events.append(event)
+        events = await collect_room_events_after(submit_message, room)
+        created_events = [
+            event for event in events if event["type"] == "message_created"
+        ]
         assert history.created_turns == [("client-1", "Hello there")]
         assert len(created_events) == 1
         assert created_events[0]["message"]["role"] == MESSAGE_ROLE_USER
@@ -636,6 +662,22 @@ def test_service_rejects_second_message_while_generation_is_active(monkeypatch):
         asyncio.run(room.handle_user_message("client-1", "Hello"))
 
     assert history.created_turns == []
+
+
+def test_service_subscription_can_start_with_snapshot():
+    history = FakeHistory()
+    chat = ChatSession(client_id="client-1")
+    history.snapshot = ChatSnapshotResponse(
+        chat=ChatSessionResponse.from_db_model(chat),
+        messages=[],
+    )
+    room = ChatRoomService(uuid4(), messages_history=history)
+
+    async def run():
+        async for event in room.subscribe("client-1", with_snapshot=True):
+            return event
+
+    assert asyncio.run(run()) == history.snapshot.model_dump(mode="json")
 
 
 def test_service_passes_chat_history_and_question_to_assistant():
@@ -792,12 +834,10 @@ def test_assistant_stream_marks_message_error_when_streaming_fails(monkeypatch):
     monkeypatch.setattr(room, "broadcast", broadcast)
 
     async def run():
-        async with room.subscribe() as queue:
+        async def start_response():
             await start_and_wait_for_response(room)
-            events = []
-            while not queue.empty():
-                events.append(queue.get_nowait())
-            return events
+
+        return await collect_room_events_after(start_response, room, event_count=2)
 
     events = asyncio.run(run())
 
@@ -828,12 +868,10 @@ def test_assistant_stream_does_not_mark_error_when_done_broadcast_fails(monkeypa
     monkeypatch.setattr(room, "broadcast", broadcast)
 
     async def run():
-        async with room.subscribe() as queue:
+        async def start_response():
             await start_and_wait_for_response(room)
-            events = []
-            while not queue.empty():
-                events.append(queue.get_nowait())
-            return events
+
+        return await collect_room_events_after(start_response, room, event_count=2)
 
     with pytest.raises(RuntimeError, match="done broadcast failed"):
         asyncio.run(run())
@@ -2249,10 +2287,18 @@ def test_registry_releases_idle_room_after_stream_subscription_exits():
         registry = ChatRoomRegistry()
         chat_id = uuid4()
         room = await registry.get_room(chat_id)
+        subscription = room.subscribe()
+        subscription_task = asyncio.create_task(anext(subscription))
+        await asyncio.sleep(0)
 
-        async with room.subscribe():
-            await registry.release_room(chat_id)
-            assert chat_id in registry._rooms
+        await registry.release_room(chat_id)
+        assert chat_id in registry._rooms
+
+        subscription_task.cancel()
+        try:
+            await subscription_task
+        except asyncio.CancelledError:
+            pass
 
         await registry.release_room(chat_id)
 

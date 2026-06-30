@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager
 from uuid import UUID
 
 from api.models.chat import (
@@ -57,10 +56,27 @@ class ChatRoomService:
     async def broadcast(self, event: dict) -> None:
         await self._connection_hub.broadcast(event)
 
-    @asynccontextmanager
-    async def subscribe(self) -> AsyncIterator[asyncio.Queue[dict | None]]:
+    async def subscribe(
+        self,
+        client_id: str | None = None,
+        *,
+        with_snapshot: bool = False,
+    ) -> AsyncIterator[dict]:
         async with self._connection_hub.subscribe() as queue:
-            yield queue
+            if with_snapshot:
+                if client_id is None:
+                    raise ValueError("client_id is required when with_snapshot is true")
+
+                snapshot = await self.build_snapshot(client_id)
+                if snapshot is None:
+                    return
+                yield snapshot.model_dump(mode="json")
+
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield event
 
     async def has_active_generation(self) -> bool:
         async with self._lock:
