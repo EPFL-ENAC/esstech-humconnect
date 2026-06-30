@@ -113,7 +113,7 @@ export interface ChatErrorEvent {
     message: string;
 }
 
-export type ChatSocketEvent =
+export type ChatStreamEvent =
     | ChatSnapshotResponse
     | MessageCreatedEvent
     | MessageDeltaEvent
@@ -121,7 +121,6 @@ export type ChatSocketEvent =
     | MessageDoneEvent
     | ChatErrorEvent;
 
-export type ChatStreamEvent = ChatSocketEvent;
 export type ChatSession = ChatSessionResponse;
 export type ChatMessage = ChatMessageResponse;
 export type RecordedEvent = RecordedEventResponse;
