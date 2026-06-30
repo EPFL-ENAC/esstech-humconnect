@@ -7,7 +7,6 @@ from api.services.chat_room.chat_assistant import (
     ChatAssistant,
     PlaceholderChatAssistant,
 )
-from api.services.chat_room.chat_connection import ChatRoomConnectionHub
 from api.services.chat_room.chat_db import (
     MESSAGE_ROLE_ASSISTANT,
     MESSAGE_ROLE_USER,
@@ -37,7 +36,6 @@ async def mark_stale_streaming_messages_interrupted(
     await _mark_stale_streaming_messages_interrupted(
         session,
         chat_id=chat_id,
-        has_active_generation=chat_room_registry.has_active_generation,
     )
 
 
@@ -51,7 +49,6 @@ __all__ = [
     "STREAM_COMMIT_INTERVAL_SECONDS",
     "STREAM_COMMIT_TOKEN_BATCH_SIZE",
     "ChatAssistant",
-    "ChatRoomConnectionHub",
     "ChatRoomRegistry",
     "ChatRoomService",
     "PlaceholderChatAssistant",

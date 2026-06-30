@@ -19,6 +19,8 @@ from api.models.chat import (
     CHUNK_TYPE_TOOL_CALL,
     ChatMessageChunk,
     ChatMessageResponse,
+    ChatSessionResponse,
+    ChatSnapshotResponse,
     ChatSession,
     Message,
     ToolCallPayload,
@@ -51,7 +53,6 @@ from api.services.chat import (
     MESSAGE_STATUS_ERROR,
     MESSAGE_STATUS_INTERRUPTED,
     MESSAGE_STATUS_STREAMING,
-    ChatRoomConnectionHub,
     ChatRoomRegistry,
     ChatRoomService,
     HumConnectAssistant,
@@ -146,21 +147,6 @@ class FakeAsyncSession:
         }
 
 
-class FakeWebSocket:
-    def __init__(self, *, fail_send=False):
-        self.accepted = False
-        self.events = []
-        self.fail_send = fail_send
-
-    async def accept(self):
-        self.accepted = True
-
-    async def send_json(self, event):
-        if self.fail_send:
-            raise RuntimeError("send failed")
-        self.events.append(event)
-
-
 class FakeHistory:
     def __init__(self):
         self.created_turns = []
@@ -172,14 +158,19 @@ class FakeHistory:
         self.active = True
         self.active_response_message_id = None
         self.started_message = None
+        self.snapshot = None
 
     async def client_has_access(self, client_id):
         return client_id == "client-1"
 
-    async def build_snapshot(self, client_id):
-        return None
+    async def build_snapshot(
+        self, client_id, *, interrupt_stale_streaming_messages=True
+    ):
+        return self.snapshot
 
-    async def get_assistant_chat_history(self):
+    async def get_assistant_chat_history(
+        self, *, interrupt_stale_streaming_messages=True
+    ):
         return list(self.chat_history)
 
     async def submit_question(self, client_id, question):
@@ -251,6 +242,50 @@ async def start_and_wait_for_response(room, chat_history=None, question=""):
     await task
 
 
+async def collect_events_during_response(room, chat_history=None, question=""):
+    events = []
+
+    async def collect_events():
+        async for event in room.subscribe():
+            events.append(event)
+
+    collector = asyncio.create_task(collect_events())
+    await asyncio.sleep(0)
+    try:
+        await start_and_wait_for_response(room, chat_history, question)
+        return events
+    finally:
+        collector.cancel()
+        try:
+            await collector
+        except asyncio.CancelledError:
+            pass
+
+
+async def collect_room_events_after(action, room, event_count=1):
+    events = []
+
+    async def collect_events():
+        async for event in room.subscribe():
+            events.append(event)
+            if len(events) >= event_count:
+                break
+
+    collector = asyncio.create_task(collect_events())
+    await asyncio.sleep(0)
+    try:
+        await action()
+        await collector
+        return events
+    finally:
+        if not collector.done():
+            collector.cancel()
+            try:
+                await collector
+            except asyncio.CancelledError:
+                pass
+
+
 async def immediate_sleep(delay):
     return None
 
@@ -291,37 +326,6 @@ def make_db_message(chat_id, role, content, status):
     )
 
 
-def test_connection_hub_broadcasts_only_to_connected_sockets():
-    async def run():
-        first_hub = ChatRoomConnectionHub()
-        second_hub = ChatRoomConnectionHub()
-        first_socket = FakeWebSocket()
-        second_socket = FakeWebSocket()
-
-        await first_hub.connect(first_socket)
-        await second_hub.connect(second_socket)
-        await first_hub.broadcast({"type": "event"})
-
-        assert first_socket.accepted
-        assert first_socket.events == [{"type": "event"}]
-        assert second_socket.events == []
-
-    asyncio.run(run())
-
-
-def test_connection_hub_removes_failed_sockets():
-    async def run():
-        hub = ChatRoomConnectionHub()
-        websocket = FakeWebSocket(fail_send=True)
-
-        await hub.connect(websocket)
-        await hub.broadcast({"type": "event"})
-
-        assert await hub.is_empty()
-
-    asyncio.run(run())
-
-
 def test_persistent_history_loads_messages_for_snapshot(monkeypatch):
     install_fake_session(monkeypatch)
     chat = ChatSession(client_id="client-1")
@@ -342,6 +346,24 @@ def test_persistent_history_loads_messages_for_snapshot(monkeypatch):
         "First",
         "Second",
     ]
+
+
+def test_room_snapshot_preserves_streaming_message_when_generation_is_active(monkeypatch):
+    install_fake_session(monkeypatch)
+    chat, message = make_chat_and_message()
+    room = ChatRoomService(chat.id)
+
+    async def has_active_generation():
+        return True
+
+    monkeypatch.setattr(room, "has_active_generation", has_active_generation)
+
+    snapshot = asyncio.run(room.build_snapshot("client-1"))
+
+    assert snapshot is not None
+    assert message.status == MESSAGE_STATUS_STREAMING
+    assert snapshot.messages[0].status == MESSAGE_STATUS_STREAMING
+    assert FakeAsyncSession.commit_count == 0
 
 
 def test_persistent_history_submit_question_writes_user_and_caches_response(monkeypatch):
@@ -594,12 +616,9 @@ def test_persistent_history_fail_response_marks_error_in_db_and_memory(monkeypat
 def test_service_handles_user_message_through_history_and_hub(monkeypatch):
     async def run():
         history = FakeHistory()
-        hub = ChatRoomConnectionHub()
-        websocket = FakeWebSocket()
         started_responses = []
         room = ChatRoomService(
             uuid4(),
-            connection_hub=hub,
             messages_history=history,
         )
 
@@ -612,11 +631,12 @@ def test_service_handles_user_message_through_history_and_hub(monkeypatch):
             start_assistant_response,
         )
 
-        await room.connect(websocket)
-        await room.handle_user_message("client-1", "Hello there")
+        async def submit_message():
+            await room.handle_user_message("client-1", "Hello there")
 
+        events = await collect_room_events_after(submit_message, room)
         created_events = [
-            event for event in websocket.events if event["type"] == "message_created"
+            event for event in events if event["type"] == "message_created"
         ]
         assert history.created_turns == [("client-1", "Hello there")]
         assert len(created_events) == 1
@@ -645,6 +665,22 @@ def test_service_rejects_second_message_while_generation_is_active(monkeypatch):
         asyncio.run(room.handle_user_message("client-1", "Hello"))
 
     assert history.created_turns == []
+
+
+def test_service_subscription_can_start_with_snapshot():
+    history = FakeHistory()
+    chat = ChatSession(client_id="client-1")
+    history.snapshot = ChatSnapshotResponse(
+        chat=ChatSessionResponse.from_db_model(chat),
+        messages=[],
+    )
+    room = ChatRoomService(uuid4(), messages_history=history)
+
+    async def run():
+        async for event in room.subscribe("client-1", with_snapshot=True):
+            return event
+
+    assert asyncio.run(run()) == history.snapshot.model_dump(mode="json")
 
 
 def test_service_passes_chat_history_and_question_to_assistant():
@@ -677,8 +713,6 @@ def test_service_passes_chat_history_and_question_to_assistant():
 
 def test_assistant_stream_pushes_every_chunk_and_broadcasts_deltas():
     history = FakeHistory()
-    hub = ChatRoomConnectionHub()
-    websocket = FakeWebSocket()
     assistant = FakeAssistant(
         [
             AssistantStreamChunkDelta(
@@ -692,15 +726,10 @@ def test_assistant_stream_pushes_every_chunk_and_broadcasts_deltas():
     )
     room = ChatRoomService(
         uuid4(),
-        connection_hub=hub,
         messages_history=history,
         chat_assistant=assistant,
     )
-    async def run():
-        await room.connect(websocket)
-        await start_and_wait_for_response(room, [], "Hello?")
-
-    asyncio.run(run())
+    events = asyncio.run(collect_events_during_response(room, [], "Hello?"))
 
     chunks = [
         (0, CHUNK_TYPE_REASONING_TEXT, "Thinking"),
@@ -709,20 +738,20 @@ def test_assistant_stream_pushes_every_chunk_and_broadcasts_deltas():
     ]
     assert history.progress_tokens == chunks
     assert history.completed
-    created_event = websocket.events[0]
+    created_event = events[0]
     assert created_event["type"] == "message_created"
     assert created_event["message"]["role"] == MESSAGE_ROLE_ASSISTANT
     assert created_event["message"]["chunks"] == []
-    assert websocket.events[1]["chunk_type"] == CHUNK_TYPE_REASONING_TEXT
-    assert websocket.events[1]["chunk_index"] == 0
-    assert websocket.events[1]["delta"] == "Thinking"
-    assert websocket.events[2]["chunk_type"] == CHUNK_TYPE_MESSAGE_CONTENT
-    assert websocket.events[2]["chunk_index"] == 1
-    assert websocket.events[2]["delta"] == "Hello"
-    assert websocket.events[3]["chunk_type"] == CHUNK_TYPE_MESSAGE_CONTENT
-    assert websocket.events[3]["chunk_index"] == websocket.events[2]["chunk_index"]
-    assert websocket.events[3]["delta"] == " there"
-    assert websocket.events[-1] == {
+    assert events[1]["chunk_type"] == CHUNK_TYPE_REASONING_TEXT
+    assert events[1]["chunk_index"] == 0
+    assert events[1]["delta"] == "Thinking"
+    assert events[2]["chunk_type"] == CHUNK_TYPE_MESSAGE_CONTENT
+    assert events[2]["chunk_index"] == 1
+    assert events[2]["delta"] == "Hello"
+    assert events[3]["chunk_type"] == CHUNK_TYPE_MESSAGE_CONTENT
+    assert events[3]["chunk_index"] == events[2]["chunk_index"]
+    assert events[3]["delta"] == " there"
+    assert events[-1] == {
         "type": "message_done",
         "message_id": created_event["message"]["id"],
         "status": MESSAGE_STATUS_COMPLETE,
@@ -731,8 +760,6 @@ def test_assistant_stream_pushes_every_chunk_and_broadcasts_deltas():
 
 def test_assistant_stream_broadcasts_payload_updates():
     history = FakeHistory()
-    hub = ChatRoomConnectionHub()
-    websocket = FakeWebSocket()
     payload = ToolCallPayload(
         tool_name="dummy_tool",
         tool_label="Dummy tool",
@@ -747,20 +774,15 @@ def test_assistant_stream_broadcasts_payload_updates():
     )
     room = ChatRoomService(
         uuid4(),
-        connection_hub=hub,
         messages_history=history,
         chat_assistant=assistant,
     )
 
-    async def run():
-        await room.connect(websocket)
-        await start_and_wait_for_response(room, [], "Hello?")
+    events = asyncio.run(collect_events_during_response(room, [], "Hello?"))
 
-    asyncio.run(run())
-
-    created_event = websocket.events[0]
+    created_event = events[0]
     assert history.payload_updates == [(0, CHUNK_TYPE_TOOL_CALL, payload)]
-    assert websocket.events[1] == {
+    assert events[1] == {
         "type": "message_update_payload",
         "message_id": created_event["message"]["id"],
         "chunk_index": 0,
@@ -771,27 +793,20 @@ def test_assistant_stream_broadcasts_payload_updates():
 
 def test_assistant_stream_returns_without_done_event_when_no_tokens_are_generated():
     history = FakeHistory()
-    hub = ChatRoomConnectionHub()
-    websocket = FakeWebSocket()
     assistant = FakeAssistant([])
     room = ChatRoomService(
         uuid4(),
-        connection_hub=hub,
         messages_history=history,
         chat_assistant=assistant,
     )
 
-    async def run():
-        await room.connect(websocket)
-        await start_and_wait_for_response(room)
+    events = asyncio.run(collect_events_during_response(room))
 
-    asyncio.run(run())
-
-    assert websocket.events[0]["type"] == "message_created"
-    assert websocket.events[0]["message"]["chunks"] == []
-    assert websocket.events[1] == {
+    assert events[0]["type"] == "message_created"
+    assert events[0]["message"]["chunks"] == []
+    assert events[1] == {
         "type": "message_done",
-        "message_id": websocket.events[0]["message"]["id"],
+        "message_id": events[0]["message"]["id"],
         "status": MESSAGE_STATUS_COMPLETE,
     }
     assert history.progress_tokens == []
@@ -800,92 +815,82 @@ def test_assistant_stream_returns_without_done_event_when_no_tokens_are_generate
 
 def test_assistant_stream_marks_message_error_when_streaming_fails(monkeypatch):
     history = FakeHistory()
-    hub = ChatRoomConnectionHub()
-    websocket = FakeWebSocket()
     room = ChatRoomService(
         uuid4(),
-        connection_hub=hub,
         messages_history=history,
         chat_assistant=FakeAssistant(["created", "broken"]),
     )
+    original_broadcast = room.broadcast
 
     async def broadcast(event):
         if event["type"] == "message_delta":
             raise RuntimeError("stream failed")
-        await hub.broadcast(event)
+        await original_broadcast(event)
 
     monkeypatch.setattr(room, "broadcast", broadcast)
 
     async def run():
-        await room.connect(websocket)
-        await start_and_wait_for_response(room)
+        async def start_response():
+            await start_and_wait_for_response(room)
 
-    asyncio.run(run())
+        return await collect_room_events_after(start_response, room, event_count=2)
+
+    events = asyncio.run(run())
 
     assert history.failed
-    assert websocket.events[0]["type"] == "message_created"
-    assert websocket.events[1] == {
+    assert events[0]["type"] == "message_created"
+    assert events[1] == {
         "type": "message_done",
-        "message_id": websocket.events[0]["message"]["id"],
+        "message_id": events[0]["message"]["id"],
         "status": MESSAGE_STATUS_ERROR,
     }
 
 
 def test_assistant_stream_does_not_mark_error_when_done_broadcast_fails(monkeypatch):
     history = FakeHistory()
-    hub = ChatRoomConnectionHub()
-    websocket = FakeWebSocket()
     room = ChatRoomService(
         uuid4(),
-        connection_hub=hub,
         messages_history=history,
         chat_assistant=FakeAssistant(["done"]),
     )
+    original_broadcast = room.broadcast
 
     async def broadcast(event):
         if event["type"] == "message_done":
             raise RuntimeError("done broadcast failed")
-        await hub.broadcast(event)
+        await original_broadcast(event)
 
     monkeypatch.setattr(room, "broadcast", broadcast)
 
     async def run():
-        await room.connect(websocket)
-        await start_and_wait_for_response(room)
+        async def start_response():
+            await start_and_wait_for_response(room)
+
+        return await collect_room_events_after(start_response, room, event_count=2)
 
     with pytest.raises(RuntimeError, match="done broadcast failed"):
         asyncio.run(run())
 
     assert history.completed
     assert not history.failed
-    assert len(websocket.events) == 2
-    assert websocket.events[0]["type"] == "message_created"
-    assert websocket.events[1]["type"] == "message_delta"
 
 
 def test_assistant_stream_marks_message_error_when_assistant_fails():
     history = FakeHistory()
-    hub = ChatRoomConnectionHub()
-    websocket = FakeWebSocket()
     room = ChatRoomService(
         uuid4(),
-        connection_hub=hub,
         messages_history=history,
         chat_assistant=FakeAssistant([RuntimeError("assistant failed")]),
     )
 
-    async def run():
-        await room.connect(websocket)
-        await start_and_wait_for_response(room, [], "Hello?")
-
-    asyncio.run(run())
+    events = asyncio.run(collect_events_during_response(room, [], "Hello?"))
 
     assert history.failed
-    assert websocket.events[0]["type"] == "message_created"
-    assert websocket.events[0]["message"]["chunks"] == []
-    assert websocket.events[1] == {
+    assert events[0]["type"] == "message_created"
+    assert events[0]["message"]["chunks"] == []
+    assert events[1] == {
         "type": "message_done",
-        "message_id": websocket.events[0]["message"]["id"],
+        "message_id": events[0]["message"]["id"],
         "status": MESSAGE_STATUS_ERROR,
     }
 
@@ -2270,16 +2275,25 @@ def test_registry_returns_same_room_for_same_chat_and_different_rooms_for_differ
     asyncio.run(run())
 
 
-def test_registry_releases_idle_room_after_disconnect():
+def test_registry_releases_idle_room_after_stream_subscription_exits():
     async def run():
         registry = ChatRoomRegistry()
         chat_id = uuid4()
         room = await registry.get_room(chat_id)
-        websocket = FakeWebSocket()
+        subscription = room.subscribe()
+        subscription_task = asyncio.create_task(anext(subscription))
+        await asyncio.sleep(0)
 
-        await room.connect(websocket)
-        await room.disconnect(websocket)
-        await registry.release_room(chat_id)
+        await registry.release_room_if_idle(chat_id)
+        assert chat_id in registry._rooms
+
+        subscription_task.cancel()
+        try:
+            await subscription_task
+        except asyncio.CancelledError:
+            pass
+
+        await registry.release_room_if_idle(chat_id)
 
         assert chat_id not in registry._rooms
 
@@ -2290,35 +2304,7 @@ def test_stale_streaming_messages_are_marked_interrupted(monkeypatch):
     install_fake_session(monkeypatch)
     _, message = make_chat_and_message()
 
-    async def has_active_generation(chat_id):
-        return False
-
-    monkeypatch.setattr(
-        chat_service.chat_room_registry,
-        "has_active_generation",
-        has_active_generation,
-    )
-
     asyncio.run(mark_stale_streaming_messages_interrupted(FakeAsyncSession()))
 
     assert message.status == MESSAGE_STATUS_INTERRUPTED
     assert FakeAsyncSession.commit_count == 1
-
-
-def test_active_generation_is_not_marked_interrupted(monkeypatch):
-    install_fake_session(monkeypatch)
-    _, message = make_chat_and_message()
-
-    async def has_active_generation(chat_id):
-        return True
-
-    monkeypatch.setattr(
-        chat_service.chat_room_registry,
-        "has_active_generation",
-        has_active_generation,
-    )
-
-    asyncio.run(mark_stale_streaming_messages_interrupted(FakeAsyncSession()))
-
-    assert message.status == MESSAGE_STATUS_STREAMING
-    assert FakeAsyncSession.commit_count == 0

@@ -1,6 +1,6 @@
 import { onBeforeUnmount, ref, toValue, watch, type MaybeRefOrGetter } from 'vue';
-import { chatWebSocketUrl } from 'src/utils/chatApi';
-import type { ChatClientEvent, ChatMessage, ChatSession, ChatSocketEvent } from 'src/utils/model';
+import { chatEventStreamUrl, createChatMessage } from 'src/utils/chatApi';
+import type { ChatMessage, ChatSession, ChatStreamEvent } from 'src/utils/model';
 import { getClientId } from 'src/utils/clientId';
 import { getI18nT } from 'src/utils/i18n';
 import { useChatsStore } from 'src/stores/chats';
@@ -18,17 +18,18 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
     const messages = ref<ChatMessage[]>([]);
 
     const messageDoneCallbacks = new Set<MessageDoneCallback>();
-    let socket: WebSocket | null = null;
+    let abortController: AbortController | null = null;
     let reconnectTimer: number | undefined;
     let shouldReconnect = true;
+    let streamGeneration = 0;
 
-    function connectSocket({ reset = false } = {}) {
+    function connectStream({ reset = false } = {}) {
         const currentChatId = String(toValue(chatId));
+        streamGeneration += 1;
         clearReconnectTimer();
         connected.value = false;
-        const previousSocket = socket;
-        socket = null;
-        previousSocket?.close();
+        abortController?.abort();
+        abortController = null;
 
         if (reset) {
             chat.value = null;
@@ -39,44 +40,84 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
             return;
         }
 
-        const nextSocket = new WebSocket(chatWebSocketUrl(currentChatId, clientId));
-        socket = nextSocket;
-
-        nextSocket.addEventListener('open', () => {
-            if (socket !== nextSocket) {
-                return;
-            }
-            connected.value = true;
-            error.value = '';
-        });
-
-        nextSocket.addEventListener('message', (event) => {
-            if (socket !== nextSocket) {
-                return;
-            }
-            const payload = JSON.parse(String(event.data)) as ChatSocketEvent;
-            handleSocketEvent(payload);
-        });
-
-        nextSocket.addEventListener('close', () => {
-            if (socket !== nextSocket) {
-                return;
-            }
-            connected.value = false;
-            if (shouldReconnect) {
-                reconnectTimer = window.setTimeout(connectSocket, 1000);
-            }
-        });
-
-        nextSocket.addEventListener('error', () => {
-            if (socket !== nextSocket) {
-                return;
-            }
-            error.value = t('errors.connection');
-        });
+        abortController = new AbortController();
+        void readEventStream(currentChatId, abortController, streamGeneration);
     }
 
-    function handleSocketEvent(event: ChatSocketEvent) {
+    async function readEventStream(
+        currentChatId: string,
+        currentAbortController: AbortController,
+        generation: number,
+    ) {
+        try {
+            const response = await fetch(chatEventStreamUrl(currentChatId, clientId), {
+                headers: { Accept: 'text/event-stream' },
+                signal: currentAbortController.signal,
+            });
+
+            if (!response.ok || !response.body) {
+                throw new Error(t('errors.connection'));
+            }
+
+            connected.value = true;
+            error.value = '';
+
+            await readSseFrames(response.body, (event) => {
+                if (abortController !== currentAbortController || streamGeneration !== generation) {
+                    return;
+                }
+                handleChatEvent(event);
+            });
+        } catch (err) {
+            if (!currentAbortController.signal.aborted) {
+                error.value = err instanceof Error ? err.message : t('errors.connection');
+            }
+        } finally {
+            if (abortController === currentAbortController) {
+                connected.value = false;
+                abortController = null;
+                if (shouldReconnect) {
+                    reconnectTimer = window.setTimeout(() => connectStream(), 1000);
+                }
+            }
+        }
+    }
+
+    async function readSseFrames(
+        body: ReadableStream<Uint8Array>,
+        onEvent: (event: ChatStreamEvent) => void,
+    ) {
+        const reader = body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                break;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const frames = buffer.split(/\r?\n\r?\n/);
+            buffer = frames.pop() ?? '';
+
+            frames.forEach((frame) => {
+                const data = frame
+                    .split(/\r?\n/)
+                    .filter((line) => line.startsWith('data:'))
+                    .map((line) => line.slice(5).trimStart())
+                    .join('\n');
+
+                if (data) {
+                    onEvent(JSON.parse(data) as ChatStreamEvent);
+                }
+            });
+        }
+
+        buffer += decoder.decode();
+    }
+
+    function handleChatEvent(event: ChatStreamEvent) {
         if (event.type === 'snapshot') {
             chat.value = event.chat;
             chatsStore.upsertChat(event.chat);
@@ -148,13 +189,19 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
         return chunk;
     }
 
-    function sendEvent(event: ChatClientEvent): boolean {
-        if (!socket || socket.readyState !== WebSocket.OPEN) {
+    async function sendMessage(content: string): Promise<boolean> {
+        if (!connected.value) {
             return false;
         }
 
-        socket.send(JSON.stringify(event));
-        return true;
+        try {
+            await createChatMessage(String(toValue(chatId)), clientId, content);
+            error.value = '';
+            return true;
+        } catch (err) {
+            error.value = err instanceof Error ? err.message : t('errors.connection');
+            return false;
+        }
     }
 
     function onMessageDone(callback: MessageDoneCallback) {
@@ -172,7 +219,7 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
         () => toValue(chatId),
         () => {
             shouldReconnect = true;
-            connectSocket({ reset: true });
+            connectStream({ reset: true });
         },
         { immediate: true },
     );
@@ -180,8 +227,8 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
     onBeforeUnmount(() => {
         shouldReconnect = false;
         clearReconnectTimer();
-        socket?.close();
-        socket = null;
+        abortController?.abort();
+        abortController = null;
     });
 
     return {
@@ -189,7 +236,7 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
         connected,
         error,
         messages,
-        sendEvent,
+        sendMessage,
         onMessageDone,
     };
 }
