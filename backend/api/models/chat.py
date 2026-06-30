@@ -207,6 +207,11 @@ class CreateChatResponse(BaseModel):
     id: UUID
 
 
+class CreateChatMessageRequest(BaseModel):
+    client_id: str = PydanticField(min_length=1, max_length=256)
+    content: str = PydanticField(min_length=1)
+
+
 class ChatSessionResponse(BaseModel):
     id: UUID
     client_id: str

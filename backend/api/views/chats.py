@@ -1,3 +1,5 @@
+import json
+from collections.abc import AsyncIterator
 from uuid import UUID
 
 from fastapi import (
@@ -5,12 +7,13 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
-    WebSocket,
-    WebSocketDisconnect,
+    Response,
+    status,
 )
-from pydantic import ValidationError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
+from starlette.requests import ClientDisconnect
+from starlette.responses import StreamingResponse
 
 from api.db import get_engine, get_session
 from api.models.chat import (
@@ -18,10 +21,10 @@ from api.models.chat import (
     ChatSession,
     ChatSessionResponse,
     ChatSnapshotResponse,
+    CreateChatMessageRequest,
     CreateChatRequest,
     CreateChatResponse,
     ListChatsResponse,
-    UserMessageEvent,
 )
 from api.services.chat import (
     chat_room_registry,
@@ -74,75 +77,85 @@ async def get_chat(
         await chat_room_registry.release_room(chat_id)
 
 
-@router.websocket("/{chat_id}/ws")
-async def chat_websocket(
-    websocket: WebSocket,
+@router.post("/{chat_id}/messages", status_code=status.HTTP_202_ACCEPTED)
+async def create_chat_message(
     chat_id: UUID,
-    client_id: str = Query(default=""),
-) -> None:
-    if not client_id:
-        await websocket.close(code=1008)
-        return
+    payload: CreateChatMessageRequest,
+) -> Response:
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="Message content is required.")
 
     room = await chat_room_registry.get_room(chat_id)
-    if not await room.verify_client_access(client_id):
-        await websocket.close(code=1008)
-        await chat_room_registry.release_room(chat_id)
-        return
-
-    await room.connect(websocket)
     try:
-        snapshot = await room.build_snapshot(client_id)
-        if snapshot is None:
-            await websocket.close(code=1008)
-            return
-        await websocket.send_json(snapshot.model_dump(mode="json"))
+        if not await room.verify_client_access(payload.client_id):
+            raise HTTPException(status_code=404, detail="Chat not found")
 
-        while True:
-            payload = await websocket.receive_json()
-            try:
-                client_event = UserMessageEvent.model_validate(payload)
-            except ValidationError:
-                await websocket.send_json(
-                    ChatErrorEvent(message="Unsupported message type.").model_dump(
-                        mode="json"
-                    )
-                )
-                continue
+        if await room.has_active_generation():
+            raise HTTPException(
+                status_code=409,
+                detail="Wait for the current response to finish.",
+            )
 
-            content = client_event.content.strip()
-            if not content:
-                await websocket.send_json(
-                    ChatErrorEvent(message="Message content is required.").model_dump(
-                        mode="json"
-                    )
-                )
-                continue
-
-            if await room.has_active_generation():
-                await websocket.send_json(
-                    ChatErrorEvent(
-                        message="Wait for the current response to finish."
-                    ).model_dump(mode="json")
-                )
-                continue
-
-            try:
-                await room.handle_user_message(client_id, content)
-            except PermissionError:
-                await websocket.close(code=1008)
-                return
-            except RuntimeError:
-                await websocket.send_json(
-                    ChatErrorEvent(
-                        message="Wait for the current response to finish."
-                    ).model_dump(mode="json")
-                )
-    except WebSocketDisconnect:
-        pass
+        try:
+            await room.handle_user_message(payload.client_id, content)
+        except PermissionError:
+            raise HTTPException(status_code=404, detail="Chat not found") from None
+        except RuntimeError:
+            raise HTTPException(
+                status_code=409,
+                detail="Wait for the current response to finish.",
+            ) from None
     finally:
-        await room.disconnect(websocket)
         await chat_room_registry.release_room(chat_id)
+
+    return Response(status_code=status.HTTP_202_ACCEPTED)
+
+
+@router.get("/{chat_id}/events")
+async def chat_events(
+    chat_id: UUID,
+    client_id: str = Query(min_length=1, max_length=256),
+) -> StreamingResponse:
+    room = await chat_room_registry.get_room(chat_id)
+    if not await room.verify_client_access(client_id):
+        await chat_room_registry.release_room(chat_id)
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    async def stream_events() -> AsyncIterator[str]:
+        try:
+            async with room.subscribe() as queue:
+                snapshot = await room.build_snapshot(client_id)
+                if snapshot is None:
+                    yield _format_sse_event(
+                        ChatErrorEvent(message="Chat not found").model_dump(mode="json")
+                    )
+                    return
+
+                yield _format_sse_event(snapshot.model_dump(mode="json"))
+                while True:
+                    event = await queue.get()
+                    if event is None:
+                        break
+                    yield _format_sse_event(event)
+        except ClientDisconnect:
+            return
+        finally:
+            await chat_room_registry.release_room(chat_id)
+
+    return StreamingResponse(
+        stream_events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _format_sse_event(event: dict) -> str:
+    return f"data: {json.dumps(event, separators=(',', ':'))}\n\n"
 
 
 async def mark_interrupted_messages_on_startup() -> None:

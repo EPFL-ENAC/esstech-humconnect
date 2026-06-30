@@ -65,7 +65,14 @@ const chatId = computed(() => String(route.params.id));
 
 const draft = ref('');
 const messagesElement = ref<HTMLElement | null>(null);
-const { chat, connected, error, messages, sendEvent, onMessageDone } = useChat(chatId);
+const {
+    chat,
+    connected,
+    error,
+    messages,
+    sendMessage: submitMessage,
+    onMessageDone,
+} = useChat(chatId);
 let scrollFrame: number | undefined;
 
 const connectionLabel = computed(() =>
@@ -74,13 +81,13 @@ const connectionLabel = computed(() =>
 const canSend = computed(() => connected.value);
 const canSubmit = computed(() => canSend.value && draft.value.trim().length > 0);
 
-function sendMessage() {
+async function sendMessage() {
     const content = draft.value.trim();
     if (!content) {
         return;
     }
 
-    if (sendEvent({ type: 'user_message', content })) {
+    if (await submitMessage(content)) {
         draft.value = '';
     }
 }
@@ -91,7 +98,7 @@ function handleEnter(event: KeyboardEvent) {
     }
 
     event.preventDefault();
-    sendMessage();
+    void sendMessage();
 }
 
 function scheduleScrollToBottom() {

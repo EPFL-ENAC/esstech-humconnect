@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from uuid import UUID
 
 from fastapi import WebSocket
@@ -63,6 +64,11 @@ class ChatRoomService:
 
     async def broadcast(self, event: dict) -> None:
         await self._connection_hub.broadcast(event)
+
+    @asynccontextmanager
+    async def subscribe(self) -> AsyncIterator[asyncio.Queue[dict | None]]:
+        async with self._connection_hub.subscribe() as queue:
+            yield queue
 
     async def has_active_generation(self) -> bool:
         async with self._lock:

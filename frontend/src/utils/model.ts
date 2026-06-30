@@ -28,6 +28,11 @@ export interface CreateChatResponse {
     id: string;
 }
 
+export interface CreateChatMessageRequest {
+    client_id: string;
+    content: string;
+}
+
 export interface ChatSessionResponse {
     id: string;
     client_id: string;
@@ -108,11 +113,6 @@ export interface ChatErrorEvent {
     message: string;
 }
 
-export interface UserMessageEvent {
-    type: 'user_message';
-    content: string;
-}
-
 export type ChatSocketEvent =
     | ChatSnapshotResponse
     | MessageCreatedEvent
@@ -121,7 +121,7 @@ export type ChatSocketEvent =
     | MessageDoneEvent
     | ChatErrorEvent;
 
-export type ChatClientEvent = UserMessageEvent;
+export type ChatStreamEvent = ChatSocketEvent;
 export type ChatSession = ChatSessionResponse;
 export type ChatMessage = ChatMessageResponse;
 export type RecordedEvent = RecordedEventResponse;

@@ -322,6 +322,33 @@ def test_connection_hub_removes_failed_sockets():
     asyncio.run(run())
 
 
+def test_connection_hub_broadcasts_to_stream_subscribers():
+    async def run():
+        first_hub = ChatRoomConnectionHub()
+        second_hub = ChatRoomConnectionHub()
+
+        async with first_hub.subscribe() as first_queue:
+            async with second_hub.subscribe() as second_queue:
+                await first_hub.broadcast({"type": "event"})
+
+                assert await first_queue.get() == {"type": "event"}
+                assert second_queue.empty()
+
+    asyncio.run(run())
+
+
+def test_connection_hub_removes_stream_subscribers_on_exit():
+    async def run():
+        hub = ChatRoomConnectionHub()
+
+        async with hub.subscribe():
+            assert not await hub.is_empty()
+
+        assert await hub.is_empty()
+
+    asyncio.run(run())
+
+
 def test_persistent_history_loads_messages_for_snapshot(monkeypatch):
     install_fake_session(monkeypatch)
     chat = ChatSession(client_id="client-1")

@@ -1,6 +1,7 @@
 import { baseUrl } from 'src/boot/api';
 import { getI18nT } from 'src/utils/i18n';
 import type {
+    CreateChatMessageRequest,
     ChatSession,
     CreateChatRequest,
     CreateChatResponse,
@@ -38,9 +39,26 @@ export async function listChats(clientId: string): Promise<ChatSession[]> {
     return payload.chats;
 }
 
-export function chatWebSocketUrl(chatId: string, clientId: string): string {
-    const url = new URL(`${baseUrl}/chats/${chatId}/ws`);
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+export async function createChatMessage(
+    chatId: string,
+    clientId: string,
+    content: string,
+): Promise<void> {
+    const t = getI18nT();
+    const payload: CreateChatMessageRequest = { client_id: clientId, content };
+    const response = await fetch(`${baseUrl}/chats/${chatId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+        throw new Error(t('errors.connection'));
+    }
+}
+
+export function chatEventStreamUrl(chatId: string, clientId: string): string {
+    const url = new URL(`${baseUrl}/chats/${chatId}/events`);
     url.searchParams.set('client_id', clientId);
     return url.toString();
 }
