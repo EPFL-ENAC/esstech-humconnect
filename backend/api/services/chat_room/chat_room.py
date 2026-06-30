@@ -4,8 +4,6 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from uuid import UUID
 
-from fastapi import WebSocket
-
 from api.models.chat import (
     ChatMessageResponse,
     ChatSnapshotResponse,
@@ -55,12 +53,6 @@ class ChatRoomService:
         self._generation_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
         self._submission_lock = asyncio.Lock()
-
-    async def connect(self, websocket: WebSocket) -> None:
-        await self._connection_hub.connect(websocket)
-
-    async def disconnect(self, websocket: WebSocket) -> None:
-        await self._connection_hub.disconnect(websocket)
 
     async def broadcast(self, event: dict) -> None:
         await self._connection_hub.broadcast(event)
