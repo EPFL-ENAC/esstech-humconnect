@@ -258,6 +258,8 @@ async function loadProfile() {
 function resetForm() {
     if (profile.value) {
         form.value = editableFieldsFromProfile(profile.value);
+    } else {
+        form.value = { ...emptyForm };
     }
 }
 
