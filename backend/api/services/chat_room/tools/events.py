@@ -288,7 +288,7 @@ async def execute_record_event_tool(
     event = await RecordedEventService().record_event_from_tool(
         event_input=event_input,
         chat_id=context.chat_id,
-        client_id=context.client_id,
+        user_id=context.user_id,
         source_message_id=context.source_message_id,
     )
     return event.to_tool_response()
@@ -303,8 +303,12 @@ async def execute_recall_events_tool(
     except ValidationError as e:
         raise ValueError(f"recall_events received invalid query data: {e}") from e
 
+    if context is None:
+        raise ValueError("recall_events requires chat execution context.")
+
     events = await RecordedEventService().recall_events_from_tool(
         recall_input=recall_input,
+        user_id=context.user_id,
     )
     return json.dumps(
         {

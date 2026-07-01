@@ -15,7 +15,7 @@ class RecordedEvent(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     chat_id: UUID = Field(foreign_key="chatsession.id", index=True)
-    initiated_by_client_id: str = Field(index=True)
+    initiated_by_user_id: UUID = Field(foreign_key="userprofile.id", index=True)
     source_message_id: UUID = Field(foreign_key="message.id", index=True)
     original_text: str
     event_name: str
@@ -55,7 +55,7 @@ class RecordedEventResponse(BaseModel):
 
     id: UUID
     chat_id: UUID
-    initiated_by_client_id: str
+    initiated_by_user_id: UUID
     source_message_id: UUID
     original_text: str
     event_name: str

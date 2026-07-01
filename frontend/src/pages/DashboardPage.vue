@@ -98,8 +98,8 @@
                                     <dd class="monospace">{{ event.chat_id }}</dd>
                                 </div>
                                 <div>
-                                    <dt>{{ t('dashboard.fields.clientId') }}</dt>
-                                    <dd class="monospace">{{ event.initiated_by_client_id }}</dd>
+                                    <dt>{{ t('dashboard.fields.userId') }}</dt>
+                                    <dd class="monospace">{{ event.initiated_by_user_id }}</dd>
                                 </div>
                                 <div>
                                     <dt>{{ t('dashboard.fields.sourceMessageId') }}</dt>

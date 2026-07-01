@@ -1,7 +1,7 @@
 import { onBeforeUnmount, ref, toValue, watch, type MaybeRefOrGetter } from 'vue';
 import { chatEventStreamUrl, createChatMessage } from 'src/utils/chatApi';
+import { authHeaders } from 'src/utils/apiFetch';
 import type { ChatMessage, ChatSession, ChatStreamEvent } from 'src/utils/model';
-import { getClientId } from 'src/utils/clientId';
 import { getI18nT } from 'src/utils/i18n';
 import { useChatsStore } from 'src/stores/chats';
 
@@ -10,7 +10,6 @@ type MessageDoneCallback = (message: ChatMessage | undefined) => void;
 
 export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
     const t = getI18nT();
-    const clientId = getClientId();
     const chatsStore = useChatsStore();
     const chat = ref<ChatSession | null>(null);
     const connected = ref(false);
@@ -50,8 +49,11 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
         generation: number,
     ) {
         try {
-            const response = await fetch(chatEventStreamUrl(currentChatId, clientId), {
-                headers: { Accept: 'text/event-stream' },
+            const response = await fetch(chatEventStreamUrl(currentChatId), {
+                headers: {
+                    Accept: 'text/event-stream',
+                    ...(await authHeaders()),
+                },
                 signal: currentAbortController.signal,
             });
 
@@ -195,7 +197,7 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
         }
 
         try {
-            await createChatMessage(String(toValue(chatId)), clientId, content);
+            await createChatMessage(String(toValue(chatId)), content);
             error.value = '';
             return true;
         } catch (err) {

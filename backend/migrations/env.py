@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlmodel import SQLModel
 
 from api.config import config as app_config
-from api.models import ChatSession, Message, RecordedEvent
+from api.models import ChatSession, Message, RecordedEvent, UserProfile
 
-_model_imports = (ChatSession, Message, RecordedEvent)
+_model_imports = (ChatSession, Message, RecordedEvent, UserProfile)
 
 config = context.config
 

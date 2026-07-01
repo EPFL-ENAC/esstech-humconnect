@@ -6,6 +6,12 @@ export default {
         chats: 'Chats',
         dashboard: 'Dashboard',
     },
+    auth: {
+        signinTitle: 'Sign in to HumConnect',
+        signinSubtitle: 'Use your ENAC account to access your chats.',
+        signin: 'Sign in',
+        logout: 'Sign out',
+    },
     chats: {
         title: 'Chats',
         subtitle: 'Start a new conversation or reopen a previous one.',
@@ -27,7 +33,7 @@ export default {
             location: 'Location',
             tags: 'Tags',
             chatId: 'Chat ID',
-            clientId: 'Client ID',
+            userId: 'User ID',
             sourceMessageId: 'Source message',
             dateInput: 'Date input',
             locationInput: 'Location input',

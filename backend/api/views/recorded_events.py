@@ -1,7 +1,9 @@
+from enacit4r_auth.services.auth import User
 from fastapi import APIRouter, Depends
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
+from api.auth import require_admin
 from api.db import get_session
 from api.models.recorded_event import (
     ListRecordedEventsResponse,
@@ -14,6 +16,7 @@ router = APIRouter(prefix="/recorded-events", tags=["Recorded events"])
 
 @router.get("", response_model=ListRecordedEventsResponse)
 async def list_recorded_events(
+    user: User = Depends(require_admin()),
     session: AsyncSQLModelSession = Depends(get_session),
 ) -> ListRecordedEventsResponse:
     result = await session.exec(

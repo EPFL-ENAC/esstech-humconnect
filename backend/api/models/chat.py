@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID, uuid4
 
 from openai.types.responses import EasyInputMessageParam
@@ -7,6 +7,9 @@ from pydantic import BaseModel
 from pydantic import Field as PydanticField
 from sqlalchemy import JSON, Column, DateTime
 from sqlmodel import Field, Relationship, SQLModel
+
+if TYPE_CHECKING:
+    from api.models.user_profile import UserProfile
 
 MESSAGE_ROLE_ASSISTANT = "assistant"
 MESSAGE_ROLE_USER = "user"
@@ -29,7 +32,7 @@ class ChatSession(SQLModel, table=True):
     __tablename__ = "chatsession"
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    client_id: str = Field(index=True)
+    user_id: UUID = Field(foreign_key="userprofile.id", index=True)
     title: str | None = None
     created_at: datetime = Field(
         default_factory=utc_now,
@@ -41,6 +44,7 @@ class ChatSession(SQLModel, table=True):
     )
 
     messages: list["Message"] = Relationship(back_populates="chat")
+    user: "UserProfile" = Relationship(back_populates="chats")
 
     def update_title(self, new_title: str) -> None:
         self.title = new_title
@@ -199,22 +203,17 @@ class ChatMessageChunk(BaseModel):
         self.payload = payload
 
 
-class CreateChatRequest(BaseModel):
-    client_id: str = PydanticField(min_length=1, max_length=256)
-
-
 class CreateChatResponse(BaseModel):
     id: UUID
 
 
 class CreateChatMessageRequest(BaseModel):
-    client_id: str = PydanticField(min_length=1, max_length=256)
     content: str = PydanticField(min_length=1)
 
 
 class ChatSessionResponse(BaseModel):
     id: UUID
-    client_id: str
+    user_id: UUID
     title: str | None
     created_at: datetime
     updated_at: datetime
@@ -223,7 +222,7 @@ class ChatSessionResponse(BaseModel):
     def from_db_model(chat: ChatSession) -> "ChatSessionResponse":
         return ChatSessionResponse(
             id=chat.id,
-            client_id=chat.client_id,
+            user_id=chat.user_id,
             title=chat.title,
             created_at=chat.created_at,
             updated_at=chat.updated_at,

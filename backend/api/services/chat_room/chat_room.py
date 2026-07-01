@@ -54,7 +54,7 @@ class ChatRoomService:
 
     async def subscribe(
         self,
-        client_id: str | None = None,
+        user_id: UUID | None = None,
         *,
         with_snapshot: bool = False,
     ) -> AsyncIterator[dict]:
@@ -62,10 +62,10 @@ class ChatRoomService:
         self._subscribers.add(queue)
         try:
             if with_snapshot:
-                if client_id is None:
-                    raise ValueError("client_id is required when with_snapshot is true")
+                if user_id is None:
+                    raise ValueError("user_id is required when with_snapshot is true")
 
-                snapshot = await self.build_snapshot(client_id)
+                snapshot = await self.build_snapshot(user_id)
                 if snapshot is None:
                     return
                 yield snapshot.model_dump(mode="json")
@@ -85,21 +85,21 @@ class ChatRoomService:
     async def is_idle(self) -> bool:
         return not self._subscribers and not await self.has_active_generation()
 
-    async def verify_client_access(self, client_id: str) -> bool:
-        return await self._messages_history.client_has_access(client_id)
+    async def verify_user_access(self, user_id: UUID) -> bool:
+        return await self._messages_history.user_has_access(user_id)
 
-    async def build_snapshot(self, client_id: str) -> ChatSnapshotResponse | None:
+    async def build_snapshot(self, user_id: UUID) -> ChatSnapshotResponse | None:
         return await self._messages_history.build_snapshot(
-            client_id,
+            user_id,
             interrupt_stale_streaming_messages=not await self.has_active_generation(),
         )
 
-    async def handle_user_message(self, client_id: str, content: str) -> None:
+    async def handle_user_message(self, user_id: UUID, content: str) -> None:
         async with self._submission_lock:
             await self._ensure_no_active_response()
             chat_history = await self._messages_history.get_assistant_chat_history()
             user_message = await self._messages_history.submit_question(
-                client_id, content
+                user_id, content
             )
 
             # broadcast the question
@@ -114,7 +114,7 @@ class ChatRoomService:
                 content,
                 ToolExecutionContext(
                     chat_id=self.chat_id,
-                    client_id=client_id,
+                    user_id=user_id,
                     source_message_id=user_message.id,
                 ),
             )
