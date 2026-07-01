@@ -19,6 +19,13 @@
                     <q-item-section>{{ t('navigation.chats') }}</q-item-section>
                 </q-item>
 
+                <q-item v-ripple clickable to="/profile">
+                    <q-item-section avatar>
+                        <q-icon name="person" />
+                    </q-item-section>
+                    <q-item-section>{{ t('navigation.profile') }}</q-item-section>
+                </q-item>
+
                 <q-item v-if="authStore.isAdmin" v-ripple clickable to="/dashboard">
                     <q-item-section avatar>
                         <q-icon name="dashboard" />

@@ -2,6 +2,55 @@ export type ChatMessageRole = 'user' | 'assistant';
 export type ChatMessageStatus = 'complete' | 'streaming' | 'interrupted' | 'error';
 export type ChatMessageChunkType = 'message_content' | 'reasoning_text' | 'tool_call';
 export type ToolCallStatus = 'running' | 'finished' | 'failed';
+export type ProfessionCategory =
+    | 'medical_clinical'
+    | 'community_health'
+    | 'wash'
+    | 'logistics_supply'
+    | 'surveillance_epidemiology'
+    | 'coordination_cluster'
+    | 'safe_burial_community_response'
+    | 'biomedical_equipment'
+    | 'infrastructure_energy'
+    | 'hq_programme_referent'
+    | 'local_ngo_partner'
+    | 'other';
+
+export type LanguageCode =
+    | 'ar'
+    | 'bn'
+    | 'de'
+    | 'en'
+    | 'es'
+    | 'fa'
+    | 'fr'
+    | 'hi'
+    | 'id'
+    | 'it'
+    | 'ja'
+    | 'km'
+    | 'ko'
+    | 'lo'
+    | 'ms'
+    | 'my'
+    | 'ne'
+    | 'pa'
+    | 'prs'
+    | 'ps'
+    | 'pt'
+    | 'ru'
+    | 'si'
+    | 'sw'
+    | 'ta'
+    | 'te'
+    | 'th'
+    | 'tl'
+    | 'tr'
+    | 'uk'
+    | 'ur'
+    | 'vi'
+    | 'yue'
+    | 'zh';
 
 export interface ToolCallPayload {
     tool_name: string;
@@ -70,6 +119,26 @@ export interface ListRecordedEventsResponse {
     events: RecordedEventResponse[];
 }
 
+export interface UserProfileEditableFields {
+    profession: string | null;
+    profession_category: ProfessionCategory | null;
+    center_address: string | null;
+    action_radius_km: number | null;
+    location_extra: string | null;
+    organisation: string | null;
+    mother_tongue: LanguageCode | null;
+}
+
+export interface UserProfileResponse extends UserProfileEditableFields {
+    id: string;
+    email: string | null;
+    username: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
 export interface ChatSnapshotResponse {
     type: 'snapshot';
     chat: ChatSessionResponse;
@@ -119,3 +188,4 @@ export type ChatStreamEvent =
 export type ChatSession = ChatSessionResponse;
 export type ChatMessage = ChatMessageResponse;
 export type RecordedEvent = RecordedEventResponse;
+export type UserProfile = UserProfileResponse;
