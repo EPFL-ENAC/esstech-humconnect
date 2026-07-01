@@ -35,14 +35,14 @@ export const useAuthStore = defineStore('auth', () => {
         return authenticated;
     }
 
-    async function login() {
+    async function login(redirectUri?: string) {
         if (!initialized.value) {
             await init();
         }
         if (isAuthenticated.value) {
             return;
         }
-        await keycloak.login();
+        await keycloak.login(redirectUri ? { redirectUri } : undefined);
     }
 
     async function logout() {
@@ -80,7 +80,6 @@ export const useAuthStore = defineStore('auth', () => {
         initialized,
         isAdmin,
         isAuthenticated,
-        keycloak,
         profile,
         realmRoles,
         init,

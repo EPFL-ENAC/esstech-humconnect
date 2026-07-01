@@ -28,11 +28,11 @@ const loading = ref(false);
 async function signin() {
     loading.value = true;
     try {
-        await authStore.keycloak.login({
-            redirectUri: `${window.location.origin}${window.location.pathname}#${String(
+        await authStore.login(
+            `${window.location.origin}${window.location.pathname}#${String(
                 route.query.redirect || '/',
             )}`,
-        });
+        );
     } finally {
         loading.value = false;
     }
