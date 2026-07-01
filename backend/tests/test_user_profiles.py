@@ -137,7 +137,7 @@ def test_get_profile_returns_identity_and_editable_fields():
         action_radius_km=50,
         location_extra="Available for field visits",
         organisation="WHO",
-        mother_tongue="French",
+        mother_tongue="fr",
     )
     session = FakeProfileSession(profile)
 
@@ -150,7 +150,7 @@ def test_get_profile_returns_identity_and_editable_fields():
     assert response.action_radius_km == 50
     assert response.location_extra == "Available for field visits"
     assert response.organisation == "WHO"
-    assert response.mother_tongue == "French"
+    assert response.mother_tongue == "fr"
     assert session.commit_count == 0
 
 
@@ -175,7 +175,7 @@ def test_update_profile_persists_editable_fields():
                 action_radius_km=25,
                 location_extra="Block 4 pump area",
                 organisation="Local NGO",
-                mother_tongue="Arabic",
+                mother_tongue="ar",
             ),
             make_user(),
             session,
@@ -188,7 +188,7 @@ def test_update_profile_persists_editable_fields():
     assert profile.action_radius_km == 25
     assert profile.location_extra == "Block 4 pump area"
     assert profile.organisation == "Local NGO"
-    assert profile.mother_tongue == "Arabic"
+    assert profile.mother_tongue == "ar"
     assert profile.updated_at > original_updated_at
     assert session.added == [profile]
     assert session.commit_count == 1
@@ -211,7 +211,7 @@ def test_user_profile_updates_from_editable_fields_without_session_work():
             action_radius_km=120,
             location_extra="Can coordinate last-mile delivery",
             organisation="WFP",
-            mother_tongue="Dari",
+            mother_tongue="prs",
         )
     )
 
@@ -221,7 +221,7 @@ def test_user_profile_updates_from_editable_fields_without_session_work():
     assert profile.action_radius_km == 120
     assert profile.location_extra == "Can coordinate last-mile delivery"
     assert profile.organisation == "WFP"
-    assert profile.mother_tongue == "Dari"
+    assert profile.mother_tongue == "prs"
     assert profile.updated_at > original_updated_at
 
 
@@ -233,3 +233,8 @@ def test_profile_payload_rejects_invalid_category():
 def test_profile_payload_rejects_negative_radius():
     with pytest.raises(ValidationError):
         UserProfileEditableFields(action_radius_km=-1)
+
+
+def test_profile_payload_rejects_unknown_mother_tongue():
+    with pytest.raises(ValidationError):
+        UserProfileEditableFields(mother_tongue="klingon")

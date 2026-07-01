@@ -29,6 +29,44 @@ ProfessionCategory = Literal[
 ]
 
 
+LanguageCode = Literal[
+    "ar",
+    "bn",
+    "de",
+    "en",
+    "es",
+    "fa",
+    "fr",
+    "hi",
+    "id",
+    "it",
+    "ja",
+    "km",
+    "ko",
+    "lo",
+    "ms",
+    "my",
+    "ne",
+    "pa",
+    "prs",
+    "ps",
+    "pt",
+    "ru",
+    "si",
+    "sw",
+    "ta",
+    "te",
+    "th",
+    "tl",
+    "tr",
+    "uk",
+    "ur",
+    "vi",
+    "yue",
+    "zh",
+]
+
+
 PROFESSION_CATEGORIES: tuple[ProfessionCategory, ...] = (
     "medical_clinical",
     "community_health",
@@ -42,6 +80,44 @@ PROFESSION_CATEGORIES: tuple[ProfessionCategory, ...] = (
     "hq_programme_referent",
     "local_ngo_partner",
     "other",
+)
+
+
+LANGUAGE_CODES: tuple[LanguageCode, ...] = (
+    "ar",
+    "bn",
+    "de",
+    "en",
+    "es",
+    "fa",
+    "fr",
+    "hi",
+    "id",
+    "it",
+    "ja",
+    "km",
+    "ko",
+    "lo",
+    "ms",
+    "my",
+    "ne",
+    "pa",
+    "prs",
+    "ps",
+    "pt",
+    "ru",
+    "si",
+    "sw",
+    "ta",
+    "te",
+    "th",
+    "tl",
+    "tr",
+    "uk",
+    "ur",
+    "vi",
+    "yue",
+    "zh",
 )
 
 
@@ -93,7 +169,7 @@ class UserProfileEditableFields(BaseModel):
     action_radius_km: float | None = PydanticField(default=None, ge=0)
     location_extra: str | None = None
     organisation: str | None = None
-    mother_tongue: str | None = None
+    mother_tongue: LanguageCode | None = None
 
 
 class UserProfileResponse(UserProfileEditableFields):
@@ -122,7 +198,7 @@ class UserProfileResponse(UserProfileEditableFields):
             action_radius_km=profile.action_radius_km,
             location_extra=profile.location_extra,
             organisation=profile.organisation,
-            mother_tongue=profile.mother_tongue,
+            mother_tongue=cast(LanguageCode | None, profile.mother_tongue),
             created_at=profile.created_at,
             updated_at=profile.updated_at,
         )

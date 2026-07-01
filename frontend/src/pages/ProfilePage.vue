@@ -94,12 +94,15 @@
                             :placeholder="t('profile.placeholders.organisation')"
                         />
 
-                        <q-input
+                        <q-select
                             v-model="form.mother_tongue"
                             outlined
+                            emit-value
+                            map-options
+                            clearable
                             :disable="loading || saving"
                             :label="t('profile.fields.motherTongue')"
-                            :placeholder="t('profile.placeholders.motherTongue')"
+                            :options="languageOptions"
                         />
 
                         <div class="actions full-width">
@@ -135,6 +138,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
+import { languageCodes, languageLabel } from 'src/utils/languages';
 import { getProfile, updateProfile } from 'src/utils/profileApi';
 import type { ProfessionCategory, UserProfile, UserProfileEditableFields } from 'src/utils/model';
 
@@ -164,7 +168,7 @@ const emptyForm: UserProfileEditableFields = {
 };
 
 const $q = useQuasar();
-const { t } = useI18n();
+const { locale, t } = useI18n();
 const error = ref('');
 const form = ref<UserProfileEditableFields>({ ...emptyForm });
 const loading = ref(true);
@@ -176,6 +180,15 @@ const categoryOptions = computed(() =>
         label: t(`profile.categories.${category}`),
         value: category,
     })),
+);
+
+const languageOptions = computed(() =>
+    languageCodes
+        .map((code) => ({
+            label: languageLabel(code, locale.value),
+            value: code,
+        }))
+        .sort((left, right) => left.label.localeCompare(right.label, locale.value)),
 );
 
 const displayName = computed(() => {
@@ -224,7 +237,7 @@ function normalizeForm(): UserProfileEditableFields {
         action_radius_km: normalizeRadius(),
         location_extra: normalizeText(form.value.location_extra),
         organisation: normalizeText(form.value.organisation),
-        mother_tongue: normalizeText(form.value.mother_tongue),
+        mother_tongue: form.value.mother_tongue,
     };
 }
 

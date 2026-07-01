@@ -16,6 +16,42 @@ export type ProfessionCategory =
     | 'local_ngo_partner'
     | 'other';
 
+export type LanguageCode =
+    | 'ar'
+    | 'bn'
+    | 'de'
+    | 'en'
+    | 'es'
+    | 'fa'
+    | 'fr'
+    | 'hi'
+    | 'id'
+    | 'it'
+    | 'ja'
+    | 'km'
+    | 'ko'
+    | 'lo'
+    | 'ms'
+    | 'my'
+    | 'ne'
+    | 'pa'
+    | 'prs'
+    | 'ps'
+    | 'pt'
+    | 'ru'
+    | 'si'
+    | 'sw'
+    | 'ta'
+    | 'te'
+    | 'th'
+    | 'tl'
+    | 'tr'
+    | 'uk'
+    | 'ur'
+    | 'vi'
+    | 'yue'
+    | 'zh';
+
 export interface ToolCallPayload {
     tool_name: string;
     tool_label: string;
@@ -90,7 +126,7 @@ export interface UserProfileEditableFields {
     action_radius_km: number | null;
     location_extra: string | null;
     organisation: string | null;
-    mother_tongue: string | null;
+    mother_tongue: LanguageCode | null;
 }
 
 export interface UserProfileResponse extends UserProfileEditableFields {
