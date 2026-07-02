@@ -56,13 +56,40 @@
                             :options="categoryOptions"
                         />
 
-                        <q-input
-                            v-model="form.center_address"
+                        <div>
+                            <AddressSuggestionInput
+                                v-model:center-address="form.center_address"
+                                v-model:center-coordinates="form.center_coordinates"
+                                :disabled="loading || saving"
+                                :label="t('profile.fields.centerAddress')"
+                                :no-results-label="t('profile.addressSearch.noResults')"
+                                :placeholder="t('profile.placeholders.centerAddress')"
+                                :search-label="t('profile.addressSearch.search')"
+                            />
+                            <p class="address-attribution">
+                                {{ t('profile.addressSearch.attribution') }}
+                                <a
+                                    href="https://www.openstreetmap.org/copyright"
+                                    rel="noopener noreferrer"
+                                    target="_blank"
+                                >
+                                    OpenStreetMap
+                                </a>
+                            </p>
+                        </div>
+
+                        <q-field
                             outlined
-                            :disable="loading || saving"
-                            :label="t('profile.fields.centerAddress')"
-                            :placeholder="t('profile.placeholders.centerAddress')"
-                        />
+                            readonly
+                            stack-label
+                            :label="t('profile.fields.centerCoordinates')"
+                        >
+                            <template #control>
+                                <div class="coordinate-value">
+                                    {{ formattedCenterCoordinates }}
+                                </div>
+                            </template>
+                        </q-field>
 
                         <q-input
                             v-model.number="form.action_radius_km"
@@ -138,6 +165,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
+import AddressSuggestionInput from 'src/components/profile/AddressSuggestionInput.vue';
 import { languageCodes, languageLabel } from 'src/utils/languages';
 import { getProfile, updateProfile } from 'src/utils/profileApi';
 import type { ProfessionCategory, UserProfile, UserProfileEditableFields } from 'src/utils/model';
@@ -161,6 +189,7 @@ const emptyForm: UserProfileEditableFields = {
     profession: null,
     profession_category: null,
     center_address: null,
+    center_coordinates: null,
     action_radius_km: null,
     location_extra: null,
     organisation: null,
@@ -196,6 +225,15 @@ const displayName = computed(() => {
     return parts.length > 0 ? parts.join(' ') : '-';
 });
 
+const formattedCenterCoordinates = computed(() => {
+    const coordinates = form.value.center_coordinates;
+    if (!coordinates) {
+        return t('profile.noCenterCoordinates');
+    }
+
+    return `${coordinates.latitude.toFixed(6)}, ${coordinates.longitude.toFixed(6)}`;
+});
+
 const radiusRules = computed(() => [
     (value: number | string | null) =>
         value === null ||
@@ -209,6 +247,7 @@ function editableFieldsFromProfile(value: UserProfile): UserProfileEditableField
         profession: value.profession,
         profession_category: value.profession_category,
         center_address: value.center_address,
+        center_coordinates: value.center_coordinates,
         action_radius_km: value.action_radius_km,
         location_extra: value.location_extra,
         organisation: value.organisation,
@@ -230,10 +269,13 @@ function normalizeRadius(): number | null {
 }
 
 function normalizeForm(): UserProfileEditableFields {
+    const centerAddress = normalizeText(form.value.center_address);
+
     return {
         profession: normalizeText(form.value.profession),
         profession_category: form.value.profession_category,
-        center_address: normalizeText(form.value.center_address),
+        center_address: centerAddress,
+        center_coordinates: centerAddress ? form.value.center_coordinates : null,
         action_radius_km: normalizeRadius(),
         location_extra: normalizeText(form.value.location_extra),
         organisation: normalizeText(form.value.organisation),
@@ -346,6 +388,17 @@ dd {
     display: grid;
     gap: 18px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.coordinate-value {
+    align-self: center;
+    overflow-wrap: anywhere;
+}
+
+.address-attribution {
+    color: #667085;
+    font-size: 12px;
+    margin: 6px 0 0;
 }
 
 .full-width {

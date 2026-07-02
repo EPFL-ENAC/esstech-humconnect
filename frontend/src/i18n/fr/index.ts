@@ -56,11 +56,18 @@ export default {
             profession: 'Profession',
             professionCategory: 'Catégorie professionnelle',
             centerAddress: 'Adresse centrale',
+            centerCoordinates: 'Coordonnées sélectionnées',
             actionRadius: "Rayon d'action",
             locationExtra: 'Informations de localisation',
             organisation: 'Organisation',
             motherTongue: 'Langue maternelle',
         },
+        addressSearch: {
+            attribution: "Données d'adresse par",
+            noResults: 'Aucun lieu correspondant',
+            search: "Rechercher l'adresse",
+        },
+        noCenterCoordinates: 'Aucune coordonnée sélectionnée pour le moment',
         placeholders: {
             profession: 'Médecin, ingénieur WASH, coordinateur cluster...',
             centerAddress: 'Clinique, bureau, entrepôt, camp, ville...',

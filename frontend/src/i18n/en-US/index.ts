@@ -56,11 +56,18 @@ export default {
             profession: 'Profession',
             professionCategory: 'Profession category',
             centerAddress: 'Center address',
+            centerCoordinates: 'Selected coordinates',
             actionRadius: 'Action radius',
             locationExtra: 'Location extra',
             organisation: 'Organisation',
             motherTongue: 'Mother tongue',
         },
+        addressSearch: {
+            attribution: 'Address data from',
+            noResults: 'No matching places found',
+            search: 'Search address',
+        },
+        noCenterCoordinates: 'No coordinates selected yet',
         placeholders: {
             profession: 'Doctor, WASH engineer, cluster coordinator...',
             centerAddress: 'Clinic, office, warehouse, camp, city...',
