@@ -12,12 +12,15 @@ from openai.types.responses import (
 )
 from pydantic import BaseModel
 
+from api.models.user_profile import UserProfilePromptContext
+
 
 @dataclass(frozen=True, slots=True)
 class ToolExecutionContext:
     chat_id: UUID
     user_id: UUID
     source_message_id: UUID
+    user_profile_context: UserProfilePromptContext | None = None
 
 
 ToolExecutor = Callable[

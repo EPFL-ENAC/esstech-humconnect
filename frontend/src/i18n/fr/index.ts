@@ -57,6 +57,7 @@ export default {
             professionCategory: 'Catégorie professionnelle',
             centerAddress: 'Adresse centrale',
             centerCoordinates: 'Coordonnées sélectionnées',
+            centerMap: 'Carte de la localisation centrale',
             actionRadius: "Rayon d'action",
             locationExtra: 'Informations de localisation',
             organisation: 'Organisation',

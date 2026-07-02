@@ -25,6 +25,7 @@ from api.models.chat import (
     CreateChatResponse,
     ListChatsResponse,
 )
+from api.models.user_profile import UserProfilePromptContext
 from api.services.chat import (
     chat_room_registry,
     mark_stale_streaming_messages_interrupted,
@@ -93,6 +94,7 @@ async def create_chat_message(
         raise HTTPException(status_code=422, detail="Message content is required.")
 
     profile = await get_or_create_user_profile_from_token(user, session)
+    user_profile_context = UserProfilePromptContext.from_db_model(profile)
     room = await chat_room_registry.get_room(chat_id)
     try:
         if not await room.verify_user_access(profile.id):
@@ -105,7 +107,11 @@ async def create_chat_message(
             )
 
         try:
-            await room.handle_user_message(profile.id, content)
+            await room.handle_user_message(
+                profile.id,
+                content,
+                user_profile_context=user_profile_context,
+            )
         except PermissionError:
             raise HTTPException(status_code=404, detail="Chat not found") from None
         except RuntimeError:

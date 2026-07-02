@@ -78,19 +78,6 @@
                             </p>
                         </div>
 
-                        <q-field
-                            outlined
-                            readonly
-                            stack-label
-                            :label="t('profile.fields.centerCoordinates')"
-                        >
-                            <template #control>
-                                <div class="coordinate-value">
-                                    {{ formattedCenterCoordinates }}
-                                </div>
-                            </template>
-                        </q-field>
-
                         <q-input
                             v-model.number="form.action_radius_km"
                             outlined
@@ -100,6 +87,14 @@
                             :disable="loading || saving"
                             :label="t('profile.fields.actionRadius')"
                             :rules="radiusRules"
+                        />
+
+                        <CenterLocationMap
+                            class="full-width"
+                            :coordinates="form.center_coordinates"
+                            :empty-label="t('profile.noCenterCoordinates')"
+                            :label="t('profile.fields.centerMap')"
+                            :radius-km="form.action_radius_km"
                         />
 
                         <q-input
@@ -166,6 +161,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
 import AddressSuggestionInput from 'src/components/profile/AddressSuggestionInput.vue';
+import CenterLocationMap from 'src/components/profile/CenterLocationMap.vue';
 import { languageCodes, languageLabel } from 'src/utils/languages';
 import { getProfile, updateProfile } from 'src/utils/profileApi';
 import type { ProfessionCategory, UserProfile, UserProfileEditableFields } from 'src/utils/model';
@@ -223,15 +219,6 @@ const languageOptions = computed(() =>
 const displayName = computed(() => {
     const parts = [profile.value?.first_name, profile.value?.last_name].filter(Boolean);
     return parts.length > 0 ? parts.join(' ') : '-';
-});
-
-const formattedCenterCoordinates = computed(() => {
-    const coordinates = form.value.center_coordinates;
-    if (!coordinates) {
-        return t('profile.noCenterCoordinates');
-    }
-
-    return `${coordinates.latitude.toFixed(6)}, ${coordinates.longitude.toFixed(6)}`;
 });
 
 const radiusRules = computed(() => [

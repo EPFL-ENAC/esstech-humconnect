@@ -57,6 +57,7 @@ export default {
             professionCategory: 'Profession category',
             centerAddress: 'Center address',
             centerCoordinates: 'Selected coordinates',
+            centerMap: 'Center location map',
             actionRadius: 'Action radius',
             locationExtra: 'Location extra',
             organisation: 'Organisation',
