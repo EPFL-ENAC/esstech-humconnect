@@ -133,6 +133,8 @@ class UserProfile(SQLModel, table=True):
     profession: str | None = None
     profession_category: str | None = Field(default=None, index=True)
     center_address: str | None = None
+    center_latitude: float | None = Field(default=None, ge=-90, le=90)
+    center_longitude: float | None = Field(default=None, ge=-180, le=180)
     action_radius_km: float | None = None
     location_extra: str | None = None
     organisation: str | None = None
@@ -162,14 +164,30 @@ class UserProfile(SQLModel, table=True):
         self.updated_at = utc_now()
 
 
+class UserProfileCoordinates(BaseModel):
+    latitude: float = PydanticField(ge=-90, le=90)
+    longitude: float = PydanticField(ge=-180, le=180)
+
+
 class UserProfileEditableFields(BaseModel):
     profession: str | None = None
     profession_category: ProfessionCategory | None = None
     center_address: str | None = None
+    center_coordinates: UserProfileCoordinates | None = None
     action_radius_km: float | None = PydanticField(default=None, ge=0)
     location_extra: str | None = None
     organisation: str | None = None
     mother_tongue: LanguageCode | None = None
+
+
+class AddressSuggestion(UserProfileCoordinates):
+    id: str
+    address: str
+    display_name: str
+
+
+class ListAddressSuggestionsResponse(BaseModel):
+    suggestions: list[AddressSuggestion]
 
 
 class UserProfileResponse(UserProfileEditableFields):
@@ -183,6 +201,13 @@ class UserProfileResponse(UserProfileEditableFields):
 
     @staticmethod
     def from_db_model(profile: UserProfile) -> "UserProfileResponse":
+        center_coordinates = None
+        if profile.center_latitude is not None and profile.center_longitude is not None:
+            center_coordinates = UserProfileCoordinates(
+                latitude=profile.center_latitude,
+                longitude=profile.center_longitude,
+            )
+
         return UserProfileResponse(
             id=profile.id,
             email=profile.email,
@@ -195,6 +220,7 @@ class UserProfileResponse(UserProfileEditableFields):
                 profile.profession_category,
             ),
             center_address=profile.center_address,
+            center_coordinates=center_coordinates,
             action_radius_km=profile.action_radius_km,
             location_extra=profile.location_extra,
             organisation=profile.organisation,

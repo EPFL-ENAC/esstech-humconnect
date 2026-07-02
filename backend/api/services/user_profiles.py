@@ -3,7 +3,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
 from api.models.chat import utc_now
-from api.models.user_profile import UserProfile
+from api.models.user_profile import UserProfile, UserProfileCoordinates
 
 
 async def get_or_create_user_profile_from_token(
@@ -49,3 +49,22 @@ async def get_or_create_user_profile_from_token(
     await session.commit()
     await session.refresh(profile)
     return profile
+
+
+async def update_profile_center_coordinates(
+    profile: UserProfile,
+    fields_center_address: str | None,
+    fields_center_coordinates: UserProfileCoordinates | None,
+) -> None:
+    if not fields_center_address:
+        profile.center_latitude = None
+        profile.center_longitude = None
+        return
+
+    if fields_center_coordinates is None:
+        profile.center_latitude = None
+        profile.center_longitude = None
+        return
+
+    profile.center_latitude = fields_center_coordinates.latitude
+    profile.center_longitude = fields_center_coordinates.longitude
