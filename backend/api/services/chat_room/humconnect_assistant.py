@@ -36,6 +36,20 @@ from api.services.chat_room.tools.meditron import ASK_MEDITRON_TOOL
 
 ModelInputMessage = EasyInputMessageParam
 MAX_TOOL_CALL_ROUNDS = 5
+BASE_INSTRUCTIONS = (
+    "Don't hesitate to record events when they could be useful for later queries. "
+    "Events are used in a global context to help with emergencies, health hazard, etc. "
+    "In the case that you don't have all the information needed to create an event, "
+    "but you feel the user is giving you important enough information that would make "
+    "creating one worth it, ask questions to the user until you can record the event. "
+    "When you feel that the user is talking about something that could have been "
+    "caused by a prior event, use the recall_events tool to retrieve potentially "
+    "relevant events across chats. If you are unsure about the relevance of an event, "
+    "you can still recall it and then decide whether to use it or not. If you need to "
+    "ask Meditron, a medical LLM trained on a curated medical corpus, make sure you "
+    "gather all the relevant information from the user or the other tools to get "
+    "better context."
+)
 
 
 @dataclass(slots=True)
@@ -99,6 +113,25 @@ class HumConnectAssistant(ChatAssistant):
             if message.status == MESSAGE_STATUS_COMPLETE and message.content_for_model()
         ]
 
+    @staticmethod
+    def instructions_for_context(
+        tool_context: ToolExecutionContext | None,
+    ) -> str:
+        if tool_context is None or tool_context.user_profile_context is None:
+            return BASE_INSTRUCTIONS
+
+        profile_prompt = tool_context.user_profile_context.to_prompt_text()
+        if not profile_prompt:
+            return BASE_INSTRUCTIONS
+
+        return (
+            f"{BASE_INSTRUCTIONS}\n\n"
+            "Current user profile context:\n"
+            f"{profile_prompt}\n\n"
+            "Use this as context about the current user. Do not treat it as patient "
+            "or event information unless the user explicitly says it applies."
+        )
+
     async def stream_response(
         self,
         chat_history: Sequence[ChatMessageResponse],
@@ -121,16 +154,7 @@ class HumConnectAssistant(ChatAssistant):
                 input=model_input,
                 model=config.MODEL_NAME,
                 stream=True,
-                instructions=(
-                    "Don't hesitate to record events when they could be useful for later queries. Events are used in a global context to help with emergencies, health hazard, etc..."
-                    "In the case that you don't have all the information needed to create an event, but you feel the user is giving you important enough information that would make creating one worth it, ask questions to the user until you can record the event."
-                    "When you feel that the user is talking about "
-                    "something that could have been caused by a prior event, use the "
-                    "recall_events tool to retrieve potentially relevant events "
-                    "across chats. If you are unsure about the relevance of an event, "
-                    "you can still recall it and then decide whether to use it or not."
-                    "If you need to ask Meditron, a medical LLM trained on a curated medical corpus, make sure you gather all the relevant information from the user or the other tools to get better context."
-                ),
+                instructions=self.instructions_for_context(tool_context),
                 text={"format": {"type": "json_object"}},
                 tools=self._tool_set.definitions(),
             )

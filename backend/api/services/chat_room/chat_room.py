@@ -14,6 +14,7 @@ from api.models.chat import (
     MessageUpdatePayloadEvent,
     ToolCallPayload,
 )
+from api.models.user_profile import UserProfilePromptContext
 from api.services.chat_room.chat_assistant import (
     AssistantStreamChunkDelta,
     AssistantStreamPayloadUpdate,
@@ -94,7 +95,12 @@ class ChatRoomService:
             interrupt_stale_streaming_messages=not await self.has_active_generation(),
         )
 
-    async def handle_user_message(self, user_id: UUID, content: str) -> None:
+    async def handle_user_message(
+        self,
+        user_id: UUID,
+        content: str,
+        user_profile_context: UserProfilePromptContext | None = None,
+    ) -> None:
         async with self._submission_lock:
             await self._ensure_no_active_response()
             chat_history = await self._messages_history.get_assistant_chat_history()
@@ -116,6 +122,7 @@ class ChatRoomService:
                     chat_id=self.chat_id,
                     user_id=user_id,
                     source_message_id=user_message.id,
+                    user_profile_context=user_profile_context,
                 ),
             )
 

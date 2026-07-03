@@ -29,6 +29,7 @@ from api.models.chat import (
     utc_now,
 )
 from api.models.recorded_event import RecordedEvent
+from api.models.user_profile import UserProfile, UserProfilePromptContext
 from api.services import chat as chat_service
 from api.services import recorded_events as recorded_events_module
 from api.services.chat_room import chat_assistant as chat_assistant_module
@@ -656,6 +657,38 @@ def test_service_handles_user_message_through_history_and_hub(monkeypatch):
     asyncio.run(run())
 
 
+def test_service_passes_user_profile_context_to_assistant_context(monkeypatch):
+    async def run():
+        history = FakeHistory()
+        started_responses = []
+        room = ChatRoomService(
+            uuid4(),
+            messages_history=history,
+        )
+        user_profile_context = UserProfilePromptContext(username="field-coordinator")
+
+        async def start_assistant_response(chat_history, question, tool_context=None):
+            started_responses.append(tool_context)
+
+        monkeypatch.setattr(
+            room,
+            "_start_assistant_response",
+            start_assistant_response,
+        )
+
+        await room.handle_user_message(
+            TEST_USER_ID,
+            "Hello there",
+            user_profile_context=user_profile_context,
+        )
+
+        [tool_context] = started_responses
+        assert tool_context is not None
+        assert tool_context.user_profile_context == user_profile_context
+
+    asyncio.run(run())
+
+
 def test_service_rejects_second_message_while_generation_is_active(monkeypatch):
     history = FakeHistory()
     room = ChatRoomService(uuid4(), messages_history=history)
@@ -959,6 +992,52 @@ def test_humconnect_chat_assistant_converts_complete_history_for_model():
     ]
 
 
+def test_user_profile_prompt_context_formats_prompt_safe_fields():
+    profile = UserProfile(
+        keycloak_sub="user-1",
+        email="field@example.test",
+        username=" field-lead ",
+        first_name=" Ada ",
+        last_name=" Lovelace ",
+        profession="Clinician",
+        profession_category="medical_clinical",
+        center_address="Geneva logistics hub",
+        center_latitude=46.2044,
+        center_longitude=6.1432,
+        action_radius_km=25,
+        location_extra="Can cover nearby clinics",
+        organisation="HumConnect",
+        mother_tongue="en",
+    )
+
+    prompt_text = UserProfilePromptContext.from_db_model(profile).to_prompt_text()
+
+    assert "- Name: Ada Lovelace" in prompt_text
+    assert "- Username: field-lead" in prompt_text
+    assert "- Profession: Clinician" in prompt_text
+    assert "- Profession category: medical_clinical" in prompt_text
+    assert "- Organisation: HumConnect" in prompt_text
+    assert "- Mother tongue: en" in prompt_text
+    assert "- Operating location: Geneva logistics hub" in prompt_text
+    assert "- Action radius: 25 km" in prompt_text
+    assert "- Location notes: Can cover nearby clinics" in prompt_text
+    assert "field@example.test" not in prompt_text
+    assert "46.2044" not in prompt_text
+    assert "6.1432" not in prompt_text
+
+
+def test_user_profile_prompt_context_omits_empty_fields():
+    profile = UserProfile(
+        keycloak_sub="user-1",
+        username="",
+        profession="  ",
+    )
+
+    prompt_text = UserProfilePromptContext.from_db_model(profile).to_prompt_text()
+
+    assert prompt_text == ""
+
+
 def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
     class FakeEvent:
         def __init__(
@@ -1055,6 +1134,65 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
             "content": "Say hello",
         },
     ]
+
+
+def test_humconnect_chat_assistant_adds_user_profile_to_instructions(monkeypatch):
+    class FakeEvent:
+        def __init__(self, event_type, delta=""):
+            self.type = event_type
+            self.delta = delta
+
+    class FakeResponses:
+        def __init__(self):
+            self.create_kwargs = None
+
+        async def create(self, **kwargs):
+            self.create_kwargs = kwargs
+
+            async def stream():
+                yield FakeEvent("response.output_text.delta", "Hello")
+
+            return stream()
+
+    class FakeOpenAIClient:
+        def __init__(self):
+            self.responses = FakeResponses()
+
+    fake_client = FakeOpenAIClient()
+    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+    assistant = HumConnectAssistant()
+    tool_context = ToolExecutionContext(
+        chat_id=uuid4(),
+        user_id=TEST_USER_ID,
+        source_message_id=uuid4(),
+        user_profile_context=UserProfilePromptContext(
+            full_name="Ada Lovelace",
+            username="field-lead",
+            profession="Clinician",
+            center_address="Geneva logistics hub",
+        ),
+    )
+
+    async def run():
+        return [
+            chunk
+            async for chunk in assistant.stream_response(
+                [],
+                "Say hello",
+                tool_context,
+            )
+        ]
+
+    assert asyncio.run(run()) == [
+        AssistantStreamChunkDelta(0, CHUNK_TYPE_MESSAGE_CONTENT, "Hello"),
+    ]
+    instructions = fake_client.responses.create_kwargs["instructions"]
+    assert "Current user profile context:" in instructions
+    assert "- Name: Ada Lovelace" in instructions
+    assert "- Username: field-lead" in instructions
+    assert "- Profession: Clinician" in instructions
+    assert "- Operating location: Geneva logistics hub" in instructions
+    assert "Do not treat it as patient or event information" in instructions
 
 
 def test_tool_call_output_formats_json_and_reports_success_status():

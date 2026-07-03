@@ -15,9 +15,17 @@ os.environ.setdefault("KEYCLOAK_API_SECRET", "test")
 
 from enacit4r_auth.services.auth import User
 
-from api.models.user_profile import UserProfile, UserProfileEditableFields
-from api.services.user_profiles import get_or_create_user_profile_from_token
-from api.views.profile import get_profile, update_profile
+from api.models.user_profile import (
+    AddressSuggestion,
+    UserProfile,
+    UserProfileCoordinates,
+    UserProfileEditableFields,
+)
+from api.services.user_profiles import (
+    get_or_create_user_profile_from_token,
+    update_profile_center_coordinates,
+)
+from api.views.profile import get_profile, search_profile_center_address, update_profile
 
 
 class FakeResult:
@@ -134,6 +142,8 @@ def test_get_profile_returns_identity_and_editable_fields():
         profession="Doctor",
         profession_category="medical_clinical",
         center_address="Geneva",
+        center_latitude=46.2044,
+        center_longitude=6.1432,
         action_radius_km=50,
         location_extra="Available for field visits",
         organisation="WHO",
@@ -147,6 +157,10 @@ def test_get_profile_returns_identity_and_editable_fields():
     assert response.profession == "Doctor"
     assert response.profession_category == "medical_clinical"
     assert response.center_address == "Geneva"
+    assert response.center_coordinates == UserProfileCoordinates(
+        latitude=46.2044,
+        longitude=6.1432,
+    )
     assert response.action_radius_km == 50
     assert response.location_extra == "Available for field visits"
     assert response.organisation == "WHO"
@@ -172,6 +186,10 @@ def test_update_profile_persists_editable_fields():
                 profession="WASH engineer",
                 profession_category="wash",
                 center_address="Unity State camp clinic",
+                center_coordinates=UserProfileCoordinates(
+                    latitude=8.9277,
+                    longitude=29.7889,
+                ),
                 action_radius_km=25,
                 location_extra="Block 4 pump area",
                 organisation="Local NGO",
@@ -185,6 +203,10 @@ def test_update_profile_persists_editable_fields():
     assert response.profession == "WASH engineer"
     assert profile.profession_category == "wash"
     assert profile.center_address == "Unity State camp clinic"
+    assert response.center_coordinates == UserProfileCoordinates(
+        latitude=8.9277,
+        longitude=29.7889,
+    )
     assert profile.action_radius_km == 25
     assert profile.location_extra == "Block 4 pump area"
     assert profile.organisation == "Local NGO"
@@ -223,6 +245,86 @@ def test_user_profile_updates_from_editable_fields_without_session_work():
     assert profile.organisation == "WFP"
     assert profile.mother_tongue == "prs"
     assert profile.updated_at > original_updated_at
+
+
+def test_update_profile_center_coordinates_persists_selected_coordinates():
+    profile = UserProfile(
+        id=uuid4(),
+        keycloak_sub="keycloak-sub-1",
+        center_address="Geneva",
+    )
+
+    asyncio.run(
+        update_profile_center_coordinates(
+            profile,
+            "Geneva",
+            UserProfileCoordinates(latitude=46.2044, longitude=6.1432),
+        )
+    )
+
+    assert profile.center_latitude == 46.2044
+    assert profile.center_longitude == 6.1432
+
+
+def test_update_profile_center_coordinates_clears_coordinates_without_selection():
+    profile = UserProfile(
+        id=uuid4(),
+        keycloak_sub="keycloak-sub-1",
+        center_address="Geneva",
+        center_latitude=46.2044,
+        center_longitude=6.1432,
+    )
+
+    asyncio.run(
+        update_profile_center_coordinates(profile, "Geneva", None)
+    )
+
+    assert profile.center_latitude is None
+    assert profile.center_longitude is None
+
+
+def test_update_profile_center_coordinates_clears_coordinates_for_empty_address():
+    profile = UserProfile(
+        id=uuid4(),
+        keycloak_sub="keycloak-sub-1",
+        center_address="Geneva",
+        center_latitude=46.2044,
+        center_longitude=6.1432,
+    )
+
+    asyncio.run(
+        update_profile_center_coordinates(
+            profile,
+            None,
+            UserProfileCoordinates(latitude=46.2044, longitude=6.1432),
+        )
+    )
+
+    assert profile.center_latitude is None
+    assert profile.center_longitude is None
+
+
+def test_search_profile_center_address_view_returns_suggestions(monkeypatch):
+    async def fake_search_center_address(query):
+        assert query == "Geneva"
+        return [
+            AddressSuggestion(
+                id="relation:123",
+                address="Geneva, CH",
+                display_name="Geneva, Switzerland",
+                latitude=46.2044,
+                longitude=6.1432,
+            )
+        ]
+
+    monkeypatch.setattr(
+        "api.views.profile.search_address_suggestions",
+        fake_search_center_address,
+    )
+
+    response = asyncio.run(search_profile_center_address("Geneva", make_user()))
+
+    assert response.suggestions[0].address == "Geneva, CH"
 
 
 def test_profile_payload_rejects_invalid_category():

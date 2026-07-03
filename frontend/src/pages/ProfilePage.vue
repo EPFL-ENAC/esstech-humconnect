@@ -56,13 +56,27 @@
                             :options="categoryOptions"
                         />
 
-                        <q-input
-                            v-model="form.center_address"
-                            outlined
-                            :disable="loading || saving"
-                            :label="t('profile.fields.centerAddress')"
-                            :placeholder="t('profile.placeholders.centerAddress')"
-                        />
+                        <div>
+                            <AddressSuggestionInput
+                                v-model:center-address="form.center_address"
+                                v-model:center-coordinates="form.center_coordinates"
+                                :disabled="loading || saving"
+                                :label="t('profile.fields.centerAddress')"
+                                :no-results-label="t('profile.addressSearch.noResults')"
+                                :placeholder="t('profile.placeholders.centerAddress')"
+                                :search-label="t('profile.addressSearch.search')"
+                            />
+                            <p class="address-attribution">
+                                {{ t('profile.addressSearch.attribution') }}
+                                <a
+                                    href="https://www.openstreetmap.org/copyright"
+                                    rel="noopener noreferrer"
+                                    target="_blank"
+                                >
+                                    OpenStreetMap
+                                </a>
+                            </p>
+                        </div>
 
                         <q-input
                             v-model.number="form.action_radius_km"
@@ -73,6 +87,14 @@
                             :disable="loading || saving"
                             :label="t('profile.fields.actionRadius')"
                             :rules="radiusRules"
+                        />
+
+                        <CenterLocationMap
+                            class="full-width"
+                            :coordinates="form.center_coordinates"
+                            :empty-label="t('profile.noCenterCoordinates')"
+                            :label="t('profile.fields.centerMap')"
+                            :radius-km="form.action_radius_km"
                         />
 
                         <q-input
@@ -138,6 +160,8 @@
 import { computed, onMounted, ref } from 'vue';
 import { useQuasar } from 'quasar';
 import { useI18n } from 'vue-i18n';
+import AddressSuggestionInput from 'src/components/profile/AddressSuggestionInput.vue';
+import CenterLocationMap from 'src/components/profile/CenterLocationMap.vue';
 import { languageCodes, languageLabel } from 'src/utils/languages';
 import { getProfile, updateProfile } from 'src/utils/profileApi';
 import type { ProfessionCategory, UserProfile, UserProfileEditableFields } from 'src/utils/model';
@@ -161,6 +185,7 @@ const emptyForm: UserProfileEditableFields = {
     profession: null,
     profession_category: null,
     center_address: null,
+    center_coordinates: null,
     action_radius_km: null,
     location_extra: null,
     organisation: null,
@@ -209,6 +234,7 @@ function editableFieldsFromProfile(value: UserProfile): UserProfileEditableField
         profession: value.profession,
         profession_category: value.profession_category,
         center_address: value.center_address,
+        center_coordinates: value.center_coordinates,
         action_radius_km: value.action_radius_km,
         location_extra: value.location_extra,
         organisation: value.organisation,
@@ -230,10 +256,13 @@ function normalizeRadius(): number | null {
 }
 
 function normalizeForm(): UserProfileEditableFields {
+    const centerAddress = normalizeText(form.value.center_address);
+
     return {
         profession: normalizeText(form.value.profession),
         profession_category: form.value.profession_category,
-        center_address: normalizeText(form.value.center_address),
+        center_address: centerAddress,
+        center_coordinates: centerAddress ? form.value.center_coordinates : null,
         action_radius_km: normalizeRadius(),
         location_extra: normalizeText(form.value.location_extra),
         organisation: normalizeText(form.value.organisation),
@@ -346,6 +375,12 @@ dd {
     display: grid;
     gap: 18px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.address-attribution {
+    color: #667085;
+    font-size: 12px;
+    margin: 6px 0 0;
 }
 
 .full-width {

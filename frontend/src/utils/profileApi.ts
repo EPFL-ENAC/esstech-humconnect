@@ -1,7 +1,11 @@
 import { baseUrl } from 'src/boot/api';
 import { authenticatedFetch } from 'src/utils/apiFetch';
 import { getI18nT } from 'src/utils/i18n';
-import type { UserProfile, UserProfileEditableFields } from 'src/utils/model';
+import type {
+    ListAddressSuggestionsResponse,
+    UserProfile,
+    UserProfileEditableFields,
+} from 'src/utils/model';
 
 export async function getProfile(): Promise<UserProfile> {
     const t = getI18nT();
@@ -27,4 +31,19 @@ export async function updateProfile(payload: UserProfileEditableFields): Promise
     }
 
     return (await response.json()) as UserProfile;
+}
+
+export async function searchAddressSuggestions(
+    query: string,
+): Promise<ListAddressSuggestionsResponse> {
+    const params = new URLSearchParams({ q: query });
+    const response = await authenticatedFetch(
+        `${baseUrl}/profile/center-address/search?${params.toString()}`,
+    );
+
+    if (!response.ok) {
+        return { suggestions: [] };
+    }
+
+    return (await response.json()) as ListAddressSuggestionsResponse;
 }

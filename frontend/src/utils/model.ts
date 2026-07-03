@@ -123,10 +123,26 @@ export interface UserProfileEditableFields {
     profession: string | null;
     profession_category: ProfessionCategory | null;
     center_address: string | null;
+    center_coordinates: UserProfileCoordinates | null;
     action_radius_km: number | null;
     location_extra: string | null;
     organisation: string | null;
     mother_tongue: LanguageCode | null;
+}
+
+export interface UserProfileCoordinates {
+    latitude: number;
+    longitude: number;
+}
+
+export interface AddressSuggestion extends UserProfileCoordinates {
+    id: string;
+    address: string;
+    display_name: string;
+}
+
+export interface ListAddressSuggestionsResponse {
+    suggestions: AddressSuggestion[];
 }
 
 export interface UserProfileResponse extends UserProfileEditableFields {
