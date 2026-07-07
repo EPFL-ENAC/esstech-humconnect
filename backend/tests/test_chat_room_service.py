@@ -36,13 +36,19 @@ from api.services.chat_room import chat_assistant as chat_assistant_module
 from api.services.chat_room import chat_db as chat_db_module
 from api.services.chat_room import humconnect_assistant as humconnect_assistant_module
 from api.services.chat_room.tools import events as events_tool_module
+from api.services.chat_room.tools import (
+    humanitarian_context as humanitarian_context_tool_module,
+)
 from api.services.chat_room.tools import meditron as meditron_tool_module
+from api.services.chat_room.tools import natural_events as natural_events_tool_module
 from api.services.chat_room.chat_assistant import (
     AssistantStreamChunkDelta,
     AssistantStreamPayloadUpdate,
 )
 from api.services.chat_room.tools import (
     ASK_MEDITRON_TOOL,
+    GET_HUMANITARIAN_CONTEXT_TOOL,
+    GET_NATURAL_EVENTS_CONTEXT_TOOL,
     RECALL_EVENTS_TOOL,
     RECORD_EVENT_TOOL,
     ToolExecutionContext,
@@ -1119,6 +1125,8 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
         "ask_meditron",
         "record_event",
         "recall_events",
+        "get_natural_events_context",
+        "get_humanitarian_context",
     ]
     assert fake_client.responses.create_kwargs["input"] == [
         {
@@ -1280,6 +1288,427 @@ def test_ask_meditron_tool_rejects_non_string_system_prompt():
         )
 
     with pytest.raises(ValueError, match="system_prompt to be a string"):
+        asyncio.run(run())
+
+
+class FakeNaturalEventsResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"center_latitude": -91.0, "center_longitude": 7.0, "radius_km": 10.0},
+        {"center_latitude": 46.0, "center_longitude": 181.0, "radius_km": 10.0},
+        {"center_latitude": 46.0, "center_longitude": 7.0, "radius_km": 0.0},
+        {"center_latitude": 46.0, "center_longitude": 7.0, "radius_km": -1.0},
+        {"center_latitude": 46.0, "center_longitude": 7.0, "radius_km": 1000.1},
+    ],
+)
+def test_get_natural_events_context_tool_rejects_invalid_input(arguments):
+    async def run():
+        return await GET_NATURAL_EVENTS_CONTEXT_TOOL.execute(arguments)
+
+    with pytest.raises(ValueError, match="invalid query data"):
+        asyncio.run(run())
+
+
+def test_get_natural_events_context_tool_fetches_and_normalizes_events(monkeypatch):
+    calls = []
+
+    def fake_get(url, *, params, timeout):
+        calls.append((url, params, timeout))
+        if "eonet" in url:
+            return FakeNaturalEventsResponse(
+                {
+                    "features": [
+                        {
+                            "id": "EONET_1",
+                            "properties": {
+                                "id": "EONET_1",
+                                "title": "Wildfire near Lausanne",
+                                "date": "2026-07-02T12:00:00Z",
+                                "categories": [
+                                    {"id": "wildfires", "title": "Wildfires"}
+                                ],
+                                "sources": [{"url": "https://example.test/eonet"}],
+                            },
+                            "geometry": {
+                                "type": "Point",
+                                "coordinates": [7.01, 46.01],
+                            },
+                        },
+                        {
+                            "id": "EONET_OUTSIDE",
+                            "properties": {
+                                "id": "EONET_OUTSIDE",
+                                "title": "Distant storm",
+                                "date": "2026-07-02T12:00:00Z",
+                                "categories": [{"id": "severeStorms"}],
+                            },
+                            "geometry": {
+                                "type": "Point",
+                                "coordinates": [7.0, 48.0],
+                            },
+                        },
+                    ]
+                }
+            )
+
+        return FakeNaturalEventsResponse(
+            {
+                "features": [
+                    {
+                        "id": "us7000abcd",
+                        "properties": {
+                            "title": "M 4.5 - Switzerland",
+                            "type": "earthquake",
+                            "time": 1783000000000,
+                            "status": "reviewed",
+                            "mag": 4.5,
+                            "url": "https://example.test/usgs",
+                        },
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [7.2, 46.2, 10.0],
+                        },
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(natural_events_tool_module.requests, "get", fake_get)
+
+    async def run():
+        return await GET_NATURAL_EVENTS_CONTEXT_TOOL.execute(
+            {
+                "center_latitude": 46.0,
+                "center_longitude": 7.0,
+                "radius_km": 100.0,
+            }
+        )
+
+    result = json.loads(asyncio.run(run()))
+
+    assert result["summary"]["counts"] == {
+        "nasa_eonet": 1,
+        "usgs_earthquakes": 1,
+    }
+    assert result["center"] == {
+        "latitude": 46.0,
+        "longitude": 7.0,
+        "radius_km": 100.0,
+    }
+    assert [event["id"] for event in result["events"]] == [
+        "us7000abcd",
+        "EONET_1",
+    ]
+    assert result["events"][0]["provider"] == "USGS Earthquake Catalog"
+    assert result["events"][0]["magnitude"] == 4.5
+    assert result["events"][1]["provider"] == "NASA EONET"
+    assert result["events"][1]["category"] == "Wildfires"
+    assert all(event["id"] != "EONET_OUTSIDE" for event in result["events"])
+
+    eonet_url, eonet_params, eonet_timeout = calls[0]
+    assert eonet_url.endswith("/events/geojson")
+    assert eonet_params["status"] == "open"
+    assert eonet_params["limit"] == 20
+    assert len(eonet_params["bbox"].split(",")) == 4
+    assert eonet_timeout == 5
+
+    usgs_url, usgs_params, usgs_timeout = calls[1]
+    assert usgs_url.endswith("/query")
+    assert usgs_params["format"] == "geojson"
+    assert usgs_params["latitude"] == 46.0
+    assert usgs_params["longitude"] == 7.0
+    assert usgs_params["maxradiuskm"] == 100.0
+    assert usgs_params["orderby"] == "time"
+    assert usgs_params["limit"] == 20
+    assert usgs_timeout == 5
+
+
+def test_get_natural_events_context_tool_returns_partial_results(monkeypatch):
+    def fake_get(url, *, params, timeout):
+        if "eonet" in url:
+            raise natural_events_tool_module.requests.RequestException("timeout")
+
+        return FakeNaturalEventsResponse({"features": []})
+
+    monkeypatch.setattr(natural_events_tool_module.requests, "get", fake_get)
+
+    async def run():
+        return await GET_NATURAL_EVENTS_CONTEXT_TOOL.execute(
+            {
+                "center_latitude": 46.0,
+                "center_longitude": 7.0,
+                "radius_km": 100.0,
+            }
+        )
+
+    result = json.loads(asyncio.run(run()))
+
+    assert result["summary"]["counts"] == {
+        "nasa_eonet": 0,
+        "usgs_earthquakes": 0,
+    }
+    assert result["events"] == []
+    assert result["warnings"] == ["NASA EONET could not be reached."]
+
+
+def test_get_natural_events_context_tool_rejects_both_malformed_provider_payloads(
+    monkeypatch,
+):
+    def fake_get(url, *, params, timeout):
+        return FakeNaturalEventsResponse({"not_features": []})
+
+    monkeypatch.setattr(natural_events_tool_module.requests, "get", fake_get)
+
+    async def run():
+        return await GET_NATURAL_EVENTS_CONTEXT_TOOL.execute(
+            {
+                "center_latitude": 46.0,
+                "center_longitude": 7.0,
+                "radius_km": 100.0,
+            }
+        )
+
+    with pytest.raises(ValueError, match="malformed natural event data"):
+        asyncio.run(run())
+
+
+class FakeReliefWebResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {},
+        {"country_name": ""},
+        {"country_name": "   "},
+        {"country_name": 123},
+    ],
+)
+def test_get_humanitarian_context_tool_rejects_invalid_input(arguments):
+    async def run():
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(arguments)
+
+    with pytest.raises(ValueError, match="invalid query data"):
+        asyncio.run(run())
+
+
+def test_get_humanitarian_context_tool_fetches_and_normalizes_items(monkeypatch):
+    calls = []
+
+    def fake_post(url, *, params, json, timeout):
+        calls.append((url, params, json, timeout))
+        if url.endswith("/reports"):
+            return FakeReliefWebResponse(
+                {
+                    "data": [
+                        {
+                            "id": 123,
+                            "fields": {
+                                "title": "Cholera outbreak update",
+                                "url": "https://example.test/report",
+                                "date": {
+                                    "created": "2026-07-02T12:00:00+00:00",
+                                    "original": "2026-07-01T12:00:00+00:00",
+                                },
+                                "primary_country": [{"name": "Haiti"}],
+                                "source": [{"name": "WHO"}],
+                                "disaster_type": [{"name": "Epidemic"}],
+                                "theme": [{"name": "Health"}],
+                                "format": [{"name": "Situation Report"}],
+                            },
+                        }
+                    ]
+                }
+            )
+
+        return FakeReliefWebResponse(
+            {
+                "data": [
+                    {
+                        "id": "dis-1",
+                        "fields": {
+                            "name": "Haiti: Floods - Jul 2026",
+                            "url": "https://example.test/disaster",
+                            "date": {"created": "2026-07-01T10:00:00+00:00"},
+                            "primary_country": {"name": "Haiti"},
+                            "type": [{"name": "Flood"}],
+                        },
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(humanitarian_context_tool_module.requests, "post", fake_post)
+
+    async def run():
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(
+            {"country_name": " Haiti "}
+        )
+
+    result = json.loads(asyncio.run(run()))
+
+    assert result["summary"]["counts"] == {
+        "reports": 1,
+        "disasters": 1,
+    }
+    assert result["country"] == "Haiti"
+    assert [item["id"] for item in result["items"]] == ["123", "dis-1"]
+    assert result["items"][0] == {
+        "provider": "ReliefWeb",
+        "type": "report",
+        "id": "123",
+        "title": "Cholera outbreak update",
+        "category": "Epidemic",
+        "time": "2026-07-02T12:00:00Z",
+        "source_url": "https://example.test/report",
+        "sources": ["WHO"],
+        "country": "Haiti",
+        "location_precision": "country",
+    }
+    assert result["items"][1] == {
+        "provider": "ReliefWeb",
+        "type": "disaster",
+        "id": "dis-1",
+        "title": "Haiti: Floods - Jul 2026",
+        "category": "Flood",
+        "time": "2026-07-01T10:00:00Z",
+        "source_url": "https://example.test/disaster",
+        "sources": [],
+        "country": "Haiti",
+        "location_precision": "country",
+    }
+
+    report_url, report_params, report_payload, report_timeout = calls[0]
+    assert report_url.endswith("/reports")
+    assert report_params == {
+        "appname": humanitarian_context_tool_module.config.RELIEFWEB_APP_NAME
+    }
+    assert report_payload["limit"] == 10
+    assert report_payload["sort"] == ["date.created:desc"]
+    assert report_payload["query"]["value"].startswith("outbreak epidemic")
+    assert report_payload["fields"]["include"] == [
+        "id",
+        "title",
+        "url",
+        "date",
+        "primary_country",
+        "source",
+        "disaster",
+        "disaster_type",
+        "theme",
+        "format",
+    ]
+    assert {
+        condition["field"]: condition["value"]
+        for condition in report_payload["filter"]["conditions"]
+    }["primary_country.name"] == "Haiti"
+    report_date_from = {
+        condition["field"]: condition["value"]
+        for condition in report_payload["filter"]["conditions"]
+    }["date.created"]["from"]
+    assert "T" in report_date_from
+    assert report_date_from.endswith("+00:00")
+    assert report_timeout == 5
+
+    disaster_url, disaster_params, disaster_payload, disaster_timeout = calls[1]
+    assert disaster_url.endswith("/disasters")
+    assert disaster_params == {
+        "appname": humanitarian_context_tool_module.config.RELIEFWEB_APP_NAME
+    }
+    assert "query" not in disaster_payload
+    assert disaster_payload["fields"]["include"] == [
+        "id",
+        "name",
+        "url",
+        "date",
+        "primary_country",
+        "type",
+        "status",
+    ]
+    assert {
+        condition["field"]: condition["value"]
+        for condition in disaster_payload["filter"]["conditions"]
+    }["status"] == "current"
+    disaster_date_from = {
+        condition["field"]: condition["value"]
+        for condition in disaster_payload["filter"]["conditions"]
+    }["date.created"]["from"]
+    assert "T" in disaster_date_from
+    assert disaster_date_from.endswith("+00:00")
+    assert disaster_timeout == 5
+
+
+def test_get_humanitarian_context_tool_returns_partial_results(monkeypatch):
+    def fake_post(url, *, params, json, timeout):
+        if url.endswith("/reports"):
+            raise humanitarian_context_tool_module.requests.RequestException("timeout")
+
+        return FakeReliefWebResponse({"data": []})
+
+    monkeypatch.setattr(humanitarian_context_tool_module.requests, "post", fake_post)
+
+    async def run():
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(
+            {"country_name": "Sudan"}
+        )
+
+    result = json.loads(asyncio.run(run()))
+
+    assert result["summary"]["counts"] == {
+        "reports": 0,
+        "disasters": 0,
+    }
+    assert result["country"] == "Sudan"
+    assert result["items"] == []
+    assert result["warnings"] == ["ReliefWeb reports could not be reached."]
+
+
+def test_get_humanitarian_context_tool_rejects_all_reliefweb_failures(monkeypatch):
+    def fake_post(url, *, params, json, timeout):
+        raise humanitarian_context_tool_module.requests.RequestException("timeout")
+
+    monkeypatch.setattr(humanitarian_context_tool_module.requests, "post", fake_post)
+
+    async def run():
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(
+            {"country_name": "Sudan"}
+        )
+
+    with pytest.raises(ValueError, match="humanitarian context from ReliefWeb"):
+        asyncio.run(run())
+
+
+def test_get_humanitarian_context_tool_rejects_all_malformed_payloads(monkeypatch):
+    def fake_post(url, *, params, json, timeout):
+        return FakeReliefWebResponse({"not_data": []})
+
+    monkeypatch.setattr(humanitarian_context_tool_module.requests, "post", fake_post)
+
+    async def run():
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(
+            {"country_name": "Sudan"}
+        )
+
+    with pytest.raises(ValueError, match="malformed humanitarian context data"):
         asyncio.run(run())
 
 
