@@ -35,16 +35,16 @@ from api.services import recorded_events as recorded_events_module
 from api.services.chat_room import chat_assistant as chat_assistant_module
 from api.services.chat_room import chat_db as chat_db_module
 from api.services.chat_room import humconnect_assistant as humconnect_assistant_module
+from api.services.chat_room.chat_assistant import (
+    AssistantStreamChunkDelta,
+    AssistantStreamPayloadUpdate,
+)
 from api.services.chat_room.tools import events as events_tool_module
 from api.services.chat_room.tools import (
     humanitarian_context as humanitarian_context_tool_module,
 )
 from api.services.chat_room.tools import meditron as meditron_tool_module
 from api.services.chat_room.tools import natural_events as natural_events_tool_module
-from api.services.chat_room.chat_assistant import (
-    AssistantStreamChunkDelta,
-    AssistantStreamPayloadUpdate,
-)
 from api.services.chat_room.tools import (
     ASK_MEDITRON_TOOL,
     GET_HUMANITARIAN_CONTEXT_TOOL,
@@ -69,6 +69,7 @@ from api.services.chat import (
     PlaceholderChatAssistant,
     mark_stale_streaming_messages_interrupted,
 )
+from api.services.reliefweb import client as reliefweb_client_module
 
 TEST_USER_ID = uuid4()
 
@@ -1557,7 +1558,7 @@ def test_get_humanitarian_context_tool_fetches_and_normalizes_items(monkeypatch)
             }
         )
 
-    monkeypatch.setattr(humanitarian_context_tool_module.requests, "post", fake_post)
+    monkeypatch.setattr(reliefweb_client_module.requests, "post", fake_post)
 
     async def run():
         return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(
@@ -1600,7 +1601,7 @@ def test_get_humanitarian_context_tool_fetches_and_normalizes_items(monkeypatch)
     report_url, report_params, report_payload, report_timeout = calls[0]
     assert report_url.endswith("/reports")
     assert report_params == {
-        "appname": humanitarian_context_tool_module.config.RELIEFWEB_APP_NAME
+        "appname": reliefweb_client_module.config.RELIEFWEB_APP_NAME
     }
     assert report_payload["limit"] == 10
     assert report_payload["sort"] == ["date.created:desc"]
@@ -1632,7 +1633,7 @@ def test_get_humanitarian_context_tool_fetches_and_normalizes_items(monkeypatch)
     disaster_url, disaster_params, disaster_payload, disaster_timeout = calls[1]
     assert disaster_url.endswith("/disasters")
     assert disaster_params == {
-        "appname": humanitarian_context_tool_module.config.RELIEFWEB_APP_NAME
+        "appname": reliefweb_client_module.config.RELIEFWEB_APP_NAME
     }
     assert "query" not in disaster_payload
     assert disaster_payload["fields"]["include"] == [
@@ -1660,11 +1661,11 @@ def test_get_humanitarian_context_tool_fetches_and_normalizes_items(monkeypatch)
 def test_get_humanitarian_context_tool_returns_partial_results(monkeypatch):
     def fake_post(url, *, params, json, timeout):
         if url.endswith("/reports"):
-            raise humanitarian_context_tool_module.requests.RequestException("timeout")
+            raise reliefweb_client_module.requests.RequestException("timeout")
 
         return FakeReliefWebResponse({"data": []})
 
-    monkeypatch.setattr(humanitarian_context_tool_module.requests, "post", fake_post)
+    monkeypatch.setattr(reliefweb_client_module.requests, "post", fake_post)
 
     async def run():
         return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(
@@ -1684,9 +1685,9 @@ def test_get_humanitarian_context_tool_returns_partial_results(monkeypatch):
 
 def test_get_humanitarian_context_tool_rejects_all_reliefweb_failures(monkeypatch):
     def fake_post(url, *, params, json, timeout):
-        raise humanitarian_context_tool_module.requests.RequestException("timeout")
+        raise reliefweb_client_module.requests.RequestException("timeout")
 
-    monkeypatch.setattr(humanitarian_context_tool_module.requests, "post", fake_post)
+    monkeypatch.setattr(reliefweb_client_module.requests, "post", fake_post)
 
     async def run():
         return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(
@@ -1701,7 +1702,7 @@ def test_get_humanitarian_context_tool_rejects_all_malformed_payloads(monkeypatc
     def fake_post(url, *, params, json, timeout):
         return FakeReliefWebResponse({"not_data": []})
 
-    monkeypatch.setattr(humanitarian_context_tool_module.requests, "post", fake_post)
+    monkeypatch.setattr(reliefweb_client_module.requests, "post", fake_post)
 
     async def run():
         return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(
