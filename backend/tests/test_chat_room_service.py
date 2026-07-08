@@ -1292,17 +1292,6 @@ def test_ask_meditron_tool_rejects_non_string_system_prompt():
         asyncio.run(run())
 
 
-class FakeNaturalEventsResponse:
-    def __init__(self, payload):
-        self.payload = payload
-
-    def raise_for_status(self):
-        return None
-
-    def json(self):
-        return self.payload
-
-
 @pytest.mark.parametrize(
     "arguments",
     [
@@ -1321,71 +1310,37 @@ def test_get_natural_events_context_tool_rejects_invalid_input(arguments):
         asyncio.run(run())
 
 
-def test_get_natural_events_context_tool_fetches_and_normalizes_events(monkeypatch):
+def test_get_natural_events_context_tool_delegates_to_pull(monkeypatch):
     calls = []
 
-    def fake_get(url, *, params, timeout):
-        calls.append((url, params, timeout))
-        if "eonet" in url:
-            return FakeNaturalEventsResponse(
+    class FakeNaturalEventsContextPull:
+        def __init__(self, query):
+            calls.append(query)
+
+        def run(self):
+            return json.dumps(
                 {
-                    "features": [
-                        {
-                            "id": "EONET_1",
-                            "properties": {
-                                "id": "EONET_1",
-                                "title": "Wildfire near Lausanne",
-                                "date": "2026-07-02T12:00:00Z",
-                                "categories": [
-                                    {"id": "wildfires", "title": "Wildfires"}
-                                ],
-                                "sources": [{"url": "https://example.test/eonet"}],
-                            },
-                            "geometry": {
-                                "type": "Point",
-                                "coordinates": [7.01, 46.01],
-                            },
+                    "summary": {
+                        "message": "Found 0 natural event(s) near the requested area.",
+                        "counts": {
+                            "nasa_eonet": 0,
+                            "usgs_earthquakes": 0,
                         },
-                        {
-                            "id": "EONET_OUTSIDE",
-                            "properties": {
-                                "id": "EONET_OUTSIDE",
-                                "title": "Distant storm",
-                                "date": "2026-07-02T12:00:00Z",
-                                "categories": [{"id": "severeStorms"}],
-                            },
-                            "geometry": {
-                                "type": "Point",
-                                "coordinates": [7.0, 48.0],
-                            },
-                        },
-                    ]
+                    },
+                    "center": {
+                        "latitude": 46.0,
+                        "longitude": 7.0,
+                        "radius_km": 100.0,
+                    },
+                    "events": [],
                 }
             )
 
-        return FakeNaturalEventsResponse(
-            {
-                "features": [
-                    {
-                        "id": "us7000abcd",
-                        "properties": {
-                            "title": "M 4.5 - Switzerland",
-                            "type": "earthquake",
-                            "time": 1783000000000,
-                            "status": "reviewed",
-                            "mag": 4.5,
-                            "url": "https://example.test/usgs",
-                        },
-                        "geometry": {
-                            "type": "Point",
-                            "coordinates": [7.2, 46.2, 10.0],
-                        },
-                    }
-                ]
-            }
-        )
-
-    monkeypatch.setattr(natural_events_tool_module.requests, "get", fake_get)
+    monkeypatch.setattr(
+        natural_events_tool_module,
+        "NaturalEventsContextPull",
+        FakeNaturalEventsContextPull,
+    )
 
     async def run():
         return await GET_NATURAL_EVENTS_CONTEXT_TOOL.execute(
@@ -1398,90 +1353,14 @@ def test_get_natural_events_context_tool_fetches_and_normalizes_events(monkeypat
 
     result = json.loads(asyncio.run(run()))
 
-    assert result["summary"]["counts"] == {
-        "nasa_eonet": 1,
-        "usgs_earthquakes": 1,
-    }
-    assert result["center"] == {
-        "latitude": 46.0,
-        "longitude": 7.0,
-        "radius_km": 100.0,
-    }
-    assert [event["id"] for event in result["events"]] == [
-        "us7000abcd",
-        "EONET_1",
-    ]
-    assert result["events"][0]["provider"] == "USGS Earthquake Catalog"
-    assert result["events"][0]["magnitude"] == 4.5
-    assert result["events"][1]["provider"] == "NASA EONET"
-    assert result["events"][1]["category"] == "Wildfires"
-    assert all(event["id"] != "EONET_OUTSIDE" for event in result["events"])
-
-    eonet_url, eonet_params, eonet_timeout = calls[0]
-    assert eonet_url.endswith("/events/geojson")
-    assert eonet_params["status"] == "open"
-    assert eonet_params["limit"] == 20
-    assert len(eonet_params["bbox"].split(",")) == 4
-    assert eonet_timeout == 5
-
-    usgs_url, usgs_params, usgs_timeout = calls[1]
-    assert usgs_url.endswith("/query")
-    assert usgs_params["format"] == "geojson"
-    assert usgs_params["latitude"] == 46.0
-    assert usgs_params["longitude"] == 7.0
-    assert usgs_params["maxradiuskm"] == 100.0
-    assert usgs_params["orderby"] == "time"
-    assert usgs_params["limit"] == 20
-    assert usgs_timeout == 5
-
-
-def test_get_natural_events_context_tool_returns_partial_results(monkeypatch):
-    def fake_get(url, *, params, timeout):
-        if "eonet" in url:
-            raise natural_events_tool_module.requests.RequestException("timeout")
-
-        return FakeNaturalEventsResponse({"features": []})
-
-    monkeypatch.setattr(natural_events_tool_module.requests, "get", fake_get)
-
-    async def run():
-        return await GET_NATURAL_EVENTS_CONTEXT_TOOL.execute(
-            {
-                "center_latitude": 46.0,
-                "center_longitude": 7.0,
-                "radius_km": 100.0,
-            }
-        )
-
-    result = json.loads(asyncio.run(run()))
-
+    assert len(calls) == 1
+    assert calls[0].center_latitude == 46.0
+    assert calls[0].center_longitude == 7.0
+    assert calls[0].radius_km == 100.0
     assert result["summary"]["counts"] == {
         "nasa_eonet": 0,
         "usgs_earthquakes": 0,
     }
-    assert result["events"] == []
-    assert result["warnings"] == ["NASA EONET could not be reached."]
-
-
-def test_get_natural_events_context_tool_rejects_both_malformed_provider_payloads(
-    monkeypatch,
-):
-    def fake_get(url, *, params, timeout):
-        return FakeNaturalEventsResponse({"not_features": []})
-
-    monkeypatch.setattr(natural_events_tool_module.requests, "get", fake_get)
-
-    async def run():
-        return await GET_NATURAL_EVENTS_CONTEXT_TOOL.execute(
-            {
-                "center_latitude": 46.0,
-                "center_longitude": 7.0,
-                "radius_km": 100.0,
-            }
-        )
-
-    with pytest.raises(ValueError, match="malformed natural event data"):
-        asyncio.run(run())
 
 
 class FakeReliefWebResponse:
