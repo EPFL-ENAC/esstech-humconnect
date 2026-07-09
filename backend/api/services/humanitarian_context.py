@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from logging import getLogger
-from typing import Literal
+from typing import Literal, Self
 
 import requests
 from pydantic import BaseModel
@@ -30,6 +30,32 @@ class HumanitarianContextItem(BaseModel):
     sources: list[str]
     country: str
     location_precision: Literal["country"]
+
+    @classmethod
+    def from_reliefweb_data_entry(
+        cls,
+        entry: ReliefWebDataEntry,
+        *,
+        item_type: HumanitarianContextItemType,
+        country_name: str,
+    ) -> Self | None:
+        if entry.fields is None:
+            return None
+
+        fields = entry.fields
+        item_time = fields.created_datetime()
+        return cls(
+            provider="ReliefWeb",
+            type=item_type,
+            id=str(entry.id or fields.id or ""),
+            title=fields.title_or_name("ReliefWeb item"),
+            category=fields.category(item_type),
+            time=utc_isoformat_z(item_time),
+            source_url=fields.url,
+            sources=fields.source_names(),
+            country=fields.country_name(country_name),
+            location_precision="country",
+        )
 
 
 class HumanitarianContextSummary(BaseModel):
@@ -106,38 +132,15 @@ class HumanitarianContextPullStep:
             item
             for entry in response.data.data
             if (
-                item := self.normalize_item(
+                item := HumanitarianContextItem.from_reliefweb_data_entry(
                     entry,
+                    item_type=self.item_type,
                     country_name=country_name,
                 )
             )
             is not None
         ]
         return HumanitarianContextPullStepResult(items=items)
-
-    def normalize_item(
-        self,
-        entry: ReliefWebDataEntry,
-        *,
-        country_name: str,
-    ) -> HumanitarianContextItem | None:
-        if entry.fields is None:
-            return None
-
-        fields = entry.fields
-        item_time = fields.created_datetime()
-        return HumanitarianContextItem(
-            provider="ReliefWeb",
-            type=self.item_type,
-            id=str(entry.id or fields.id or ""),
-            title=fields.title_or_name("ReliefWeb item"),
-            category=fields.category(self.item_type),
-            time=utc_isoformat_z(item_time),
-            source_url=fields.url,
-            sources=fields.source_names(),
-            country=fields.country_name(country_name),
-            location_precision="country",
-        )
 
 
 @dataclass(slots=True)

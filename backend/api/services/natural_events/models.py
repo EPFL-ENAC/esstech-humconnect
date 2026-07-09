@@ -4,7 +4,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from api.utils.datetime_utils import parse_provider_datetime
+from api.utils.datetime_utils import parse_provider_datetime, utc_isoformat_z
 
 MAX_RADIUS_KM = 1000.0
 
@@ -54,6 +54,54 @@ class NaturalEventItem(BaseModel):
     distance_km: float
     magnitude: float | None = None
     source_url: str | None = None
+
+    @classmethod
+    def from_nasa_eonet_feature(
+        cls,
+        feature: "NasaEonetFeature",
+        *,
+        coordinate: "GeoCoordinate",
+        distance_km: float,
+    ) -> Self:
+        properties = feature.properties
+        event_time = parse_provider_datetime(properties.date)
+        return cls(
+            provider="NASA EONET",
+            id=str(properties.id or feature.id or ""),
+            title=properties.title or "Natural event",
+            category=properties.category_titles(),
+            time=utc_isoformat_z(event_time),
+            status="closed" if properties.closed else "open",
+            latitude=coordinate.latitude,
+            longitude=coordinate.longitude,
+            distance_km=round(distance_km, 1),
+            magnitude=properties.magnitude_float(),
+            source_url=properties.first_source_url(),
+        )
+
+    @classmethod
+    def from_usgs_earthquake_feature(
+        cls,
+        feature: "UsgsEarthquakeFeature",
+        *,
+        distance_km: float,
+    ) -> Self:
+        properties = feature.properties
+        coordinate = feature.geometry.coordinates
+        event_time = parse_provider_datetime(properties.time)
+        return cls(
+            provider="USGS Earthquake Catalog",
+            id=str(feature.id or properties.code or ""),
+            title=properties.title or properties.place or "Earthquake",
+            category=properties.type or "earthquake",
+            time=utc_isoformat_z(event_time),
+            status=properties.status or "",
+            latitude=coordinate.latitude,
+            longitude=coordinate.longitude,
+            distance_km=round(distance_km, 1),
+            magnitude=properties.mag,
+            source_url=properties.url,
+        )
 
 
 class NaturalEventsContextResponse(BaseModel):

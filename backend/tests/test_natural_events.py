@@ -78,7 +78,7 @@ def test_nasa_eonet_service_builds_and_sends_typed_query_params(monkeypatch):
     assert result == NasaEonetGeoJsonResponse(features=[])
     assert params.status == "open"
     assert params.limit == 3
-    assert len(params.bbox.split(",")) == 4
+    assert params.bbox == "5.705377,46.899320,8.294623,45.100680"
     assert calls == [
         (
             "https://eonet.example/api/v3/events/geojson",

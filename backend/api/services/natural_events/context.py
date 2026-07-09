@@ -9,17 +9,14 @@ from api.services.natural_events.client import NasaEonetService, UsgsEarthquakeS
 from api.services.natural_events.models import (
     GeoCoordinate,
     GeoJsonPointGeometry,
-    NasaEonetFeature,
     NaturalEventItem,
     NaturalEventsCenter,
     NaturalEventsContextQuery,
     NaturalEventsContextResponse,
     NaturalEventsProviderCounts,
     NaturalEventsSummary,
-    UsgsEarthquakeFeature,
     event_sort_key,
 )
-from api.utils.datetime_utils import parse_provider_datetime, utc_isoformat_z
 from api.utils.geo_utils import haversine_distance_km
 
 logger = getLogger(__name__)
@@ -132,33 +129,18 @@ class NasaEonetPullStep(NaturalEventsPullStep):
             elif not self.has_coordinate_inside_radius(coordinates):
                 continue
 
-            events.append(self.normalize_feature(feature, nearest))
+            events.append(
+                NaturalEventItem.from_nasa_eonet_feature(
+                    feature,
+                    coordinate=nearest.coordinate,
+                    distance_km=nearest.distance_km,
+                )
+            )
 
         return NaturalEventsPullStepResult(
             provider_key="nasa_eonet",
             events=events,
             warnings=warnings,
-        )
-
-    def normalize_feature(
-        self,
-        feature: NasaEonetFeature,
-        nearest: NearestCoordinate,
-    ) -> NaturalEventItem:
-        properties = feature.properties
-        event_time = parse_provider_datetime(properties.date)
-        return NaturalEventItem(
-            provider="NASA EONET",
-            id=str(properties.id or feature.id or ""),
-            title=properties.title or "Natural event",
-            category=properties.category_titles(),
-            time=utc_isoformat_z(event_time),
-            status="closed" if properties.closed else "open",
-            latitude=nearest.coordinate.latitude,
-            longitude=nearest.coordinate.longitude,
-            distance_km=round(nearest.distance_km, 1),
-            magnitude=properties.magnitude_float(),
-            source_url=properties.first_source_url(),
         )
 
     def nearest_coordinate(
@@ -206,26 +188,13 @@ class UsgsEarthquakePullStep(NaturalEventsPullStep):
         )
         return NaturalEventsPullStepResult(
             provider_key="usgs_earthquakes",
-            events=[self.normalize_feature(feature) for feature in response.features],
-        )
-
-    def normalize_feature(self, feature: UsgsEarthquakeFeature) -> NaturalEventItem:
-        properties = feature.properties
-        coordinate = feature.geometry.coordinates
-        distance_km = self.distance_to(coordinate)
-        event_time = parse_provider_datetime(properties.time)
-        return NaturalEventItem(
-            provider="USGS Earthquake Catalog",
-            id=str(feature.id or properties.code or ""),
-            title=properties.title or properties.place or "Earthquake",
-            category=properties.type or "earthquake",
-            time=utc_isoformat_z(event_time),
-            status=properties.status or "",
-            latitude=coordinate.latitude,
-            longitude=coordinate.longitude,
-            distance_km=round(distance_km, 1),
-            magnitude=properties.mag,
-            source_url=properties.url,
+            events=[
+                NaturalEventItem.from_usgs_earthquake_feature(
+                    feature,
+                    distance_km=self.distance_to(feature.geometry.coordinates),
+                )
+                for feature in response.features
+            ],
         )
 
 
