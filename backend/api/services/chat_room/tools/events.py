@@ -1,26 +1,24 @@
 import json
 from datetime import datetime
-from typing import Annotated, Any, Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    StringConstraints,
-    ValidationError,
     model_validator,
 )
 
 from api.services.chat_room.tools.base import (
     HumConnectTool,
     ToolExecutionContext,
-    pydantic_response_function_tool,
 )
 from api.services.recorded_events import RecordedEventService
-from api.utils.relative_dates import (
+from api.utils.datetime_utils import (
     iso_date_to_utc_datetime,
     parse_iso_datetime,
 )
+from api.utils.pydantic_types import NonEmptyString
 from api.utils.relative_dates import (
     resolve_relative_datetime as resolve_relative_datetime_from_units,
 )
@@ -33,8 +31,6 @@ EventDatePrecision = Literal["exact", "fuzzy", "unknown"]
 EventRelativeDirection = Literal["past", "future"]
 EventLocationPrecision = Literal["exact", "city", "region", "country", "unknown"]
 TagMatchMode = Literal["all", "any"]
-
-NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class RecordEventBaseModel(BaseModel):
@@ -273,42 +269,26 @@ RECALL_EVENTS_TOOL_DESCRIPTION = (
 )
 
 
-async def execute_record_event_tool(
-    arguments: dict[str, object],
-    context: ToolExecutionContext | None = None,
+async def _record_event(
+    event_input: RecordEventToolInput,
+    tool_context: ToolExecutionContext,
 ) -> str:
-    try:
-        event_input = RecordEventToolInput.model_validate(arguments)
-    except ValidationError as e:
-        raise ValueError(f"record_event received invalid event data: {e}") from e
-
-    if context is None:
-        raise ValueError("record_event requires chat execution context.")
-
     event = await RecordedEventService().record_event_from_tool(
         event_input=event_input,
-        chat_id=context.chat_id,
-        user_id=context.user_id,
-        source_message_id=context.source_message_id,
+        chat_id=tool_context.chat_id,
+        user_id=tool_context.user_id,
+        source_message_id=tool_context.source_message_id,
     )
     return event.to_tool_response()
 
 
-async def execute_recall_events_tool(
-    arguments: dict[str, object],
-    context: ToolExecutionContext | None = None,
+async def _recall_events(
+    recall_input: RecallEventsToolInput,
+    tool_context: ToolExecutionContext,
 ) -> str:
-    try:
-        recall_input = RecallEventsToolInput.model_validate(arguments)
-    except ValidationError as e:
-        raise ValueError(f"recall_events received invalid query data: {e}") from e
-
-    if context is None:
-        raise ValueError("recall_events requires chat execution context.")
-
     events = await RecordedEventService().recall_events_from_tool(
         recall_input=recall_input,
-        user_id=context.user_id,
+        user_id=tool_context.user_id,
     )
     return json.dumps(
         {
@@ -319,24 +299,20 @@ async def execute_recall_events_tool(
     )
 
 
-RECORD_EVENT_TOOL = HumConnectTool(
+RECORD_EVENT_TOOL = HumConnectTool.from_async_with_context_handler(
     name="record_event",
     label="Record event",
-    definition=pydantic_response_function_tool(
-        RecordEventToolInput,
-        name="record_event",
-        description=RECORD_EVENT_TOOL_DESCRIPTION,
-    ),
-    execute=execute_record_event_tool,
+    input_model=RecordEventToolInput,
+    description=RECORD_EVENT_TOOL_DESCRIPTION,
+    invalid_input_message="record_event received invalid event data",
+    handler=_record_event,
 )
 
-RECALL_EVENTS_TOOL = HumConnectTool(
+RECALL_EVENTS_TOOL = HumConnectTool.from_async_with_context_handler(
     name="recall_events",
     label="Recall events",
-    definition=pydantic_response_function_tool(
-        RecallEventsToolInput,
-        name="recall_events",
-        description=RECALL_EVENTS_TOOL_DESCRIPTION,
-    ),
-    execute=execute_recall_events_tool,
+    input_model=RecallEventsToolInput,
+    description=RECALL_EVENTS_TOOL_DESCRIPTION,
+    invalid_input_message="recall_events received invalid query data",
+    handler=_recall_events,
 )

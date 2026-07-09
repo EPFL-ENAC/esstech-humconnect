@@ -1,3 +1,5 @@
+"""Public chat service facade for views and other backend modules."""
+
 from uuid import UUID
 
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession

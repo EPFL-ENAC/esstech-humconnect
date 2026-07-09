@@ -20,8 +20,8 @@ from api.models.chat import (
     Message,
     MessageChunkType,
     ToolCallPayload,
-    utc_now,
 )
+from api.utils.datetime_utils import utc_now
 
 STREAM_COMMIT_TOKEN_BATCH_SIZE = 32
 STREAM_COMMIT_INTERVAL_SECONDS = 1.0

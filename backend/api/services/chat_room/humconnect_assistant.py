@@ -32,7 +32,11 @@ from api.services.chat_room.tools import ToolSet, parse_tool_call_arguments
 from api.services.chat_room.tools.base import ToolExecutionContext
 from api.services.chat_room.tools.dummy import DUMMY_TOOL
 from api.services.chat_room.tools.events import RECALL_EVENTS_TOOL, RECORD_EVENT_TOOL
+from api.services.chat_room.tools.humanitarian_context import (
+    GET_HUMANITARIAN_CONTEXT_TOOL,
+)
 from api.services.chat_room.tools.meditron import ASK_MEDITRON_TOOL
+from api.services.chat_room.tools.natural_events import GET_NATURAL_EVENTS_CONTEXT_TOOL
 
 ModelInputMessage = EasyInputMessageParam
 MAX_TOOL_CALL_ROUNDS = 5
@@ -45,10 +49,18 @@ BASE_INSTRUCTIONS = (
     "When you feel that the user is talking about something that could have been "
     "caused by a prior event, use the recall_events tool to retrieve potentially "
     "relevant events across chats. If you are unsure about the relevance of an event, "
-    "you can still recall it and then decide whether to use it or not. If you need to "
-    "ask Meditron, a medical LLM trained on a curated medical corpus, make sure you "
-    "gather all the relevant information from the user or the other tools to get "
-    "better context."
+    "you can still recall it and then decide whether to use it or not. When a user "
+    "asks about nearby hazards, disasters, earthquakes, fires, storms, volcanoes, "
+    "floods, or natural event context around a location, use the "
+    "get_natural_events_context tool with the relevant center point and radius. "
+    "When a user asks about outbreaks, epidemics, public-health reports, "
+    "humanitarian crises, displacement, conflict, food insecurity, or "
+    "ReliefWeb/OCHA/WHO-style country context, use the get_humanitarian_context "
+    "tool with a country name. If the country is ambiguous and you cannot infer "
+    "it confidently, ask the user which country they mean. "
+    "If you need to ask Meditron, a medical LLM trained on a curated medical "
+    "corpus, make sure you gather all the relevant information from the user or "
+    "the other tools to get better context."
 )
 
 
@@ -100,6 +112,8 @@ class HumConnectAssistant(ChatAssistant):
                 ASK_MEDITRON_TOOL,
                 RECORD_EVENT_TOOL,
                 RECALL_EVENTS_TOOL,
+                GET_NATURAL_EVENTS_CONTEXT_TOOL,
+                GET_HUMANITARIAN_CONTEXT_TOOL,
             ]
         )
 

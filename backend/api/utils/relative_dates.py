@@ -1,23 +1,18 @@
 from calendar import monthrange
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import datetime, timedelta
 from typing import Literal
+
+from api.utils.datetime_utils import (
+    iso_date_to_utc_datetime,
+    parse_iso_datetime,
+    utc_now,
+)
 
 RelativeDateDirection = Literal["past", "future"]
 
 
 def current_datetime() -> datetime:
-    return datetime.now(UTC)
-
-
-def parse_iso_datetime(value: str) -> datetime:
-    parsed = datetime.fromisoformat(value)
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed
-
-
-def iso_date_to_utc_datetime(value: str) -> datetime:
-    return datetime.combine(date.fromisoformat(value), time.min, tzinfo=UTC)
+    return utc_now()
 
 
 def add_calendar_months(value: datetime, months: int) -> datetime:

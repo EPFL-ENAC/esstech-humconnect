@@ -1,7 +1,8 @@
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Sequence, cast
+from typing import Any, Sequence, TypeVar, cast
 from uuid import UUID
 
 from openai import pydantic_function_tool
@@ -10,9 +11,15 @@ from openai.types.responses import (
     ResponseFunctionToolCall,
     ResponseInputItemParam,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from api.models.user_profile import UserProfilePromptContext
+
+ToolInputT = TypeVar("ToolInputT", bound=BaseModel)
+SyncToolHandler = Callable[[ToolInputT], str]
+SyncContextToolHandler = Callable[[ToolInputT, "ToolExecutionContext"], str]
+AsyncToolHandler = Callable[[ToolInputT], Awaitable[str]]
+AsyncContextToolHandler = Callable[[ToolInputT, "ToolExecutionContext"], Awaitable[str]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +43,148 @@ class HumConnectTool:
     definition: FunctionToolParam
     execute: ToolExecutor
 
+    @classmethod
+    def from_sync_handler(
+        cls,
+        *,
+        name: str,
+        label: str,
+        input_model: type[ToolInputT],
+        description: str,
+        invalid_input_message: str,
+        handler: SyncToolHandler[ToolInputT],
+        include_validation_details: bool = True,
+    ) -> "HumConnectTool":
+        async def execute(
+            arguments: dict[str, object],
+            context: ToolExecutionContext | None = None,
+        ) -> str:
+            tool_input = validate_tool_input(
+                input_model,
+                arguments,
+                invalid_input_message,
+                include_details=include_validation_details,
+            )
+            return await asyncio.to_thread(handler, tool_input)
+
+        return cls(
+            name=name,
+            label=label,
+            definition=pydantic_response_function_tool(
+                input_model,
+                name=name,
+                description=description,
+            ),
+            execute=execute,
+        )
+
+    @classmethod
+    def from_sync_with_context_handler(
+        cls,
+        *,
+        name: str,
+        label: str,
+        input_model: type[ToolInputT],
+        description: str,
+        invalid_input_message: str,
+        handler: SyncContextToolHandler[ToolInputT],
+        include_validation_details: bool = True,
+    ) -> "HumConnectTool":
+        async def execute(
+            arguments: dict[str, object],
+            context: ToolExecutionContext | None = None,
+        ) -> str:
+            tool_input = validate_tool_input(
+                input_model,
+                arguments,
+                invalid_input_message,
+                include_details=include_validation_details,
+            )
+            tool_context = require_tool_context(context, name)
+            return await asyncio.to_thread(handler, tool_input, tool_context)
+
+        return cls(
+            name=name,
+            label=label,
+            definition=pydantic_response_function_tool(
+                input_model,
+                name=name,
+                description=description,
+            ),
+            execute=execute,
+        )
+
+    @classmethod
+    def from_async_handler(
+        cls,
+        *,
+        name: str,
+        label: str,
+        input_model: type[ToolInputT],
+        description: str,
+        invalid_input_message: str,
+        handler: AsyncToolHandler[ToolInputT],
+        include_validation_details: bool = True,
+    ) -> "HumConnectTool":
+        async def execute(
+            arguments: dict[str, object],
+            context: ToolExecutionContext | None = None,
+        ) -> str:
+            tool_input = validate_tool_input(
+                input_model,
+                arguments,
+                invalid_input_message,
+                include_details=include_validation_details,
+            )
+            return await handler(tool_input)
+
+        return cls(
+            name=name,
+            label=label,
+            definition=pydantic_response_function_tool(
+                input_model,
+                name=name,
+                description=description,
+            ),
+            execute=execute,
+        )
+
+    @classmethod
+    def from_async_with_context_handler(
+        cls,
+        *,
+        name: str,
+        label: str,
+        input_model: type[ToolInputT],
+        description: str,
+        invalid_input_message: str,
+        handler: AsyncContextToolHandler[ToolInputT],
+        include_validation_details: bool = True,
+    ) -> "HumConnectTool":
+        async def execute(
+            arguments: dict[str, object],
+            context: ToolExecutionContext | None = None,
+        ) -> str:
+            tool_input = validate_tool_input(
+                input_model,
+                arguments,
+                invalid_input_message,
+                include_details=include_validation_details,
+            )
+            tool_context = require_tool_context(context, name)
+            return await handler(tool_input, tool_context)
+
+        return cls(
+            name=name,
+            label=label,
+            definition=pydantic_response_function_tool(
+                input_model,
+                name=name,
+                description=description,
+            ),
+            execute=execute,
+        )
+
 
 def pydantic_response_function_tool(
     model: type[BaseModel], *, name: str, description: str
@@ -52,6 +201,30 @@ def pydantic_response_function_tool(
             "parameters": function["parameters"],
         },
     )
+
+
+def validate_tool_input(
+    model: type[ToolInputT],
+    arguments: dict[str, object],
+    error_prefix: str,
+    *,
+    include_details: bool = True,
+) -> ToolInputT:
+    try:
+        return model.model_validate(arguments)
+    except ValidationError as exc:
+        if not include_details:
+            raise ValueError(error_prefix) from exc
+        raise ValueError(f"{error_prefix}: {exc}") from exc
+
+
+def require_tool_context(
+    context: ToolExecutionContext | None,
+    tool_name: str,
+) -> ToolExecutionContext:
+    if context is None:
+        raise ValueError(f"{tool_name} requires chat execution context.")
+    return context
 
 
 @dataclass(frozen=True, slots=True)

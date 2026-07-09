@@ -31,6 +31,18 @@ class Config(BaseSettings):
     NOMINATIM_BASE_URL: str = "https://nominatim.openstreetmap.org"
     NOMINATIM_TIMEOUT_SECONDS: float = 5
 
+    NASA_EONET_BASE_URL: str = "https://eonet.gsfc.nasa.gov/api/v3"
+    USGS_EARTHQUAKE_BASE_URL: str = "https://earthquake.usgs.gov/fdsnws/event/1"
+    NATURAL_EVENTS_TIMEOUT_SECONDS: float = 5
+    NATURAL_EVENTS_EARTHQUAKE_DAYS: int = 30
+    NATURAL_EVENTS_PROVIDER_LIMIT: int = 20
+
+    RELIEFWEB_BASE_URL: str = "https://api.reliefweb.int/v2"
+    RELIEFWEB_APP_NAME: str = "EPFL-HumConnect-2026hwRSxljV0gLcE"
+    HUMANITARIAN_CONTEXT_TIMEOUT_SECONDS: float = 5
+    HUMANITARIAN_CONTEXT_DAYS: int = 30
+    HUMANITARIAN_CONTEXT_LIMIT: int = 10
+
 
 @lru_cache()
 def get_config():

@@ -1,0 +1,256 @@
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from logging import getLogger
+from typing import Literal
+
+import requests
+
+from api.services.natural_events.client import NasaEonetService, UsgsEarthquakeService
+from api.services.natural_events.models import (
+    GeoCoordinate,
+    GeoJsonPointGeometry,
+    NaturalEventItem,
+    NaturalEventsCenter,
+    NaturalEventsContextQuery,
+    NaturalEventsContextResponse,
+    NaturalEventsProviderCounts,
+    NaturalEventsSummary,
+    event_sort_key,
+)
+from api.services.provider_pull import ProviderPullCollector, ProviderPullStepResult
+from api.utils.geo_utils import haversine_distance_km
+
+logger = getLogger(__name__)
+
+NaturalEventsProviderKey = Literal["nasa_eonet", "usgs_earthquakes"]
+
+
+@dataclass(frozen=True, slots=True)
+class NearestCoordinate:
+    coordinate: GeoCoordinate
+    distance_km: float
+
+
+@dataclass(frozen=True, slots=True)
+class NaturalEventsPullStepResult(ProviderPullStepResult[NaturalEventItem]):
+    provider_key: NaturalEventsProviderKey = "nasa_eonet"
+
+    @property
+    def events(self) -> list[NaturalEventItem]:
+        return self.items
+
+
+class NaturalEventsPullStep(ABC):
+    unreachable_warning: str
+    request_failure_log_message: str
+
+    def __init__(self, query: NaturalEventsContextQuery) -> None:
+        self.query = query
+
+    @property
+    @abstractmethod
+    def provider_key(self) -> NaturalEventsProviderKey:
+        pass
+
+    def run(self) -> NaturalEventsPullStepResult:
+        try:
+            return self.process()
+        except requests.RequestException as exc:
+            logger.warning(self.request_failure_log_message, exc)
+            return NaturalEventsPullStepResult(
+                count_key=self.provider_key,
+                provider_key=self.provider_key,
+                warnings=[self.unreachable_warning],
+                provider_failed=True,
+            )
+        except ValueError as exc:
+            return NaturalEventsPullStepResult(
+                count_key=self.provider_key,
+                provider_key=self.provider_key,
+                warnings=[str(exc)],
+                malformed_payload=True,
+            )
+
+    @abstractmethod
+    def process(self) -> NaturalEventsPullStepResult:
+        pass
+
+    def distance_to(self, coordinate: GeoCoordinate) -> float:
+        return haversine_distance_km(
+            self.query.center_latitude,
+            self.query.center_longitude,
+            coordinate.latitude,
+            coordinate.longitude,
+        )
+
+
+class NasaEonetPullStep(NaturalEventsPullStep):
+    unreachable_warning = "NASA EONET could not be reached."
+    request_failure_log_message = "Could not fetch NASA EONET natural events: %s"
+
+    def __init__(
+        self,
+        query: NaturalEventsContextQuery,
+        service: NasaEonetService | None = None,
+    ) -> None:
+        super().__init__(query)
+        self.service = service or NasaEonetService()
+
+    @property
+    def provider_key(self) -> Literal["nasa_eonet"]:
+        return "nasa_eonet"
+
+    def process(self) -> NaturalEventsPullStepResult:
+        response = self.service.get_events_geojson(
+            self.service.build_geojson_query_params(self.query)
+        )
+
+        events: list[NaturalEventItem] = []
+        warnings: list[str] = []
+        for feature in response.features:
+            coordinates = feature.geometry.coordinate_list()
+            if not coordinates:
+                warnings.append(
+                    "NASA EONET returned an event without usable coordinates."
+                )
+                continue
+
+            nearest = self.nearest_coordinate(coordinates)
+            if nearest is None:
+                warnings.append(
+                    "NASA EONET returned an event without usable coordinates."
+                )
+                continue
+
+            if isinstance(feature.geometry, GeoJsonPointGeometry):
+                if nearest.distance_km > self.query.radius_km:
+                    continue
+            elif not self.has_coordinate_inside_radius(coordinates):
+                continue
+
+            events.append(
+                NaturalEventItem.from_nasa_eonet_feature(
+                    feature,
+                    coordinate=nearest.coordinate,
+                    distance_km=nearest.distance_km,
+                )
+            )
+
+        return NaturalEventsPullStepResult(
+            count_key="nasa_eonet",
+            provider_key="nasa_eonet",
+            items=events,
+            warnings=warnings,
+        )
+
+    def nearest_coordinate(
+        self, coordinates: list[GeoCoordinate]
+    ) -> NearestCoordinate | None:
+        if not coordinates:
+            return None
+
+        nearest = coordinates[0]
+        nearest_distance = self.distance_to(nearest)
+        for coordinate in coordinates[1:]:
+            distance_km = self.distance_to(coordinate)
+            if distance_km < nearest_distance:
+                nearest = coordinate
+                nearest_distance = distance_km
+
+        return NearestCoordinate(coordinate=nearest, distance_km=nearest_distance)
+
+    def has_coordinate_inside_radius(self, coordinates: list[GeoCoordinate]) -> bool:
+        return any(
+            self.distance_to(coordinate) <= self.query.radius_km
+            for coordinate in coordinates
+        )
+
+
+class UsgsEarthquakePullStep(NaturalEventsPullStep):
+    unreachable_warning = "USGS Earthquake Catalog could not be reached."
+    request_failure_log_message = "Could not fetch USGS earthquake events: %s"
+
+    def __init__(
+        self,
+        query: NaturalEventsContextQuery,
+        service: UsgsEarthquakeService | None = None,
+    ) -> None:
+        super().__init__(query)
+        self.service = service or UsgsEarthquakeService()
+
+    @property
+    def provider_key(self) -> Literal["usgs_earthquakes"]:
+        return "usgs_earthquakes"
+
+    def process(self) -> NaturalEventsPullStepResult:
+        response = self.service.query_geojson(
+            self.service.build_geojson_query_params(self.query)
+        )
+        return NaturalEventsPullStepResult(
+            count_key="usgs_earthquakes",
+            provider_key="usgs_earthquakes",
+            items=[
+                NaturalEventItem.from_usgs_earthquake_feature(
+                    feature,
+                    distance_km=self.distance_to(feature.geometry.coordinates),
+                )
+                for feature in response.features
+            ],
+        )
+
+
+@dataclass(slots=True)
+class NaturalEventsContextPull:
+    query: NaturalEventsContextQuery
+    eonet: NasaEonetService = field(default_factory=NasaEonetService)
+    usgs: UsgsEarthquakeService = field(default_factory=UsgsEarthquakeService)
+    counts: NaturalEventsProviderCounts = field(
+        default_factory=NaturalEventsProviderCounts
+    )
+    steps: list[NaturalEventsPullStep] = field(init=False)
+    collector: ProviderPullCollector[NaturalEventItem] = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.steps = [
+            NasaEonetPullStep(self.query, service=self.eonet),
+            UsgsEarthquakePullStep(self.query, service=self.usgs),
+        ]
+        self.collector = ProviderPullCollector(
+            all_provider_failure_error=(
+                "Could not fetch natural events from NASA EONET or USGS."
+            ),
+            all_malformed_payload_error=(
+                "NASA EONET and USGS returned malformed natural event data."
+            ),
+            step_count=len(self.steps),
+        )
+
+    def run(self) -> str:
+        for step in self.steps:
+            self.add_step_result(step.run())
+
+        self.collector.raise_for_unusable_result()
+        self.collector.items.sort(key=event_sort_key, reverse=True)
+        return self.to_json()
+
+    def add_step_result(self, result: NaturalEventsPullStepResult) -> None:
+        self.collector.add_result(result)
+        setattr(self.counts, result.provider_key, result.count)
+
+    def to_json(self) -> str:
+        response = NaturalEventsContextResponse(
+            summary=NaturalEventsSummary(
+                message=(
+                    f"Found {len(self.collector.items)} natural event(s) near the requested area."
+                ),
+                counts=self.counts,
+            ),
+            center=NaturalEventsCenter(
+                latitude=self.query.center_latitude,
+                longitude=self.query.center_longitude,
+                radius_km=self.query.radius_km,
+            ),
+            events=self.collector.items,
+            warnings=self.collector.warnings or None,
+        )
+        return response.model_dump_json(indent=2, exclude_none=True)

@@ -1,0 +1,97 @@
+from tests.chat_room_helpers import *  # noqa: F403
+
+
+def test_recorded_event_service_persists_event_with_initiator_metadata():
+    FakeAsyncSession.reset()
+    event_input = events_tool_module.RecordEventToolInput.model_validate(
+        structured_record_event_arguments()
+    )
+    service = recorded_events_module.RecordedEventService(
+        session_factory=FakeAsyncSession,
+        engine_factory=lambda: object(),
+        now_factory=lambda: datetime(2026, 6, 29, 12, 0, tzinfo=UTC),
+    )
+
+    async def run():
+        return await service.record_event_from_tool(
+            event_input=event_input,
+            chat_id=RECORDED_EVENT_CHAT_ID,
+            user_id=TEST_USER_ID,
+            source_message_id=RECORDED_EVENT_SOURCE_MESSAGE_ID,
+        )
+
+    response = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.chat_id == RECORDED_EVENT_CHAT_ID
+    assert persisted_event.initiated_by_user_id == TEST_USER_ID
+    assert persisted_event.source_message_id == RECORDED_EVENT_SOURCE_MESSAGE_ID
+    assert persisted_event.original_text == "My son started coughing 3 days ago"
+    assert persisted_event.event_name == "Son started coughing"
+    assert persisted_event.event_datetime == datetime(2026, 6, 26, 12, 0, tzinfo=UTC)
+    assert persisted_event.event_date_granularity == "day"
+    assert persisted_event.event_date_precision == "exact"
+    assert persisted_event.event_date_input == {
+        "kind": "relative",
+        "granularity": "day",
+        "precision": "exact",
+        "value": None,
+        "relative": {
+            "direction": "past",
+            "years": None,
+            "months": None,
+            "weeks": None,
+            "days": 3,
+            "hours": None,
+            "minutes": None,
+            "precision": "exact",
+        },
+    }
+    assert persisted_event.event_location == {"value": None, "precision": "unknown"}
+    assert persisted_event.tags == ["symptom", "cough"]
+    assert response == persisted_event
+
+
+def test_recorded_event_service_builds_user_scoped_filtered_recall_query():
+    FakeAsyncSession.reset()
+    cough_event = make_recorded_event()
+    other_chat_event = make_recorded_event(
+        chat_id=uuid4(),
+        created_at=datetime(2026, 6, 30, 12, 0, tzinfo=UTC),
+    )
+    FakeAsyncSession.rows[RecordedEvent][cough_event.id] = cough_event
+    FakeAsyncSession.rows[RecordedEvent][other_chat_event.id] = other_chat_event
+
+    recall_input = events_tool_module.RecallEventsToolInput.model_validate(
+        {
+            "keyword": "cough",
+            "date_start": "2026-06-20T00:00:00+00:00",
+            "date_end": "2026-06-30T00:00:00+00:00",
+            "tags": ["symptom"],
+            "tag_match": "all",
+            "limit": 10,
+        }
+    )
+    service = recorded_events_module.RecordedEventService(
+        session_factory=FakeAsyncSession,
+        engine_factory=lambda: object(),
+    )
+
+    async def run():
+        return await service.recall_events_from_tool(
+            recall_input=recall_input,
+            user_id=TEST_USER_ID,
+        )
+
+    assert asyncio.run(run()) == [other_chat_event, cough_event]
+
+    query_text = str(FakeAsyncSession.last_query)
+    assert "recordedevent.initiated_by_user_id" in query_text
+    assert "WHERE recordedevent.chat_id" not in query_text
+    assert "AND recordedevent.chat_id" not in query_text
+    assert "recordedevent.event_datetime >= " in query_text
+    assert "recordedevent.event_datetime <= " in query_text
+    assert "lower(recordedevent.event_name) LIKE lower(" in query_text
+    assert "lower(recordedevent.original_text) LIKE lower(" in query_text
+    assert "CAST(recordedevent.event_location AS VARCHAR)" in query_text
+    assert "CAST(recordedevent.tags AS JSONB)" in query_text
+    assert " LIMIT " in query_text
