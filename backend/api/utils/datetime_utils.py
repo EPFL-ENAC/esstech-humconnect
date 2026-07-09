@@ -1,4 +1,19 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def parse_iso_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def iso_date_to_utc_datetime(value: str) -> datetime:
+    return datetime.combine(date.fromisoformat(value), time.min, tzinfo=UTC)
 
 
 def parse_provider_datetime(value: object) -> datetime | None:

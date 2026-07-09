@@ -11,7 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
 from api.db import get_engine
 from api.models.recorded_event import RecordedEvent
-from api.utils.relative_dates import current_datetime, parse_iso_datetime
+from api.utils.datetime_utils import parse_iso_datetime, utc_now
 
 if TYPE_CHECKING:
     from api.services.chat_room.tools.events import (
@@ -26,7 +26,7 @@ class RecordedEventService:
         *,
         session_factory: type[AsyncSQLModelSession] = AsyncSQLModelSession,
         engine_factory: Callable[[], AsyncEngine] = get_engine,
-        now_factory: Callable[[], datetime] = current_datetime,
+        now_factory: Callable[[], datetime] = utc_now,
     ) -> None:
         self._session_factory = session_factory
         self._engine_factory = engine_factory

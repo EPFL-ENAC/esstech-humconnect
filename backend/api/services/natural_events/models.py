@@ -5,6 +5,7 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.utils.datetime_utils import parse_provider_datetime, utc_isoformat_z
+from api.utils.geo_utils import as_float
 
 MAX_RADIUS_KM = 1000.0
 
@@ -123,23 +124,13 @@ class GeoCoordinate(BaseModel):
         if len(values) < 2:
             return None
 
-        longitude = cls._as_float(values[0])
-        latitude = cls._as_float(values[1])
-        depth = cls._as_float(values[2]) if len(values) > 2 else None
+        longitude = as_float(values[0])
+        latitude = as_float(values[1])
+        depth = as_float(values[2]) if len(values) > 2 else None
         if latitude is None or longitude is None:
             return None
 
         return cls(latitude=latitude, longitude=longitude, depth=depth)
-
-    @staticmethod
-    def _as_float(value: object) -> float | None:
-        if not isinstance(value, int | float | str):
-            return None
-
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
 
 
 class GeoJsonPointGeometry(NaturalEventsBaseModel):
@@ -335,7 +326,7 @@ class NasaEonetProperties(NaturalEventsBaseModel):
         return None
 
     def magnitude_float(self) -> float | None:
-        return GeoCoordinate._as_float(self.magnitudeValue)
+        return as_float(self.magnitudeValue)
 
 
 class NasaEonetFeature(NaturalEventsBaseModel):

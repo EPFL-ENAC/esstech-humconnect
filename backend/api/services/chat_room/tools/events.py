@@ -1,12 +1,11 @@
 import json
 from datetime import datetime
-from typing import Annotated, Any, Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    StringConstraints,
     ValidationError,
     model_validator,
 )
@@ -17,10 +16,11 @@ from api.services.chat_room.tools.base import (
     pydantic_response_function_tool,
 )
 from api.services.recorded_events import RecordedEventService
-from api.utils.relative_dates import (
+from api.utils.datetime_utils import (
     iso_date_to_utc_datetime,
     parse_iso_datetime,
 )
+from api.utils.pydantic_types import NonEmptyString
 from api.utils.relative_dates import (
     resolve_relative_datetime as resolve_relative_datetime_from_units,
 )
@@ -33,8 +33,6 @@ EventDatePrecision = Literal["exact", "fuzzy", "unknown"]
 EventRelativeDirection = Literal["past", "future"]
 EventLocationPrecision = Literal["exact", "city", "region", "country", "unknown"]
 TagMatchMode = Literal["all", "any"]
-
-NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class RecordEventBaseModel(BaseModel):

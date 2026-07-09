@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID, uuid4
 
@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from pydantic import Field as PydanticField
 from sqlalchemy import JSON, Column, DateTime
 from sqlmodel import Field, Relationship, SQLModel
+
+from api.utils.datetime_utils import utc_now
 
 if TYPE_CHECKING:
     from api.models.user_profile import UserProfile
@@ -22,10 +24,6 @@ MESSAGE_STATUS_STREAMING = "streaming"
 CHUNK_TYPE_MESSAGE_CONTENT = "message_content"
 CHUNK_TYPE_REASONING_TEXT = "reasoning_text"
 CHUNK_TYPE_TOOL_CALL = "tool_call"
-
-
-def utc_now() -> datetime:
-    return datetime.now(UTC)
 
 
 class ChatSession(SQLModel, table=True):

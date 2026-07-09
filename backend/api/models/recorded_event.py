@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import JSON, Column, DateTime
 from sqlmodel import Field, SQLModel
 
-from api.models.chat import utc_now
+from api.utils.datetime_utils import utc_now
 
 
 class RecordedEvent(SQLModel, table=True):

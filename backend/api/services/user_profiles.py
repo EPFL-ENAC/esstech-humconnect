@@ -2,8 +2,8 @@ from enacit4r_auth.services.auth import User
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
-from api.models.chat import utc_now
 from api.models.user_profile import UserProfile, UserProfileCoordinates
+from api.utils.datetime_utils import utc_now
 
 
 async def get_or_create_user_profile_from_token(

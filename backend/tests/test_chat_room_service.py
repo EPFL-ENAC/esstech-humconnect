@@ -26,8 +26,8 @@ from api.models.chat import (
     ChatSession,
     Message,
     ToolCallPayload,
-    utc_now,
 )
+from api.utils.datetime_utils import utc_now
 from api.models.recorded_event import RecordedEvent
 from api.models.user_profile import UserProfile, UserProfilePromptContext
 from api.services import chat as chat_service
@@ -245,6 +245,40 @@ class FakeAssistant:
                 yield chunk
             else:
                 yield AssistantStreamChunkDelta(0, CHUNK_TYPE_MESSAGE_CONTENT, chunk)
+
+
+class FakeOpenAIStreamEvent:
+    def __init__(self, event_type, delta="", item=None):
+        self.type = event_type
+        self.delta = delta
+        self.item = item
+
+
+class FakeOpenAIResponses:
+    def __init__(self, streams):
+        self.streams = streams
+        self.create_kwargs = []
+
+    async def create(self, **kwargs):
+        self.create_kwargs.append(kwargs)
+        stream_events = self.streams[len(self.create_kwargs) - 1]
+
+        async def stream():
+            for event in stream_events:
+                yield event
+
+        return stream()
+
+
+class FakeOpenAIClient:
+    def __init__(self, streams):
+        self.responses = FakeOpenAIResponses(streams)
+
+
+def install_fake_openai_client(monkeypatch, streams):
+    fake_client = FakeOpenAIClient(streams)
+    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+    return fake_client
 
 
 async def start_and_wait_for_response(room, chat_history=None, question=""):
@@ -1278,7 +1312,7 @@ def test_ask_meditron_tool_rejects_missing_or_empty_prompt(prompt):
     async def run():
         return await ASK_MEDITRON_TOOL.execute({"prompt": prompt})
 
-    with pytest.raises(ValueError, match="non-empty string prompt"):
+    with pytest.raises(ValueError, match="invalid query data"):
         asyncio.run(run())
 
 
@@ -1288,7 +1322,7 @@ def test_ask_meditron_tool_rejects_non_string_system_prompt():
             {"prompt": "What is cholera?", "system_prompt": 42}
         )
 
-    with pytest.raises(ValueError, match="system_prompt to be a string"):
+    with pytest.raises(ValueError, match="invalid query data"):
         asyncio.run(run())
 
 
@@ -2207,22 +2241,11 @@ def test_resolve_relative_datetime_handles_calendar_and_clock_units():
 
 
 def test_humconnect_chat_assistant_executes_dummy_tool_calls(monkeypatch):
-    class FakeEvent:
-        def __init__(self, event_type, delta="", item=None):
-            self.type = event_type
-            self.delta = delta
-            self.item = item
-
-    class FakeResponses:
-        def __init__(self):
-            self.create_kwargs = []
-
-        async def create(self, **kwargs):
-            self.create_kwargs.append(kwargs)
-            call_index = len(self.create_kwargs)
-
-            async def first_stream():
-                yield FakeEvent(
+    fake_client = install_fake_openai_client(
+        monkeypatch,
+        [
+            [
+                FakeOpenAIStreamEvent(
                     "response.output_item.done",
                     item=ResponseFunctionToolCall(
                         arguments='{"message": "hello"}',
@@ -2232,18 +2255,10 @@ def test_humconnect_chat_assistant_executes_dummy_tool_calls(monkeypatch):
                         status="completed",
                     ),
                 )
-
-            async def second_stream():
-                yield FakeEvent("response.output_text.delta", "Done")
-
-            return first_stream() if call_index == 1 else second_stream()
-
-    class FakeOpenAIClient:
-        def __init__(self):
-            self.responses = FakeResponses()
-
-    fake_client = FakeOpenAIClient()
-    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+            ],
+            [FakeOpenAIStreamEvent("response.output_text.delta", "Done")],
+        ],
+    )
     assistant = HumConnectAssistant()
 
     async def run():
@@ -2300,22 +2315,11 @@ def test_humconnect_chat_assistant_executes_ask_meditron_tool_calls(monkeypatch)
         assert system_prompt == "Answer for a clinician."
         return "Watery diarrhea and dehydration."
 
-    class FakeEvent:
-        def __init__(self, event_type, delta="", item=None):
-            self.type = event_type
-            self.delta = delta
-            self.item = item
-
-    class FakeResponses:
-        def __init__(self):
-            self.create_kwargs = []
-
-        async def create(self, **kwargs):
-            self.create_kwargs.append(kwargs)
-            call_index = len(self.create_kwargs)
-
-            async def first_stream():
-                yield FakeEvent(
+    fake_client = install_fake_openai_client(
+        monkeypatch,
+        [
+            [
+                FakeOpenAIStreamEvent(
                     "response.output_item.done",
                     item=ResponseFunctionToolCall(
                         arguments=(
@@ -2328,18 +2332,10 @@ def test_humconnect_chat_assistant_executes_ask_meditron_tool_calls(monkeypatch)
                         status="completed",
                     ),
                 )
-
-            async def second_stream():
-                yield FakeEvent("response.output_text.delta", "Summarized")
-
-            return first_stream() if call_index == 1 else second_stream()
-
-    class FakeOpenAIClient:
-        def __init__(self):
-            self.responses = FakeResponses()
-
-    fake_client = FakeOpenAIClient()
-    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+            ],
+            [FakeOpenAIStreamEvent("response.output_text.delta", "Summarized")],
+        ],
+    )
     monkeypatch.setattr(meditron_tool_module, "ask_meditron", fake_ask_meditron)
     assistant = HumConnectAssistant()
 
@@ -2407,22 +2403,11 @@ def test_humconnect_chat_assistant_executes_record_event_tool_calls(monkeypatch)
     configure_recorded_event_service(monkeypatch)
     tool_arguments = structured_record_event_arguments()
 
-    class FakeEvent:
-        def __init__(self, event_type, delta="", item=None):
-            self.type = event_type
-            self.delta = delta
-            self.item = item
-
-    class FakeResponses:
-        def __init__(self):
-            self.create_kwargs = []
-
-        async def create(self, **kwargs):
-            self.create_kwargs.append(kwargs)
-            call_index = len(self.create_kwargs)
-
-            async def first_stream():
-                yield FakeEvent(
+    fake_client = install_fake_openai_client(
+        monkeypatch,
+        [
+            [
+                FakeOpenAIStreamEvent(
                     "response.output_item.done",
                     item=ResponseFunctionToolCall(
                         arguments=json.dumps(tool_arguments),
@@ -2432,18 +2417,10 @@ def test_humconnect_chat_assistant_executes_record_event_tool_calls(monkeypatch)
                         status="completed",
                     ),
                 )
-
-            async def second_stream():
-                yield FakeEvent("response.output_text.delta", "Noted")
-
-            return first_stream() if call_index == 1 else second_stream()
-
-    class FakeOpenAIClient:
-        def __init__(self):
-            self.responses = FakeResponses()
-
-    fake_client = FakeOpenAIClient()
-    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+            ],
+            [FakeOpenAIStreamEvent("response.output_text.delta", "Noted")],
+        ],
+    )
     assistant = HumConnectAssistant()
 
     async def run():
@@ -2498,22 +2475,11 @@ def test_humconnect_chat_assistant_executes_record_event_tool_calls(monkeypatch)
 
 
 def test_humconnect_chat_assistant_reports_invalid_tool_arguments(monkeypatch):
-    class FakeEvent:
-        def __init__(self, event_type, delta="", item=None):
-            self.type = event_type
-            self.delta = delta
-            self.item = item
-
-    class FakeResponses:
-        def __init__(self):
-            self.create_kwargs = []
-
-        async def create(self, **kwargs):
-            self.create_kwargs.append(kwargs)
-            call_index = len(self.create_kwargs)
-
-            async def first_stream():
-                yield FakeEvent(
+    fake_client = install_fake_openai_client(
+        monkeypatch,
+        [
+            [
+                FakeOpenAIStreamEvent(
                     "response.output_item.done",
                     item=ResponseFunctionToolCall(
                         arguments='{"message": ""}',
@@ -2522,18 +2488,10 @@ def test_humconnect_chat_assistant_reports_invalid_tool_arguments(monkeypatch):
                         type="function_call",
                     ),
                 )
-
-            async def second_stream():
-                yield FakeEvent("response.output_text.delta", "Recovered")
-
-            return first_stream() if call_index == 1 else second_stream()
-
-    class FakeOpenAIClient:
-        def __init__(self):
-            self.responses = FakeResponses()
-
-    fake_client = FakeOpenAIClient()
-    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+            ],
+            [FakeOpenAIStreamEvent("response.output_text.delta", "Recovered")],
+        ],
+    )
     assistant = HumConnectAssistant()
 
     async def run():
@@ -2574,22 +2532,11 @@ def test_humconnect_chat_assistant_reports_invalid_tool_arguments(monkeypatch):
 
 
 def test_humconnect_chat_assistant_reports_malformed_tool_arguments(monkeypatch):
-    class FakeEvent:
-        def __init__(self, event_type, delta="", item=None):
-            self.type = event_type
-            self.delta = delta
-            self.item = item
-
-    class FakeResponses:
-        def __init__(self):
-            self.create_kwargs = []
-
-        async def create(self, **kwargs):
-            self.create_kwargs.append(kwargs)
-            call_index = len(self.create_kwargs)
-
-            async def first_stream():
-                yield FakeEvent(
+    fake_client = install_fake_openai_client(
+        monkeypatch,
+        [
+            [
+                FakeOpenAIStreamEvent(
                     "response.output_item.done",
                     item=ResponseFunctionToolCall(
                         arguments="{",
@@ -2598,18 +2545,10 @@ def test_humconnect_chat_assistant_reports_malformed_tool_arguments(monkeypatch)
                         type="function_call",
                     ),
                 )
-
-            async def second_stream():
-                yield FakeEvent("response.output_text.delta", "Recovered")
-
-            return first_stream() if call_index == 1 else second_stream()
-
-    class FakeOpenAIClient:
-        def __init__(self):
-            self.responses = FakeResponses()
-
-    fake_client = FakeOpenAIClient()
-    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+            ],
+            [FakeOpenAIStreamEvent("response.output_text.delta", "Recovered")],
+        ],
+    )
     assistant = HumConnectAssistant()
 
     async def run():
@@ -2639,22 +2578,11 @@ def test_humconnect_chat_assistant_reports_malformed_tool_arguments(monkeypatch)
 
 
 def test_humconnect_chat_assistant_reports_unknown_tool(monkeypatch):
-    class FakeEvent:
-        def __init__(self, event_type, delta="", item=None):
-            self.type = event_type
-            self.delta = delta
-            self.item = item
-
-    class FakeResponses:
-        def __init__(self):
-            self.create_kwargs = []
-
-        async def create(self, **kwargs):
-            self.create_kwargs.append(kwargs)
-            call_index = len(self.create_kwargs)
-
-            async def first_stream():
-                yield FakeEvent(
+    fake_client = install_fake_openai_client(
+        monkeypatch,
+        [
+            [
+                FakeOpenAIStreamEvent(
                     "response.output_item.done",
                     item=ResponseFunctionToolCall(
                         arguments='{"message": "hello"}',
@@ -2663,18 +2591,10 @@ def test_humconnect_chat_assistant_reports_unknown_tool(monkeypatch):
                         type="function_call",
                     ),
                 )
-
-            async def second_stream():
-                yield FakeEvent("response.output_text.delta", "Recovered")
-
-            return first_stream() if call_index == 1 else second_stream()
-
-    class FakeOpenAIClient:
-        def __init__(self):
-            self.responses = FakeResponses()
-
-    fake_client = FakeOpenAIClient()
-    monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
+            ],
+            [FakeOpenAIStreamEvent("response.output_text.delta", "Recovered")],
+        ],
+    )
     assistant = HumConnectAssistant()
 
     async def run():

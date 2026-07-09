@@ -7,7 +7,7 @@ from pydantic import Field as PydanticField
 from sqlalchemy import JSON, Column, DateTime
 from sqlmodel import Field, Relationship, SQLModel
 
-from api.models.chat import utc_now
+from api.utils.datetime_utils import utc_now
 
 if TYPE_CHECKING:
     from api.models.chat import ChatSession

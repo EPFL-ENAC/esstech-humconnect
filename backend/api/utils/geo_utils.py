@@ -52,8 +52,8 @@ def coordinate_pairs_from_geojson_coordinates(
             return
 
         if len(value) >= 2:
-            longitude = _as_float(value[0])
-            latitude = _as_float(value[1])
+            longitude = as_float(value[0])
+            latitude = as_float(value[1])
             if longitude is not None and latitude is not None:
                 pairs.append((latitude, longitude))
                 return
@@ -65,7 +65,7 @@ def coordinate_pairs_from_geojson_coordinates(
     return pairs
 
 
-def _as_float(value: object) -> float | None:
+def as_float(value: object) -> float | None:
     if not isinstance(value, (int, float, str)):
         return None
 

@@ -1,7 +1,6 @@
 import asyncio
-from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from api.services.chat_room.tools.base import (
     HumConnectTool,
@@ -9,8 +8,7 @@ from api.services.chat_room.tools.base import (
     pydantic_response_function_tool,
 )
 from api.services.humanitarian_context import HumanitarianContextPull
-
-NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+from api.utils.pydantic_types import NonEmptyString
 
 
 class HumanitarianContextInput(BaseModel):

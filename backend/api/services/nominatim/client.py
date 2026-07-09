@@ -6,6 +6,7 @@ import requests
 
 from api.config import config
 from api.models.user_profile import AddressSuggestion, UserProfileCoordinates
+from api.utils.geo_utils import as_float
 
 logger = getLogger(__name__)
 
@@ -43,14 +44,17 @@ def _address_from_properties(properties: dict[str, Any]) -> str:
 def _coordinates_from_feature(feature: dict[str, Any]) -> UserProfileCoordinates | None:
     bbox = feature.get("bbox")
     if isinstance(bbox, list) and len(bbox) >= 4:
-        try:
-            min_lon, min_lat, max_lon, max_lat = [float(value) for value in bbox[:4]]
+        min_lon, min_lat, max_lon, max_lat = [as_float(value) for value in bbox[:4]]
+        if (
+            min_lon is not None
+            and min_lat is not None
+            and max_lon is not None
+            and max_lat is not None
+        ):
             return UserProfileCoordinates(
                 latitude=min_lat + (max_lat - min_lat) / 2,
                 longitude=min_lon + (max_lon - min_lon) / 2,
             )
-        except (TypeError, ValueError):
-            pass
 
     geometry = feature.get("geometry")
     if not isinstance(geometry, dict):
@@ -60,10 +64,9 @@ def _coordinates_from_feature(feature: dict[str, Any]) -> UserProfileCoordinates
     if not isinstance(coordinates, list) or len(coordinates) < 2:
         return None
 
-    try:
-        longitude = float(coordinates[0])
-        latitude = float(coordinates[1])
-    except (TypeError, ValueError):
+    longitude = as_float(coordinates[0])
+    latitude = as_float(coordinates[1])
+    if longitude is None or latitude is None:
         return None
 
     return UserProfileCoordinates(latitude=latitude, longitude=longitude)
