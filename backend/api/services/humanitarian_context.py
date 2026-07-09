@@ -6,6 +6,7 @@ from typing import Literal, Self
 import requests
 from pydantic import BaseModel
 
+from api.services.provider_pull import ProviderPullCollector, ProviderPullStepResult
 from api.services.reliefweb import (
     ReliefWebDataEntry,
     ReliefWebRequestPayload,
@@ -70,16 +71,10 @@ class HumanitarianContextResponse(BaseModel):
     warnings: list[str] | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class HumanitarianContextPullStepResult:
-    items: list[HumanitarianContextItem] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-    provider_failed: bool = False
-    malformed_payload: bool = False
-
-    @property
-    def count(self) -> int:
-        return len(self.items)
+class HumanitarianContextPullStepResult(
+    ProviderPullStepResult[HumanitarianContextItem]
+):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,11 +98,13 @@ class HumanitarianContextPullStep:
         except requests.RequestException as exc:
             logger.warning("Could not fetch ReliefWeb %s: %s", self.endpoint, exc)
             return HumanitarianContextPullStepResult(
+                count_key=self.endpoint,
                 warnings=[self.unreachable_warning],
                 provider_failed=True,
             )
         except ValueError as exc:
             return HumanitarianContextPullStepResult(
+                count_key=self.endpoint,
                 warnings=[str(exc)],
                 malformed_payload=True,
             )
@@ -122,6 +119,7 @@ class HumanitarianContextPullStep:
     ) -> HumanitarianContextPullStepResult:
         if response.data.data is None:
             return HumanitarianContextPullStepResult(
+                count_key=self.endpoint,
                 warnings=[
                     f"ReliefWeb {self.item_type} response returned no data list."
                 ],
@@ -140,24 +138,21 @@ class HumanitarianContextPullStep:
             )
             is not None
         ]
-        return HumanitarianContextPullStepResult(items=items)
+        return HumanitarianContextPullStepResult(count_key=self.endpoint, items=items)
 
 
 @dataclass(slots=True)
 class HumanitarianContextPull:
     country_name: str
     reliefweb: ReliefWebService = field(default_factory=ReliefWebService)
-    items: list[HumanitarianContextItem] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
     counts: dict[str, int] = field(
         default_factory=lambda: {
             "reports": 0,
             "disasters": 0,
         }
     )
-    provider_failures: int = 0
-    malformed_payloads: int = 0
     steps: tuple[HumanitarianContextPullStep, ...] = field(init=False)
+    collector: ProviderPullCollector[HumanitarianContextItem] = field(init=False)
 
     def __post_init__(self) -> None:
         self.steps = (
@@ -174,6 +169,15 @@ class HumanitarianContextPull:
                 unreachable_warning="ReliefWeb disasters could not be reached.",
             ),
         )
+        self.collector = ProviderPullCollector(
+            all_provider_failure_error=(
+                "Could not fetch humanitarian context from ReliefWeb."
+            ),
+            all_malformed_payload_error=(
+                "ReliefWeb returned malformed humanitarian context data."
+            ),
+            step_count=len(self.steps),
+        )
 
     def run(self) -> str:
         for step in self.steps:
@@ -185,8 +189,8 @@ class HumanitarianContextPull:
                 ),
             )
 
-        self.raise_for_unusable_result()
-        self.items.sort(key=self.item_sort_key, reverse=True)
+        self.collector.raise_for_unusable_result()
+        self.collector.items.sort(key=self.item_sort_key, reverse=True)
         return self.to_json()
 
     def add_step_result(
@@ -194,35 +198,23 @@ class HumanitarianContextPull:
         step: HumanitarianContextPullStep,
         result: HumanitarianContextPullStepResult,
     ) -> None:
-        self.items.extend(result.items)
-        self.warnings.extend(result.warnings)
+        self.collector.add_result(result)
         self.counts[step.endpoint] = result.count
-
-        if result.provider_failed:
-            self.provider_failures += 1
-        if result.malformed_payload:
-            self.malformed_payloads += 1
-
-    def raise_for_unusable_result(self) -> None:
-        if self.provider_failures == len(self.steps):
-            raise ValueError("Could not fetch humanitarian context from ReliefWeb.")
-        if self.malformed_payloads == len(self.steps):
-            raise ValueError("ReliefWeb returned malformed humanitarian context data.")
 
     def to_json(self) -> str:
         result = HumanitarianContextResponse(
             summary=HumanitarianContextSummary(
                 message=(
-                    f"Found {len(self.items)} humanitarian context item(s) for "
+                    f"Found {len(self.collector.items)} humanitarian context item(s) for "
                     f"{self.country_name}."
                 ),
                 counts=self.counts,
             ),
             country=self.country_name,
-            items=self.items,
+            items=self.collector.items,
         )
-        if self.warnings:
-            result.warnings = self.warnings
+        if self.collector.warnings:
+            result.warnings = self.collector.warnings
 
         return result.model_dump_json(indent=2, exclude_none=True)
 

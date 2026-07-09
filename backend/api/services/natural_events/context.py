@@ -17,6 +17,7 @@ from api.services.natural_events.models import (
     NaturalEventsSummary,
     event_sort_key,
 )
+from api.services.provider_pull import ProviderPullCollector, ProviderPullStepResult
 from api.utils.geo_utils import haversine_distance_km
 
 logger = getLogger(__name__)
@@ -31,16 +32,12 @@ class NearestCoordinate:
 
 
 @dataclass(frozen=True, slots=True)
-class NaturalEventsPullStepResult:
-    provider_key: NaturalEventsProviderKey
-    events: list[NaturalEventItem] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
-    provider_failed: bool = False
-    malformed_payload: bool = False
+class NaturalEventsPullStepResult(ProviderPullStepResult[NaturalEventItem]):
+    provider_key: NaturalEventsProviderKey = "nasa_eonet"
 
     @property
-    def count(self) -> int:
-        return len(self.events)
+    def events(self) -> list[NaturalEventItem]:
+        return self.items
 
 
 class NaturalEventsPullStep(ABC):
@@ -61,12 +58,14 @@ class NaturalEventsPullStep(ABC):
         except requests.RequestException as exc:
             logger.warning(self.request_failure_log_message, exc)
             return NaturalEventsPullStepResult(
+                count_key=self.provider_key,
                 provider_key=self.provider_key,
                 warnings=[self.unreachable_warning],
                 provider_failed=True,
             )
         except ValueError as exc:
             return NaturalEventsPullStepResult(
+                count_key=self.provider_key,
                 provider_key=self.provider_key,
                 warnings=[str(exc)],
                 malformed_payload=True,
@@ -138,8 +137,9 @@ class NasaEonetPullStep(NaturalEventsPullStep):
             )
 
         return NaturalEventsPullStepResult(
+            count_key="nasa_eonet",
             provider_key="nasa_eonet",
-            events=events,
+            items=events,
             warnings=warnings,
         )
 
@@ -187,8 +187,9 @@ class UsgsEarthquakePullStep(NaturalEventsPullStep):
             self.service.build_geojson_query_params(self.query)
         )
         return NaturalEventsPullStepResult(
+            count_key="usgs_earthquakes",
             provider_key="usgs_earthquakes",
-            events=[
+            items=[
                 NaturalEventItem.from_usgs_earthquake_feature(
                     feature,
                     distance_km=self.distance_to(feature.geometry.coordinates),
@@ -203,52 +204,44 @@ class NaturalEventsContextPull:
     query: NaturalEventsContextQuery
     eonet: NasaEonetService = field(default_factory=NasaEonetService)
     usgs: UsgsEarthquakeService = field(default_factory=UsgsEarthquakeService)
-    events: list[NaturalEventItem] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
     counts: NaturalEventsProviderCounts = field(
         default_factory=NaturalEventsProviderCounts
     )
-    provider_failures: int = 0
-    malformed_payloads: int = 0
     steps: list[NaturalEventsPullStep] = field(init=False)
+    collector: ProviderPullCollector[NaturalEventItem] = field(init=False)
 
     def __post_init__(self) -> None:
         self.steps = [
             NasaEonetPullStep(self.query, service=self.eonet),
             UsgsEarthquakePullStep(self.query, service=self.usgs),
         ]
+        self.collector = ProviderPullCollector(
+            all_provider_failure_error=(
+                "Could not fetch natural events from NASA EONET or USGS."
+            ),
+            all_malformed_payload_error=(
+                "NASA EONET and USGS returned malformed natural event data."
+            ),
+            step_count=len(self.steps),
+        )
 
     def run(self) -> str:
         for step in self.steps:
             self.add_step_result(step.run())
 
-        self.raise_for_unusable_result()
-        self.events.sort(key=event_sort_key, reverse=True)
+        self.collector.raise_for_unusable_result()
+        self.collector.items.sort(key=event_sort_key, reverse=True)
         return self.to_json()
 
     def add_step_result(self, result: NaturalEventsPullStepResult) -> None:
-        self.events.extend(result.events)
-        self.warnings.extend(result.warnings)
+        self.collector.add_result(result)
         setattr(self.counts, result.provider_key, result.count)
-
-        if result.provider_failed:
-            self.provider_failures += 1
-        if result.malformed_payload:
-            self.malformed_payloads += 1
-
-    def raise_for_unusable_result(self) -> None:
-        if self.provider_failures == len(self.steps):
-            raise ValueError("Could not fetch natural events from NASA EONET or USGS.")
-        if self.malformed_payloads == len(self.steps):
-            raise ValueError(
-                "NASA EONET and USGS returned malformed natural event data."
-            )
 
     def to_json(self) -> str:
         response = NaturalEventsContextResponse(
             summary=NaturalEventsSummary(
                 message=(
-                    f"Found {len(self.events)} natural event(s) near the requested area."
+                    f"Found {len(self.collector.items)} natural event(s) near the requested area."
                 ),
                 counts=self.counts,
             ),
@@ -257,7 +250,7 @@ class NaturalEventsContextPull:
                 longitude=self.query.center_longitude,
                 radius_km=self.query.radius_km,
             ),
-            events=self.events,
-            warnings=self.warnings or None,
+            events=self.collector.items,
+            warnings=self.collector.warnings or None,
         )
         return response.model_dump_json(indent=2, exclude_none=True)
