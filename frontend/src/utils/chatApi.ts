@@ -1,6 +1,6 @@
 import { baseUrl } from 'src/boot/api';
 import { getI18nT } from 'src/utils/i18n';
-import { authenticatedFetch } from 'src/utils/apiFetch';
+import { useAuthStore } from 'src/stores/auth';
 import type {
     CreateChatMessageRequest,
     ChatSession,
@@ -10,7 +10,8 @@ import type {
 
 export async function createChat(): Promise<string> {
     const t = getI18nT();
-    const response = await authenticatedFetch(`${baseUrl}/chats`, {
+    const authStore = useAuthStore();
+    const response = await authStore.fetchApi(`${baseUrl}/chats`, {
         method: 'POST',
     });
 
@@ -24,9 +25,10 @@ export async function createChat(): Promise<string> {
 
 export async function listChats(): Promise<ChatSession[]> {
     const t = getI18nT();
+    const authStore = useAuthStore();
     const url = new URL(`${baseUrl}/chats`);
 
-    const response = await authenticatedFetch(url);
+    const response = await authStore.fetchApi(url);
     if (!response.ok) {
         throw new Error(t('errors.loadChats'));
     }
@@ -37,8 +39,9 @@ export async function listChats(): Promise<ChatSession[]> {
 
 export async function createChatMessage(chatId: string, content: string): Promise<void> {
     const t = getI18nT();
+    const authStore = useAuthStore();
     const payload: CreateChatMessageRequest = { content };
-    const response = await authenticatedFetch(`${baseUrl}/chats/${chatId}/messages`, {
+    const response = await authStore.fetchApi(`${baseUrl}/chats/${chatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
