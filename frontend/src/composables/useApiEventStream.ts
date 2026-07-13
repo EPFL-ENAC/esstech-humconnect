@@ -26,6 +26,7 @@ export function useApiEventStream<T>({
     async function connect() {
         const currentUrl = toValue(url);
         if (!currentUrl) {
+            stop();
             return;
         }
 
