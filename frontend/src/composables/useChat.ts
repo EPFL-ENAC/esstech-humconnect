@@ -18,13 +18,12 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
     const messageDoneCallbacks = new Set<MessageDoneCallback>();
 
     const streamUrl = computed(() => chatEventStreamUrl(String(toValue(chatId))));
-    const { connected, error: streamError } = useApiEventStream<ChatStreamEvent>({
+    const { connected } = useApiEventStream<ChatStreamEvent>({
         url: streamUrl,
         onEvent: handleChatEvent,
-    });
-
-    watch(streamError, (currentError) => {
-        error.value = currentError ? t('errors.connection') : '';
+        onError: (streamError) => {
+            error.value = streamError ? t('errors.connection') : '';
+        },
     });
 
     function handleChatEvent(event: ChatStreamEvent) {

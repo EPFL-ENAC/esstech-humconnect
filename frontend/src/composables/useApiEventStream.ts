@@ -4,12 +4,14 @@ import { useAuthStore } from 'src/stores/auth';
 interface ApiEventStreamOptions<T> {
     url: MaybeRefOrGetter<string>;
     onEvent: (event: T) => void;
+    onError?: (error: Error | null) => void;
     reconnectDelayMs?: number;
 }
 
 export function useApiEventStream<T>({
     url,
     onEvent,
+    onError,
     reconnectDelayMs = 1000,
 }: ApiEventStreamOptions<T>) {
     const authStore = useAuthStore();
@@ -59,7 +61,7 @@ export function useApiEventStream<T>({
             }
 
             connected.value = true;
-            error.value = null;
+            setError(null);
 
             await readSseFrames(response.body, (event: T) => {
                 if (controller !== currentController || generation !== currentGeneration) {
@@ -70,7 +72,7 @@ export function useApiEventStream<T>({
             });
         } catch (err) {
             if (!currentController.signal.aborted) {
-                error.value = err instanceof Error ? err : new Error('Event stream failed');
+                setError(err instanceof Error ? err : new Error('Event stream failed'));
             }
         } finally {
             if (controller === currentController && generation === currentGeneration) {
@@ -107,6 +109,11 @@ export function useApiEventStream<T>({
             window.clearTimeout(reconnectTimer);
             reconnectTimer = undefined;
         }
+    }
+
+    function setError(currentError: Error | null) {
+        error.value = currentError;
+        onError?.(currentError);
     }
 
     watch(
