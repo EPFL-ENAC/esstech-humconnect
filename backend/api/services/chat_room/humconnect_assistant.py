@@ -170,7 +170,7 @@ class HumConnectAssistant(ChatAssistant):
                 stream=True,
                 instructions=self.instructions_for_context(tool_context),
                 text={"format": {"type": "json_object"}},
-                tools=self._tool_set.definitions(),
+                tools=[*self._tool_set.definitions()],
             )
 
             async for event in stream:

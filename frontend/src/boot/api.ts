@@ -13,7 +13,7 @@ interface CustomWindow extends Window {
 const appEnv = (window as unknown as CustomWindow).env;
 export const baseUrl = `${appEnv.API_URL}${appEnv.API_PATH}`;
 export const keycloak = new Keycloak({
-    url: appEnv.KEYCLOAK_URL || 'https://enac-it-sso.epfl.ch',
-    realm: appEnv.KEYCLOAK_REALM || 'ENAC',
+    url: appEnv.KEYCLOAK_URL || 'https://enac-it-sso2.epfl.ch',
+    realm: appEnv.KEYCLOAK_REALM || 'EPFL',
     clientId: appEnv.AUTH_CLIENT_ID,
 });
