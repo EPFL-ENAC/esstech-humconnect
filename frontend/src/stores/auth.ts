@@ -5,6 +5,10 @@ import { keycloak } from 'src/boot/api';
 
 const ADMIN_ROLE = 'humconnect-admin';
 
+interface FetchApiOptions {
+    retries?: number;
+}
+
 export const useAuthStore = defineStore('auth', () => {
     const profile = ref<KeycloakProfile>();
     const realmRoles = ref<string[]>([]);
@@ -58,7 +62,7 @@ export const useAuthStore = defineStore('auth', () => {
         realmRoles.value = [];
     }
 
-    async function updateToken() {
+    async function updateToken(minValidity = 30) {
         if (!initialized.value) {
             await init();
         }
@@ -66,12 +70,38 @@ export const useAuthStore = defineStore('auth', () => {
             throw new Error('Not authenticated');
         }
         try {
-            await keycloak.updateToken(30);
+            await keycloak.updateToken(minValidity);
             realmRoles.value = keycloak.tokenParsed?.realm_access?.roles || [];
             return true;
         } catch (err) {
             await logout();
             throw err;
+        }
+    }
+
+    async function fetchApi(
+        input: RequestInfo | URL,
+        init: RequestInit = {},
+        options: FetchApiOptions = {},
+    ): Promise<Response> {
+        const retries = options.retries ?? 1;
+        if (!Number.isInteger(retries) || retries < 0) {
+            throw new RangeError('retries must be a non-negative integer');
+        }
+
+        const request = new Request(input, init);
+        await updateToken();
+
+        for (let attempt = 0; ; attempt += 1) {
+            const headers = new Headers(request.headers);
+            headers.set('Authorization', `Bearer ${keycloak.token}`);
+
+            const response = await fetch(new Request(request.clone(), { headers }));
+            if (response.status !== 401 || attempt >= retries) {
+                return response;
+            }
+
+            await updateToken(-1);
         }
     }
 
@@ -82,6 +112,7 @@ export const useAuthStore = defineStore('auth', () => {
         isAuthenticated,
         profile,
         realmRoles,
+        fetchApi,
         init,
         login,
         logout,

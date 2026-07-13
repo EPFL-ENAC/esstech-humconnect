@@ -16,11 +16,12 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from 'src/stores/auth';
 
 const route = useRoute();
+const router = useRouter();
 const { t } = useI18n();
 const authStore = useAuthStore();
 const loading = ref(false);
@@ -28,11 +29,16 @@ const loading = ref(false);
 async function signin() {
     loading.value = true;
     try {
-        await authStore.login(
-            `${window.location.origin}${window.location.pathname}#${String(
-                route.query.redirect || '/',
-            )}`,
-        );
+        const requestedRoute = Array.isArray(route.query.redirect)
+            ? route.query.redirect[0]
+            : route.query.redirect;
+        const safeRequestedRoute =
+            requestedRoute?.startsWith('/') && !requestedRoute.startsWith('//')
+                ? requestedRoute
+                : '/';
+        const redirectPath = router.resolve(safeRequestedRoute).href;
+
+        await authStore.login(new URL(redirectPath, window.location.origin).href);
     } finally {
         loading.value = false;
     }

@@ -22,8 +22,8 @@ class Config(BaseSettings):
     MEDITRON_MCP_API_KEY: str
     MODEL_NAME: str = "moonshotai/Kimi-K2.6"
 
-    KEYCLOAK_REALM: str = "ENAC"
-    KEYCLOAK_URL: str = "https://enac-it-sso.epfl.ch"
+    KEYCLOAK_REALM: str = "EPFL"
+    KEYCLOAK_URL: str = "https://enac-it-sso2.epfl.ch"
     KEYCLOAK_API_ID: str
     KEYCLOAK_API_SECRET: str
     KEYCLOAK_TOTP: bool = True
