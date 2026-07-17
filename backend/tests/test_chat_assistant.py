@@ -1,4 +1,28 @@
+import pytest
+
 from tests.chat_room_helpers import *  # noqa: F403
+
+
+@pytest.fixture(autouse=True)
+def use_ready_default_tool_set(monkeypatch):
+    from api.services.chat_room.default_tool_set import DEFAULT_LOCAL_TOOLS
+    from api.services.chat_room.tools import ToolSet
+
+    tool_set = ToolSet(DEFAULT_LOCAL_TOOLS)
+    monkeypatch.setattr(
+        humconnect_assistant_module,
+        "HUMCONNECT_TOOL_SET",
+        tool_set,
+    )
+    return tool_set
+
+
+def test_humconnect_assistants_share_default_tool_set(use_ready_default_tool_set):
+    first = HumConnectAssistant()
+    second = HumConnectAssistant()
+
+    assert first._tool_set is use_ready_default_tool_set
+    assert second._tool_set is use_ready_default_tool_set
 
 
 def test_humconnect_chat_assistant_converts_complete_history_for_model():

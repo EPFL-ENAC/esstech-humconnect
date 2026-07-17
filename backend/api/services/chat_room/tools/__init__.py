@@ -1,5 +1,6 @@
 from api.services.chat_room.tools.base import (
     HumConnectTool,
+    HumConnectToolProvider,
     ToolCallExecution,
     ToolCallInputItem,
     ToolCallOutput,
@@ -13,6 +14,7 @@ from api.services.chat_room.tools.events import RECALL_EVENTS_TOOL, RECORD_EVENT
 from api.services.chat_room.tools.humanitarian_context import (
     GET_HUMANITARIAN_CONTEXT_TOOL,
 )
+from api.services.chat_room.tools.mcp_proxy import HumConnectMCPProxy
 from api.services.chat_room.tools.meditron import ASK_MEDITRON_TOOL
 from api.services.chat_room.tools.natural_events import GET_NATURAL_EVENTS_CONTEXT_TOOL
 
@@ -22,6 +24,8 @@ __all__ = [
     "GET_HUMANITARIAN_CONTEXT_TOOL",
     "GET_NATURAL_EVENTS_CONTEXT_TOOL",
     "HumConnectTool",
+    "HumConnectToolProvider",
+    "HumConnectMCPProxy",
     "ToolCallExecution",
     "ToolCallInputItem",
     "ToolCallOutput",

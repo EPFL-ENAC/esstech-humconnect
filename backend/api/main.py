@@ -12,6 +12,7 @@ from starlette.routing import Route
 
 from api.config import config
 from api.db import dispose_engine
+from api.services.chat_room.default_tool_set import HUMCONNECT_TOOL_SET
 from api.views.chats import mark_interrupted_messages_on_startup, router as chats_router
 from api.views.profile import router as profile_router
 from api.views.recorded_events import router as recorded_events_router
@@ -24,6 +25,7 @@ basicConfig(level=INFO)
 @asynccontextmanager
 async def app_lifespan(_: FastAPI) -> AsyncIterator[None]:
     FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
+    await HUMCONNECT_TOOL_SET.initialize()
     await mark_interrupted_messages_on_startup()
     try:
         yield
