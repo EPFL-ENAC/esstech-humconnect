@@ -1,8 +1,10 @@
 import asyncio
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Sequence, TypeVar, cast
+from types import MappingProxyType
+from typing import Any, Protocol, Sequence, TypeVar, cast
 from uuid import UUID
 
 from openai import pydantic_function_tool
@@ -14,6 +16,8 @@ from openai.types.responses import (
 from pydantic import BaseModel, ValidationError
 
 from api.models.user_profile import UserProfilePromptContext
+
+logger = logging.getLogger("uvicorn.error")
 
 ToolInputT = TypeVar("ToolInputT", bound=BaseModel)
 SyncToolHandler = Callable[[ToolInputT], str]
@@ -186,6 +190,12 @@ class HumConnectTool:
         )
 
 
+class HumConnectToolProvider(Protocol):
+    provider_name: str
+
+    async def load_tools(self) -> Sequence[HumConnectTool]: ...
+
+
 def pydantic_response_function_tool(
     model: type[BaseModel], *, name: str, description: str
 ) -> FunctionToolParam:
@@ -330,13 +340,83 @@ class ToolCallOutputItem:
 
 
 class ToolSet:
-    def __init__(self, tools: Sequence[HumConnectTool]) -> None:
-        self._tools = {tool.name: tool for tool in tools}
+    def __init__(
+        self,
+        tools: Sequence[HumConnectTool],
+        tool_providers: Sequence[HumConnectToolProvider] = (),
+    ) -> None:
+        local_tools = self._index_tools(tools)
+        self._tool_providers = tuple(tool_providers)
+        self._is_ready = not self._tool_providers
+        self._initialization_lock = asyncio.Lock()
+        self._tools = MappingProxyType(local_tools) if self._is_ready else local_tools
+
+    @property
+    def is_ready(self) -> bool:
+        return self._is_ready
+
+    @staticmethod
+    def _index_tools(tools: Sequence[HumConnectTool]) -> dict[str, HumConnectTool]:
+        indexed: dict[str, HumConnectTool] = {}
+        for tool in tools:
+            if tool.name in indexed:
+                raise ValueError(f"Duplicate tool name: {tool.name}")
+            indexed[tool.name] = tool
+        return indexed
+
+    async def initialize(self) -> None:
+        async with self._initialization_lock:
+            if self._is_ready:
+                return
+
+            results = await asyncio.gather(
+                *(provider.load_tools() for provider in self._tool_providers),
+                return_exceptions=True,
+            )
+            tools = dict(self._tools)
+            for provider, result in zip(
+                self._tool_providers,
+                results,
+                strict=True,
+            ):
+                if isinstance(result, BaseException):
+                    if not isinstance(result, Exception):
+                        raise result
+                    logger.error(
+                        "Failed to load tools from provider %s; skipping it.",
+                        provider.provider_name,
+                        exc_info=(type(result), result, result.__traceback__),
+                    )
+                    continue
+
+                try:
+                    provider_tools = self._index_tools(result)
+                    duplicate_names = provider_tools.keys() & tools.keys()
+                    if duplicate_names:
+                        duplicates = ", ".join(sorted(duplicate_names))
+                        raise ValueError(f"Duplicate tool names: {duplicates}")
+                except Exception:
+                    logger.exception(
+                        "Invalid tools from provider %s; skipping it.",
+                        provider.provider_name,
+                    )
+                    continue
+
+                tools.update(provider_tools)
+
+            self._tools = MappingProxyType(tools)
+            self._is_ready = True
+
+    def _require_ready(self) -> None:
+        if not self._is_ready:
+            raise RuntimeError("ToolSet must be initialized before use.")
 
     def definitions(self) -> list[FunctionToolParam]:
+        self._require_ready()
         return [tool.definition for tool in self._tools.values()]
 
     def label_for(self, function_call: ResponseFunctionToolCall) -> str:
+        self._require_ready()
         tool = self._tools.get(function_call.name)
         return tool.label if tool is not None else function_call.name
 
@@ -345,6 +425,7 @@ class ToolSet:
         function_call: ResponseFunctionToolCall,
         context: ToolExecutionContext | None = None,
     ) -> ToolCallExecution:
+        self._require_ready()
         tool_output = await self._execute_tool_call(function_call, context)
         output = tool_output.to_json()
         input_item = ToolCallInputItem.from_function_call(function_call)

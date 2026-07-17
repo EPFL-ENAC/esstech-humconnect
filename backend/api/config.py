@@ -43,6 +43,9 @@ class Config(BaseSettings):
     HUMANITARIAN_CONTEXT_DAYS: int = 30
     HUMANITARIAN_CONTEXT_LIMIT: int = 10
 
+    SANIHUB_MCP_URL: str = "https://sanihub.washai.dev/api/test/mcp"
+    SANIHUB_MCP_TIMEOUT_SECONDS: float = 30
+
 
 @lru_cache()
 def get_config():
