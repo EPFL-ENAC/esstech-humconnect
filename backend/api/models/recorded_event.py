@@ -1,13 +1,55 @@
 import json
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import JSON, Column, DateTime
 from sqlmodel import Field, SQLModel
 
+from api.models.user_profile import ProfessionCategory
 from api.utils.datetime_utils import utc_now
+
+EventTag = Literal[
+    "health_incident",
+    "disease_outbreak",
+    "mortality_or_safe_burial",
+    "supply_shortage",
+    "equipment_issue",
+    "staffing_gap",
+    "infrastructure_or_energy_failure",
+    "wash_issue",
+    "service_disruption",
+    "access_constraint",
+    "security_incident",
+    "displacement",
+    "food_or_nutrition_insecurity",
+    "environmental_hazard",
+    "coordination_or_information_gap",
+    "community_concern",
+    "other",
+]
+
+
+EVENT_TAGS: tuple[EventTag, ...] = (
+    "health_incident",
+    "disease_outbreak",
+    "mortality_or_safe_burial",
+    "supply_shortage",
+    "equipment_issue",
+    "staffing_gap",
+    "infrastructure_or_energy_failure",
+    "wash_issue",
+    "service_disruption",
+    "access_constraint",
+    "security_incident",
+    "displacement",
+    "food_or_nutrition_insecurity",
+    "environmental_hazard",
+    "coordination_or_information_gap",
+    "community_concern",
+    "other",
+)
 
 
 class RecordedEvent(SQLModel, table=True):
@@ -31,7 +73,19 @@ class RecordedEvent(SQLModel, table=True):
     event_location: dict[str, Any] = Field(
         sa_column=Column(JSON, nullable=False),
     )
-    tags: list[str] = Field(
+    tags: list[EventTag] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
+    keywords: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
+    affected_profession_categories: list[ProfessionCategory] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
+    response_profession_categories: list[ProfessionCategory] = Field(
         default_factory=list,
         sa_column=Column(JSON, nullable=False),
     )
@@ -64,7 +118,10 @@ class RecordedEventResponse(BaseModel):
     event_date_precision: str
     event_date_input: dict[str, Any]
     event_location: dict[str, Any]
-    tags: list[str]
+    tags: list[EventTag]
+    keywords: list[str]
+    affected_profession_categories: list[ProfessionCategory]
+    response_profession_categories: list[ProfessionCategory]
     created_at: datetime
 
 

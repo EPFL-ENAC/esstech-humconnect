@@ -372,7 +372,7 @@ def test_recall_events_tool_delegates_to_recorded_event_service(monkeypatch):
         original_text="My son had a fever yesterday",
         event_name="Son had fever",
         event_datetime=datetime(2026, 6, 28, 12, 0, tzinfo=UTC),
-        tags=["symptom", "fever"],
+        keywords=["symptom", "fever"],
         created_at=datetime(2026, 6, 30, 12, 0, tzinfo=UTC),
     )
     FakeAsyncSession.rows[RecordedEvent][cough_event.id] = cough_event
@@ -382,7 +382,7 @@ def test_recall_events_tool_delegates_to_recorded_event_service(monkeypatch):
         "keyword": "son",
         "date_start": "2026-06-20T00:00:00+00:00",
         "date_end": "2026-06-30T00:00:00+00:00",
-        "tags": ["cough", "fever"],
+        "tags": ["health_incident"],
         "tag_match": "any",
         "limit": 5,
     }
@@ -468,6 +468,24 @@ def test_record_event_tool_schema_exposes_relative_date_shape():
     assert parameters["properties"]["original_text"]["description"] == (
         "The exact user text that contains the event."
     )
+    assert parameters["properties"]["tags"]["items"]["enum"] == list(EVENT_TAGS)
+    assert parameters["properties"]["tags"]["minItems"] == 1
+    assert parameters["properties"]["affected_profession_categories"]["items"][
+        "enum"
+    ] == list(PROFESSION_CATEGORIES)
+    assert parameters["properties"]["response_profession_categories"]["items"][
+        "enum"
+    ] == list(PROFESSION_CATEGORIES)
+    assert parameters["required"] == [
+        "original_text",
+        "event_name",
+        "event_date",
+        "event_location",
+        "tags",
+        "keywords",
+        "affected_profession_categories",
+        "response_profession_categories",
+    ]
     assert event_date_schema["properties"]["value"]["description"].startswith(
         "For absolute dates"
     )
@@ -485,6 +503,13 @@ def test_record_event_tool_accepts_json_stringified_structured_fields(monkeypatc
     arguments["event_date"] = json.dumps(arguments["event_date"])
     arguments["event_location"] = json.dumps(arguments["event_location"])
     arguments["tags"] = json.dumps(arguments["tags"])
+    arguments["keywords"] = json.dumps(arguments["keywords"])
+    arguments["affected_profession_categories"] = json.dumps(
+        arguments["affected_profession_categories"]
+    )
+    arguments["response_profession_categories"] = json.dumps(
+        arguments["response_profession_categories"]
+    )
 
     async def run():
         return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
@@ -492,7 +517,10 @@ def test_record_event_tool_accepts_json_stringified_structured_fields(monkeypatc
     output = asyncio.run(run())
     [persisted_event] = recorded_events()
     assert persisted_event.event_datetime == datetime(2026, 6, 26, 12, 0, tzinfo=UTC)
-    assert persisted_event.tags == ["symptom", "cough"]
+    assert persisted_event.tags == ["health_incident"]
+    assert persisted_event.keywords == ["symptom", "cough"]
+    assert persisted_event.affected_profession_categories == ["medical_clinical"]
+    assert persisted_event.response_profession_categories == ["medical_clinical"]
     assert output == expected_record_event_tool_output(persisted_event)
 
 
@@ -728,13 +756,97 @@ def test_record_event_tool_rejects_invalid_event_date(event_date):
 
 def test_record_event_tool_rejects_non_string_tags():
     arguments = structured_record_event_arguments()
-    arguments["tags"] = ["symptom", 123]
+    arguments["tags"] = ["health_incident", 123]
 
     async def run():
         return await RECORD_EVENT_TOOL.execute(arguments)
 
     with pytest.raises(ValueError, match="invalid event data"):
         asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        [],
+        ["not_a_fixed_tag"],
+        ["health_incident", "health_incident"],
+        ["health_incident", "other"],
+    ],
+)
+def test_record_event_tool_rejects_invalid_fixed_tags(tags):
+    arguments = structured_record_event_arguments()
+    arguments["tags"] = tags
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments)
+
+    with pytest.raises(ValueError, match="invalid event data"):
+        asyncio.run(run())
+
+
+def test_record_event_tool_rejects_missing_tags():
+    arguments = structured_record_event_arguments()
+    del arguments["tags"]
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments)
+
+    with pytest.raises(ValueError, match="invalid event data"):
+        asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["affected_profession_categories", "response_profession_categories"],
+)
+def test_record_event_tool_rejects_invalid_profession_categories(field_name):
+    arguments = structured_record_event_arguments()
+    arguments[field_name] = ["not_a_profession_category"]
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments)
+
+    with pytest.raises(ValueError, match="invalid event data"):
+        asyncio.run(run())
+
+
+def test_record_event_tool_accepts_empty_keyword_and_profession_lists(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    arguments = structured_record_event_arguments()
+    arguments["keywords"] = []
+    arguments["affected_profession_categories"] = []
+    arguments["response_profession_categories"] = []
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.keywords == []
+    assert persisted_event.affected_profession_categories == []
+    assert persisted_event.response_profession_categories == []
+
+
+def test_recall_events_tool_rejects_unknown_or_duplicate_fixed_tags():
+    async def run(tags):
+        return await RECALL_EVENTS_TOOL.execute(
+            {
+                "keyword": None,
+                "date_start": None,
+                "date_end": None,
+                "tags": tags,
+                "tag_match": "all",
+                "limit": 10,
+            },
+            record_event_tool_context(),
+        )
+
+    with pytest.raises(ValueError, match="invalid query data"):
+        asyncio.run(run(["not_a_fixed_tag"]))
+    with pytest.raises(ValueError, match="invalid query data"):
+        asyncio.run(run(["health_incident", "health_incident"]))
 
 
 def test_resolve_relative_datetime_handles_calendar_and_clock_units():
