@@ -27,8 +27,12 @@ from api.models.chat import (
     Message,
     ToolCallPayload,
 )
-from api.models.recorded_event import RecordedEvent
-from api.models.user_profile import UserProfile, UserProfilePromptContext
+from api.models.recorded_event import EVENT_TAGS, RecordedEvent
+from api.models.user_profile import (
+    PROFESSION_CATEGORIES,
+    UserProfile,
+    UserProfilePromptContext,
+)
 from api.services import chat as chat_service
 from api.services import recorded_events as recorded_events_module
 from api.services.chat import (
@@ -398,7 +402,10 @@ def structured_record_event_arguments():
             },
         },
         "event_location": {"value": None, "precision": "unknown"},
-        "tags": ["symptom", "cough"],
+        "tags": ["health_incident"],
+        "keywords": ["symptom", "cough"],
+        "affected_profession_categories": ["medical_clinical"],
+        "response_profession_categories": ["medical_clinical"],
     }
 
 
@@ -455,6 +462,9 @@ def make_recorded_event(
     event_datetime=datetime(2026, 6, 26, 12, 0, tzinfo=UTC),
     event_location=None,
     tags=None,
+    keywords=None,
+    affected_profession_categories=None,
+    response_profession_categories=None,
     created_at=datetime(2026, 6, 29, 12, 0, tzinfo=UTC),
 ) -> RecordedEvent:
     return RecordedEvent(
@@ -476,7 +486,18 @@ def make_recorded_event(
             "relative": None,
         },
         event_location=event_location or {"value": None, "precision": "unknown"},
-        tags=tags or ["symptom", "cough"],
+        tags=tags if tags is not None else ["health_incident"],
+        keywords=keywords if keywords is not None else ["symptom", "cough"],
+        affected_profession_categories=(
+            affected_profession_categories
+            if affected_profession_categories is not None
+            else ["medical_clinical"]
+        ),
+        response_profession_categories=(
+            response_profession_categories
+            if response_profession_categories is not None
+            else ["medical_clinical"]
+        ),
         created_at=created_at,
     )
 

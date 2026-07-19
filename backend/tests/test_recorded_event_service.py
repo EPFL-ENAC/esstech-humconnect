@@ -47,7 +47,10 @@ def test_recorded_event_service_persists_event_with_initiator_metadata():
         },
     }
     assert persisted_event.event_location == {"value": None, "precision": "unknown"}
-    assert persisted_event.tags == ["symptom", "cough"]
+    assert persisted_event.tags == ["health_incident"]
+    assert persisted_event.keywords == ["symptom", "cough"]
+    assert persisted_event.affected_profession_categories == ["medical_clinical"]
+    assert persisted_event.response_profession_categories == ["medical_clinical"]
     assert response == persisted_event
 
 
@@ -66,7 +69,7 @@ def test_recorded_event_service_builds_user_scoped_filtered_recall_query():
             "keyword": "cough",
             "date_start": "2026-06-20T00:00:00+00:00",
             "date_end": "2026-06-30T00:00:00+00:00",
-            "tags": ["symptom"],
+            "tags": ["health_incident"],
             "tag_match": "all",
             "limit": 10,
         }
@@ -93,5 +96,44 @@ def test_recorded_event_service_builds_user_scoped_filtered_recall_query():
     assert "lower(recordedevent.event_name) LIKE lower(" in query_text
     assert "lower(recordedevent.original_text) LIKE lower(" in query_text
     assert "CAST(recordedevent.event_location AS VARCHAR)" in query_text
+    assert "CAST(recordedevent.keywords AS TEXT)" in query_text
     assert "CAST(recordedevent.tags AS JSONB)" in query_text
+    assert "CAST(recordedevent.tags AS VARCHAR)" not in query_text
     assert " LIMIT " in query_text
+
+
+@pytest.mark.parametrize(
+    ("tag_match", "expected_join"),
+    [("all", " AND "), ("any", " OR ")],
+)
+def test_recorded_event_service_combines_exact_tag_filters(
+    tag_match,
+    expected_join,
+):
+    FakeAsyncSession.reset()
+    recall_input = events_tool_module.RecallEventsToolInput.model_validate(
+        {
+            "keyword": None,
+            "date_start": None,
+            "date_end": None,
+            "tags": ["supply_shortage", "equipment_issue"],
+            "tag_match": tag_match,
+            "limit": 10,
+        }
+    )
+    service = recorded_events_module.RecordedEventService(
+        session_factory=FakeAsyncSession,
+        engine_factory=lambda: object(),
+    )
+
+    async def run():
+        return await service.recall_events_from_tool(
+            recall_input=recall_input,
+            user_id=TEST_USER_ID,
+        )
+
+    asyncio.run(run())
+    query_text = str(FakeAsyncSession.last_query)
+    assert query_text.count("CAST(recordedevent.tags AS JSONB)") == 2
+    assert expected_join in query_text
+    assert "CAST(recordedevent.tags AS VARCHAR)" not in query_text

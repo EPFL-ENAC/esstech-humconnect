@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import String, cast, or_
+from sqlalchemy import String, Text, cast, or_
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import col, select
@@ -60,6 +60,13 @@ class RecordedEventService:
             event_date_input=event_input.event_date.model_dump(mode="json"),
             event_location=event_input.event_location.model_dump(mode="json"),
             tags=list(event_input.tags),
+            keywords=list(event_input.keywords),
+            affected_profession_categories=list(
+                event_input.affected_profession_categories
+            ),
+            response_profession_categories=list(
+                event_input.response_profession_categories
+            ),
         )
 
         async with self._session_factory(
@@ -100,20 +107,13 @@ class RecordedEventService:
                     col(RecordedEvent.event_name).ilike(keyword_pattern),
                     col(RecordedEvent.original_text).ilike(keyword_pattern),
                     cast(RecordedEvent.event_location, String).ilike(keyword_pattern),
-                    cast(RecordedEvent.tags, String).ilike(keyword_pattern),
+                    cast(RecordedEvent.keywords, Text).ilike(keyword_pattern),
                 )
             )
 
         if recall_input.tags:
             tags_jsonb = cast(RecordedEvent.tags, JSONB)
-            tags_text = cast(RecordedEvent.tags, String)
-            tag_filters = [
-                or_(
-                    tags_jsonb.contains([tag]),
-                    tags_text.ilike(f"%{tag}%"),
-                )
-                for tag in recall_input.tags
-            ]
+            tag_filters = [tags_jsonb.contains([tag]) for tag in recall_input.tags]
             if recall_input.tag_match == "all":
                 for tag_filter in tag_filters:
                     query = query.where(tag_filter)

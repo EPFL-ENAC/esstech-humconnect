@@ -9,6 +9,8 @@ from pydantic import (
     model_validator,
 )
 
+from api.models.recorded_event import EventTag
+from api.models.user_profile import ProfessionCategory
 from api.services.chat_room.tools.base import (
     HumConnectTool,
     ToolExecutionContext,
@@ -164,7 +166,35 @@ class RecordEventToolInput(RecordEventBaseModel):
     event_name: NonEmptyString = Field(description="A short human-readable event name.")
     event_date: RecordEventDateInput
     event_location: RecordEventLocationInput
-    tags: list[NonEmptyString]
+    tags: list[EventTag] = Field(
+        min_length=1,
+        description=(
+            "One or more fixed event categories. Select every applicable category. "
+            "Use health_incident for individual symptoms, injuries, or diagnoses and "
+            "disease_outbreak for suspected or confirmed population-level spread. "
+            "Use supply_shortage for missing consumables or medicines and "
+            "equipment_issue for unavailable or broken equipment. Use other only "
+            "when no specific category applies."
+        ),
+    )
+    keywords: list[NonEmptyString] = Field(
+        description=(
+            "Free-form search terms copied or inferred from the event. Use an empty "
+            "list when no useful keywords are available."
+        )
+    )
+    affected_profession_categories: list[ProfessionCategory] = Field(
+        description=(
+            "Profession categories whose work, services, or beneficiaries are "
+            "affected by the event. Use an empty list when this cannot be inferred."
+        )
+    )
+    response_profession_categories: list[ProfessionCategory] = Field(
+        description=(
+            "Profession categories positioned to mitigate or resolve the event. "
+            "Use an empty list when this cannot be inferred."
+        )
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -173,7 +203,14 @@ class RecordEventToolInput(RecordEventBaseModel):
             return data
 
         decoded = dict(data)
-        for field_name in ["event_date", "event_location", "tags"]:
+        for field_name in [
+            "event_date",
+            "event_location",
+            "tags",
+            "keywords",
+            "affected_profession_categories",
+            "response_profession_categories",
+        ]:
             field_value = decoded.get(field_name)
             if isinstance(field_value, str):
                 try:
@@ -182,13 +219,21 @@ class RecordEventToolInput(RecordEventBaseModel):
                     pass
         return decoded
 
+    @model_validator(mode="after")
+    def validate_tags(self) -> Self:
+        if len(self.tags) != len(set(self.tags)):
+            raise ValueError("event tags must be unique")
+        if "other" in self.tags and len(self.tags) != 1:
+            raise ValueError("other cannot be combined with specific event tags")
+        return self
+
 
 class RecallEventsToolInput(RecordEventBaseModel):
     keyword: NonEmptyString | None = Field(
         default=None,
         description=(
             "Optional keyword or phrase to find in event names, original text, "
-            "locations, or tags."
+            "locations, or free-form keywords."
         ),
     )
     date_start: str | None = Field(
@@ -205,9 +250,9 @@ class RecallEventsToolInput(RecordEventBaseModel):
             "Use null if no upper bound is needed."
         ),
     )
-    tags: list[NonEmptyString] = Field(
+    tags: list[EventTag] = Field(
         default_factory=list,
-        description="Optional tags to match against recorded event tags.",
+        description="Optional fixed event tags to match exactly.",
     )
     tag_match: TagMatchMode = Field(
         default="all",
@@ -237,6 +282,8 @@ class RecallEventsToolInput(RecordEventBaseModel):
 
     @model_validator(mode="after")
     def validate_date_bounds(self) -> Self:
+        if len(self.tags) != len(set(self.tags)):
+            raise ValueError("event tags must be unique")
         date_start = self.parsed_date_start()
         date_end = self.parsed_date_end()
         if date_start is not None and date_end is not None and date_start > date_end:
@@ -256,6 +303,9 @@ class RecallEventsToolInput(RecordEventBaseModel):
 
 RECORD_EVENT_TOOL_DESCRIPTION = (
     "Record a user-provided fact or event in persistent storage. "
+    "Classify it with all applicable fixed tags, keep free-form search terms in "
+    "keywords, and identify affected and responding profession categories when "
+    "they can be inferred. "
     "Use relative dates for phrases like '3 days ago' so the backend can "
     "resolve them against the current datetime. For fuzzy phrases like "
     "'a few weeks ago', use the numeric value 3 and precision 'fuzzy'."
@@ -264,8 +314,9 @@ RECORD_EVENT_TOOL_DESCRIPTION = (
 
 RECALL_EVENTS_TOOL_DESCRIPTION = (
     "Recall previously recorded events across all chats by keyword, event "
-    "datetime range, and tags. Use this before answering questions that ask "
-    "about prior events, timelines, repeated symptoms, or links between events."
+    "datetime range, and exact fixed tags. Use this before answering questions "
+    "that ask about prior events, timelines, repeated symptoms, or links between "
+    "events."
 )
 
 
