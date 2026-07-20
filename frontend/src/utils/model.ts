@@ -2,19 +2,45 @@ export type ChatMessageRole = 'user' | 'assistant';
 export type ChatMessageStatus = 'complete' | 'streaming' | 'interrupted' | 'error';
 export type ChatMessageChunkType = 'message_content' | 'reasoning_text' | 'tool_call';
 export type ToolCallStatus = 'running' | 'finished' | 'failed';
-export type ProfessionCategory =
-    | 'medical_clinical'
-    | 'community_health'
-    | 'wash'
-    | 'logistics_supply'
-    | 'surveillance_epidemiology'
-    | 'coordination_cluster'
-    | 'safe_burial_community_response'
-    | 'biomedical_equipment'
-    | 'infrastructure_energy'
-    | 'hq_programme_referent'
-    | 'local_ngo_partner'
-    | 'other';
+
+export const professionCategories = [
+    'medical_clinical',
+    'community_health',
+    'wash',
+    'logistics_supply',
+    'surveillance_epidemiology',
+    'coordination_cluster',
+    'safe_burial_community_response',
+    'biomedical_equipment',
+    'infrastructure_energy',
+    'hq_programme_referent',
+    'local_ngo_partner',
+    'other',
+] as const;
+
+export type ProfessionCategory = (typeof professionCategories)[number];
+
+export const eventTags = [
+    'health_incident',
+    'disease_outbreak',
+    'mortality_or_safe_burial',
+    'supply_shortage',
+    'equipment_issue',
+    'staffing_gap',
+    'infrastructure_or_energy_failure',
+    'wash_issue',
+    'service_disruption',
+    'access_constraint',
+    'security_incident',
+    'displacement',
+    'food_or_nutrition_insecurity',
+    'environmental_hazard',
+    'coordination_or_information_gap',
+    'community_concern',
+    'other',
+] as const;
+
+export type EventTag = (typeof eventTags)[number];
 
 export type LanguageCode =
     | 'ar'
@@ -111,7 +137,13 @@ export interface RecordedEventResponse {
     event_date_precision: string;
     event_date_input: Record<string, unknown>;
     event_location: Record<string, unknown>;
-    tags: string[];
+    tags: EventTag[];
+    keywords: string[];
+    affected_profession_categories: ProfessionCategory[];
+    response_profession_categories: ProfessionCategory[];
+    local_severity: number | null;
+    country_severity: number | null;
+    global_severity: number | null;
     created_at: string;
 }
 

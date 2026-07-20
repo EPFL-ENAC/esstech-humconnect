@@ -51,6 +51,9 @@ def test_recorded_event_service_persists_event_with_initiator_metadata():
     assert persisted_event.keywords == ["symptom", "cough"]
     assert persisted_event.affected_profession_categories == ["medical_clinical"]
     assert persisted_event.response_profession_categories == ["medical_clinical"]
+    assert persisted_event.local_severity == 7.5
+    assert persisted_event.country_severity == 4.0
+    assert persisted_event.global_severity == 1.5
     assert response == persisted_event
 
 
@@ -97,7 +100,8 @@ def test_recorded_event_service_builds_user_scoped_filtered_recall_query():
     assert "lower(recordedevent.original_text) LIKE lower(" in query_text
     assert "CAST(recordedevent.event_location AS VARCHAR)" in query_text
     assert "CAST(recordedevent.keywords AS TEXT)" in query_text
-    assert "CAST(recordedevent.tags AS JSONB)" in query_text
+    assert "recordedevent.tags @>" in query_text
+    assert "CAST(recordedevent.tags AS JSONB)" not in query_text
     assert "CAST(recordedevent.tags AS VARCHAR)" not in query_text
     assert " LIMIT " in query_text
 
@@ -134,6 +138,7 @@ def test_recorded_event_service_combines_exact_tag_filters(
 
     asyncio.run(run())
     query_text = str(FakeAsyncSession.last_query)
-    assert query_text.count("CAST(recordedevent.tags AS JSONB)") == 2
+    assert query_text.count("recordedevent.tags @>") == 2
+    assert "CAST(recordedevent.tags AS JSONB)" not in query_text
     assert expected_join in query_text
     assert "CAST(recordedevent.tags AS VARCHAR)" not in query_text

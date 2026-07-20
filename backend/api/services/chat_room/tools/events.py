@@ -159,6 +159,35 @@ class RecordEventLocationInput(RecordEventBaseModel):
         return self
 
 
+class RecordEventSeverityInput(RecordEventBaseModel):
+    local: float = Field(
+        ge=0,
+        le=10,
+        description=(
+            "Severity for the directly affected person, facility, community, or "
+            "local area, from 0 (no meaningful impact) to 10 (catastrophic impact)."
+        ),
+    )
+    country: float = Field(
+        ge=0,
+        le=10,
+        description=(
+            "Severity for the affected country as a whole, from 0 (no meaningful "
+            "national impact) to 10 (catastrophic national impact)."
+        ),
+    )
+    global_: float = Field(
+        alias="global",
+        ge=0,
+        le=10,
+        description=(
+            "Severity at the international or global scale, from 0 (no meaningful "
+            "global impact) to 10 (catastrophic global impact). Assess this "
+            "independently from local and country severity."
+        ),
+    )
+
+
 class RecordEventToolInput(RecordEventBaseModel):
     original_text: NonEmptyString = Field(
         description="The exact user text that contains the event."
@@ -195,6 +224,14 @@ class RecordEventToolInput(RecordEventBaseModel):
             "Use an empty list when this cannot be inferred."
         )
     )
+    severity: RecordEventSeverityInput = Field(
+        description=(
+            "Required severity assessment at local, country, and global scales. "
+            "Rate each scale independently using the currently known impact; a "
+            "serious new disease case can be severe locally and nationally while "
+            "remaining low globally."
+        )
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -210,6 +247,7 @@ class RecordEventToolInput(RecordEventBaseModel):
             "keywords",
             "affected_profession_categories",
             "response_profession_categories",
+            "severity",
         ]:
             field_value = decoded.get(field_name)
             if isinstance(field_value, str):
@@ -305,7 +343,8 @@ RECORD_EVENT_TOOL_DESCRIPTION = (
     "Record a user-provided fact or event in persistent storage. "
     "Classify it with all applicable fixed tags, keep free-form search terms in "
     "keywords, and identify affected and responding profession categories when "
-    "they can be inferred. "
+    "they can be inferred. Independently assess severity from 0 to 10 at local, "
+    "country, and global scales based on the currently known impact. "
     "Use relative dates for phrases like '3 days ago' so the backend can "
     "resolve them against the current datetime. For fuzzy phrases like "
     "'a few weeks ago', use the numeric value 3 and precision 'fuzzy'."

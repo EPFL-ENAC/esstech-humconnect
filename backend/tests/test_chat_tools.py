@@ -194,9 +194,7 @@ def test_get_humanitarian_context_tool_fetches_and_normalizes_items(monkeypatch)
     monkeypatch.setattr(reliefweb_client_module.requests, "post", fake_post)
 
     async def run():
-        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(
-            {"country_name": " Haiti "}
-        )
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute({"country_name": " Haiti "})
 
     result = json.loads(asyncio.run(run()))
 
@@ -301,9 +299,7 @@ def test_get_humanitarian_context_tool_returns_partial_results(monkeypatch):
     monkeypatch.setattr(reliefweb_client_module.requests, "post", fake_post)
 
     async def run():
-        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(
-            {"country_name": "Sudan"}
-        )
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute({"country_name": "Sudan"})
 
     result = json.loads(asyncio.run(run()))
 
@@ -323,9 +319,7 @@ def test_get_humanitarian_context_tool_rejects_all_reliefweb_failures(monkeypatc
     monkeypatch.setattr(reliefweb_client_module.requests, "post", fake_post)
 
     async def run():
-        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(
-            {"country_name": "Sudan"}
-        )
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute({"country_name": "Sudan"})
 
     with pytest.raises(ValueError, match="humanitarian context from ReliefWeb"):
         asyncio.run(run())
@@ -338,9 +332,7 @@ def test_get_humanitarian_context_tool_rejects_all_malformed_payloads(monkeypatc
     monkeypatch.setattr(reliefweb_client_module.requests, "post", fake_post)
 
     async def run():
-        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(
-            {"country_name": "Sudan"}
-        )
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute({"country_name": "Sudan"})
 
     with pytest.raises(ValueError, match="malformed humanitarian context data"):
         asyncio.run(run())
@@ -439,6 +431,7 @@ def test_record_event_tool_schema_exposes_relative_date_shape():
     defs = parameters["$defs"]
     event_date_schema = defs["RecordEventDateInput"]
     relative_schema = defs["RecordEventRelativeDateInput"]
+    severity_schema = parameters["properties"]["severity"]
 
     assert RECORD_EVENT_TOOL.definition["type"] == "function"
     assert RECORD_EVENT_TOOL.definition["strict"] is True
@@ -476,6 +469,11 @@ def test_record_event_tool_schema_exposes_relative_date_shape():
     assert parameters["properties"]["response_profession_categories"]["items"][
         "enum"
     ] == list(PROFESSION_CATEGORIES)
+    assert severity_schema["additionalProperties"] is False
+    assert severity_schema["required"] == ["local", "country", "global"]
+    for scale in ["local", "country", "global"]:
+        assert severity_schema["properties"][scale]["minimum"] == 0
+        assert severity_schema["properties"][scale]["maximum"] == 10
     assert parameters["required"] == [
         "original_text",
         "event_name",
@@ -485,6 +483,7 @@ def test_record_event_tool_schema_exposes_relative_date_shape():
         "keywords",
         "affected_profession_categories",
         "response_profession_categories",
+        "severity",
     ]
     assert event_date_schema["properties"]["value"]["description"].startswith(
         "For absolute dates"
@@ -510,6 +509,7 @@ def test_record_event_tool_accepts_json_stringified_structured_fields(monkeypatc
     arguments["response_profession_categories"] = json.dumps(
         arguments["response_profession_categories"]
     )
+    arguments["severity"] = json.dumps(arguments["severity"])
 
     async def run():
         return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
@@ -521,7 +521,42 @@ def test_record_event_tool_accepts_json_stringified_structured_fields(monkeypatc
     assert persisted_event.keywords == ["symptom", "cough"]
     assert persisted_event.affected_profession_categories == ["medical_clinical"]
     assert persisted_event.response_profession_categories == ["medical_clinical"]
+    assert persisted_event.local_severity == 7.5
+    assert persisted_event.country_severity == 4.0
+    assert persisted_event.global_severity == 1.5
     assert output == expected_record_event_tool_output(persisted_event)
+
+
+@pytest.mark.parametrize(
+    "severity",
+    [
+        {"local": -0.1, "country": 5, "global": 5},
+        {"local": 5, "country": 10.1, "global": 5},
+        {"local": 5, "country": 5, "global": 11},
+        {"local": "high", "country": 5, "global": 5},
+        {"local": 5, "country": 5},
+    ],
+)
+def test_record_event_tool_rejects_invalid_severity(severity):
+    arguments = structured_record_event_arguments()
+    arguments["severity"] = severity
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments)
+
+    with pytest.raises(ValueError, match="invalid event data"):
+        asyncio.run(run())
+
+
+def test_record_event_tool_requires_severity():
+    arguments = structured_record_event_arguments()
+    del arguments["severity"]
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments)
+
+    with pytest.raises(ValueError, match="invalid event data"):
+        asyncio.run(run())
 
 
 def test_record_event_tool_requires_execution_context(monkeypatch):
@@ -585,9 +620,7 @@ def test_record_event_tool_accepts_absolute_date(monkeypatch):
 
     output = asyncio.run(run())
     [persisted_event] = recorded_events()
-    assert persisted_event.event_datetime == datetime(
-        2026, 6, 29, 0, 0, tzinfo=UTC
-    )
+    assert persisted_event.event_datetime == datetime(2026, 6, 29, 0, 0, tzinfo=UTC)
     assert output == expected_record_event_tool_output(persisted_event)
 
 

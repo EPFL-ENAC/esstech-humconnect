@@ -179,9 +179,7 @@ class FakeHistory:
     async def user_has_access(self, user_id):
         return user_id == TEST_USER_ID
 
-    async def build_snapshot(
-        self, user_id, *, interrupt_stale_streaming_messages=True
-    ):
+    async def build_snapshot(self, user_id, *, interrupt_stale_streaming_messages=True):
         return self.snapshot
 
     async def get_assistant_chat_history(
@@ -360,7 +358,9 @@ def make_chat_and_message():
 
 
 def message_content(message, chunk_type=CHUNK_TYPE_MESSAGE_CONTENT):
-    return "".join(chunk.content for chunk in message.chunks if chunk.type == chunk_type)
+    return "".join(
+        chunk.content for chunk in message.chunks if chunk.type == chunk_type
+    )
 
 
 def make_db_message(chat_id, role, content, status):
@@ -406,6 +406,7 @@ def structured_record_event_arguments():
         "keywords": ["symptom", "cough"],
         "affected_profession_categories": ["medical_clinical"],
         "response_profession_categories": ["medical_clinical"],
+        "severity": {"local": 7.5, "country": 4.0, "global": 1.5},
     }
 
 
@@ -465,6 +466,9 @@ def make_recorded_event(
     keywords=None,
     affected_profession_categories=None,
     response_profession_categories=None,
+    local_severity=7.5,
+    country_severity=4.0,
+    global_severity=1.5,
     created_at=datetime(2026, 6, 29, 12, 0, tzinfo=UTC),
 ) -> RecordedEvent:
     return RecordedEvent(
@@ -498,6 +502,9 @@ def make_recorded_event(
             if response_profession_categories is not None
             else ["medical_clinical"]
         ),
+        local_severity=local_severity,
+        country_severity=country_severity,
+        global_severity=global_severity,
         created_at=created_at,
     )
 

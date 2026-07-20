@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import String, Text, cast, or_
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
@@ -67,6 +66,9 @@ class RecordedEventService:
             response_profession_categories=list(
                 event_input.response_profession_categories
             ),
+            local_severity=event_input.severity.local,
+            country_severity=event_input.severity.country,
+            global_severity=event_input.severity.global_,
         )
 
         async with self._session_factory(
@@ -112,7 +114,7 @@ class RecordedEventService:
             )
 
         if recall_input.tags:
-            tags_jsonb = cast(RecordedEvent.tags, JSONB)
+            tags_jsonb = col(RecordedEvent.tags)
             tag_filters = [tags_jsonb.contains([tag]) for tag in recall_input.tags]
             if recall_input.tag_match == "all":
                 for tag_filter in tag_filters:
