@@ -1,10 +1,16 @@
-from meditron_mcp.main import ask as ask_meditron
+from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.config import config
 from api.services.chat_room.tools.base import (
     HumConnectTool,
 )
 from api.utils.pydantic_types import NonEmptyString
+
+openai_client = OpenAI(
+    base_url=config.OPENAI_API_URL,
+    api_key=config.OPENAI_API_KEY,
+)
 
 
 class AskMeditronInput(BaseModel):
@@ -20,10 +26,13 @@ class AskMeditronInput(BaseModel):
 
 
 def _ask_meditron(query: AskMeditronInput) -> str:
-    return ask_meditron(
-        prompt=query.prompt,
-        system_prompt=query.system_prompt,
+    response = openai_client.responses.create(
+        model=config.MEDITRON_MODEL_NAME,
+        instructions=query.system_prompt,
+        input=query.prompt,
     )
+
+    return response.output_text
 
 
 ASK_MEDITRON_TOOL = HumConnectTool.from_sync_handler(
