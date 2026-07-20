@@ -4,27 +4,45 @@ from tests.chat_room_helpers import *  # noqa: F403
 def test_ask_meditron_tool_calls_meditron_with_prompt(monkeypatch):
     calls = []
 
-    def fake_ask_meditron(*, prompt, system_prompt):
-        calls.append((prompt, system_prompt))
-        return "Meditron answer"
+    class FakeMeditronResponse:
+        def __init__(self, text):
+            self.output_text = text
 
-    monkeypatch.setattr(meditron_tool_module, "ask_meditron", fake_ask_meditron)
+    def fake_meditron_create(*, model, instructions, input):
+        calls.append((instructions, input))
+        return FakeMeditronResponse("Meditron answer")
+
+    monkeypatch.setattr(
+        meditron_tool_module.openai_client.responses,
+        "create",
+        fake_meditron_create,
+    )
 
     async def run():
-        return await ASK_MEDITRON_TOOL.execute({"prompt": "What is cholera?"})
+        return await ASK_MEDITRON_TOOL.execute(
+            {"prompt": "What is cholera?", "system_prompt": ""}
+        )
 
     assert asyncio.run(run()) == "Meditron answer"
-    assert calls == [("What is cholera?", "")]
+    assert calls == [("", "What is cholera?")]
 
 
 def test_ask_meditron_tool_passes_system_prompt(monkeypatch):
     calls = []
 
-    def fake_ask_meditron(*, prompt, system_prompt):
-        calls.append((prompt, system_prompt))
-        return "Clinical answer"
+    class FakeMeditronResponse:
+        def __init__(self, text):
+            self.output_text = text
 
-    monkeypatch.setattr(meditron_tool_module, "ask_meditron", fake_ask_meditron)
+    def fake_meditron_create(*, model, instructions, input):
+        calls.append((instructions, input))
+        return FakeMeditronResponse("Clinical answer")
+
+    monkeypatch.setattr(
+        meditron_tool_module.openai_client.responses,
+        "create",
+        fake_meditron_create,
+    )
 
     async def run():
         return await ASK_MEDITRON_TOOL.execute(
@@ -35,7 +53,7 @@ def test_ask_meditron_tool_passes_system_prompt(monkeypatch):
         )
 
     assert asyncio.run(run()) == "Clinical answer"
-    assert calls == [("How should dehydration be assessed?", "Answer concisely.")]
+    assert calls == [("Answer concisely.", "How should dehydration be assessed?")]
 
 
 @pytest.mark.parametrize("prompt", ["", 123, None])
