@@ -21,7 +21,7 @@ class Config(BaseSettings):
     OPENAI_API_KEY: str
     OPENAI_API_KEY_PREMIUM: str
     MEDITRON_MCP_API_KEY: str
-    MODEL_NAME: str = "moonshotai/Kimi-K2.6"
+    MODEL_NAME: str = "moonshotai/Kimi-K2.7-Code"
     MEDITRON_MODEL_NAME: str = "OpenMeditron/Meditron3-70B"
     LEGITRON_MODEL_NAME: str = "EPFLiGHT/Llama-33-70b-Legitron"
 
