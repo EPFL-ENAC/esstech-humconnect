@@ -19,8 +19,10 @@ class Config(BaseSettings):
 
     OPENAI_API_URL: str
     OPENAI_API_KEY: str
+    OPENAI_API_KEY_PREMIUM: str
     MEDITRON_MCP_API_KEY: str
     MODEL_NAME: str = "moonshotai/Kimi-K2.6"
+    LEGITRON_MODEL_NAME: str = "EPFLiGHT/Llama-33-70b-Legitron"
 
     KEYCLOAK_REALM: str = "EPFL"
     KEYCLOAK_URL: str = "https://enac-it-sso2.epfl.ch"

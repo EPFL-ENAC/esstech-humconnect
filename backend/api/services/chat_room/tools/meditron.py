@@ -14,7 +14,7 @@ class AskMeditronInput(BaseModel):
         description="Medical or clinical question to ask Meditron."
     )
     system_prompt: str = Field(
-        default="",
+        default="You are a medical expert with deep knowledge of clinical science, medical guidelines, and evidence-based medicine. Answer the following question based on current standard medical practices. If uncertain, acknowledge the uncertainty rather than guessing.",
         description="Optional system instructions for Meditron.",
     )
 
@@ -30,10 +30,7 @@ ASK_MEDITRON_TOOL = HumConnectTool.from_sync_handler(
     name="ask_meditron",
     label="Ask Meditron",
     input_model=AskMeditronInput,
-    description=(
-        "Ask Meditron, a medical LLM trained on a curated medical corpus, "
-        "for help with medical and clinical questions."
-    ),
+    description="Ask Meditron, a medical LLM trained on a curated medical corpus, for help with medical and clinical questions. Knowledge cutoff is August 2023.",
     invalid_input_message="ask_meditron received invalid query data",
     handler=_ask_meditron,
 )

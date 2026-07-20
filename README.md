@@ -26,6 +26,8 @@ Setup your environment by running:
 make install
 ```
 
+Fill the values in the `.env` file (OpenAI API URL and keys, Keycloak API secret).
+
 
 ### Backend
 
