@@ -9,8 +9,19 @@ from sqlmodel import SQLModel
 
 from api.config import config as app_config
 from api.models import ChatSession, Message, RecordedEvent, UserProfile
+from api.models.root_cause_analysis import (
+    RootCauseAnalysis,
+    RootCauseAnalysisStep,
+)
 
-_model_imports = (ChatSession, Message, RecordedEvent, UserProfile)
+_model_imports = (
+    ChatSession,
+    Message,
+    RecordedEvent,
+    UserProfile,
+    RootCauseAnalysis,
+    RootCauseAnalysisStep,
+)
 
 config = context.config
 

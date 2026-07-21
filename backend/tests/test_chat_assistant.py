@@ -29,7 +29,9 @@ def test_humconnect_chat_assistant_converts_complete_history_for_model():
     chat_id = uuid4()
     messages = [
         ChatMessageResponse.from_db_model(
-            make_db_message(chat_id, MESSAGE_ROLE_USER, "Hello", MESSAGE_STATUS_COMPLETE)
+            make_db_message(
+                chat_id, MESSAGE_ROLE_USER, "Hello", MESSAGE_STATUS_COMPLETE
+            )
         ),
         ChatMessageResponse.from_db_model(
             make_db_message(
@@ -181,8 +183,7 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
 
     async def run():
         return [
-            chunk
-            async for chunk in assistant.stream_response(history, "Say hello")
+            chunk async for chunk in assistant.stream_response(history, "Say hello")
         ]
 
     assert asyncio.run(run()) == [
@@ -191,9 +192,7 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
         AssistantStreamChunkDelta(1, CHUNK_TYPE_MESSAGE_CONTENT, "lo"),
     ]
     assert fake_client.responses.create_kwargs["stream"] is True
-    assert [
-        tool["name"] for tool in fake_client.responses.create_kwargs["tools"]
-    ] == [
+    assert [tool["name"] for tool in fake_client.responses.create_kwargs["tools"]] == [
         "dummy_tool",
         "ask_meditron",
         "ask_legitron",
@@ -201,6 +200,12 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
         "recall_events",
         "get_natural_events_context",
         "get_humanitarian_context",
+        "create_analysis",
+        "save_why_question",
+        "save_why_answer",
+        "get_analysis",
+        "set_root_cause",
+        "list_analyses",
     ]
     assert fake_client.responses.create_kwargs["input"] == [
         {
@@ -331,10 +336,7 @@ def test_humconnect_chat_assistant_executes_dummy_tool_calls(monkeypatch):
     assistant = HumConnectAssistant()
 
     async def run():
-        return [
-            chunk
-            async for chunk in assistant.stream_response([], "Use a tool")
-        ]
+        return [chunk async for chunk in assistant.stream_response([], "Use a tool")]
 
     assert asyncio.run(run()) == [
         AssistantStreamPayloadUpdate(
@@ -419,10 +421,7 @@ def test_humconnect_chat_assistant_executes_ask_meditron_tool_calls(monkeypatch)
     assistant = HumConnectAssistant()
 
     async def run():
-        return [
-            chunk
-            async for chunk in assistant.stream_response([], "Use Meditron")
-        ]
+        return [chunk async for chunk in assistant.stream_response([], "Use Meditron")]
 
     assert asyncio.run(run()) == [
         AssistantStreamPayloadUpdate(
@@ -458,9 +457,7 @@ def test_humconnect_chat_assistant_executes_ask_meditron_tool_calls(monkeypatch)
     ]
 
     second_input = fake_client.responses.create_kwargs[1]["input"]
-    assert meditron_calls == [
-        ("Answer for a clinician.", "What are cholera symptoms?")
-    ]
+    assert meditron_calls == [("Answer for a clinician.", "What are cholera symptoms?")]
     assert second_input[-2] == {
         "type": "function_call",
         "call_id": "call_meditron",
@@ -474,9 +471,7 @@ def test_humconnect_chat_assistant_executes_ask_meditron_tool_calls(monkeypatch)
     assert second_input[-1] == {
         "type": "function_call_output",
         "call_id": "call_meditron",
-        "output": (
-            '{"ok": true, "result": "Watery diarrhea and dehydration."}'
-        ),
+        "output": ('{"ok": true, "result": "Watery diarrhea and dehydration."}'),
     }
 
 
@@ -577,10 +572,7 @@ def test_humconnect_chat_assistant_reports_invalid_tool_arguments(monkeypatch):
     assistant = HumConnectAssistant()
 
     async def run():
-        return [
-            chunk
-            async for chunk in assistant.stream_response([], "Use a tool")
-        ]
+        return [chunk async for chunk in assistant.stream_response([], "Use a tool")]
 
     assert asyncio.run(run()) == [
         AssistantStreamPayloadUpdate(
@@ -634,10 +626,7 @@ def test_humconnect_chat_assistant_reports_malformed_tool_arguments(monkeypatch)
     assistant = HumConnectAssistant()
 
     async def run():
-        return [
-            chunk
-            async for chunk in assistant.stream_response([], "Use a tool")
-        ]
+        return [chunk async for chunk in assistant.stream_response([], "Use a tool")]
 
     chunks = asyncio.run(run())
 
@@ -680,10 +669,7 @@ def test_humconnect_chat_assistant_reports_unknown_tool(monkeypatch):
     assistant = HumConnectAssistant()
 
     async def run():
-        return [
-            chunk
-            async for chunk in assistant.stream_response([], "Use a tool")
-        ]
+        return [chunk async for chunk in assistant.stream_response([], "Use a tool")]
 
     assert asyncio.run(run()) == [
         AssistantStreamPayloadUpdate(
