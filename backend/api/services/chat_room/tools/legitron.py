@@ -1,16 +1,11 @@
-from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.agent.openai import openai_client_premium
 from api.config import config
 from api.services.chat_room.tools.base import (
     HumConnectTool,
 )
 from api.utils.pydantic_types import NonEmptyString
-
-openai_client = OpenAI(
-    base_url=config.OPENAI_API_URL,
-    api_key=config.OPENAI_API_KEY_PREMIUM,
-)
 
 
 class AskLegitronInput(BaseModel):
@@ -25,8 +20,8 @@ class AskLegitronInput(BaseModel):
     )
 
 
-def _ask_legitron(query: AskLegitronInput) -> str:
-    response = openai_client.responses.create(
+async def _ask_legitron(query: AskLegitronInput) -> str:
+    response = await openai_client_premium.responses.create(
         model=config.LEGITRON_MODEL_NAME,
         instructions=query.system_prompt,
         input=query.prompt,
@@ -35,7 +30,7 @@ def _ask_legitron(query: AskLegitronInput) -> str:
     return response.output_text
 
 
-ASK_LEGITRON_TOOL = HumConnectTool.from_sync_handler(
+ASK_LEGITRON_TOOL = HumConnectTool.from_async_handler(
     name="ask_legitron",
     label="Ask Legitron",
     input_model=AskLegitronInput,
