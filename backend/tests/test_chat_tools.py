@@ -8,7 +8,7 @@ def test_ask_meditron_tool_calls_meditron_with_prompt(monkeypatch):
         def __init__(self, text):
             self.output_text = text
 
-    def fake_meditron_create(*, model, instructions, input):
+    async def fake_meditron_create(*, model, instructions, input):
         calls.append((instructions, input))
         return FakeMeditronResponse("Meditron answer")
 
@@ -34,7 +34,7 @@ def test_ask_meditron_tool_passes_system_prompt(monkeypatch):
         def __init__(self, text):
             self.output_text = text
 
-    def fake_meditron_create(*, model, instructions, input):
+    async def fake_meditron_create(*, model, instructions, input):
         calls.append((instructions, input))
         return FakeMeditronResponse("Clinical answer")
 

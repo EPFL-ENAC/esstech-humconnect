@@ -385,7 +385,7 @@ def test_humconnect_chat_assistant_executes_ask_meditron_tool_calls(monkeypatch)
         def __init__(self, text):
             self.output_text = text
 
-    def fake_meditron_create(*, model, instructions, input):
+    async def fake_meditron_create(*, model, instructions, input):
         meditron_calls.append((instructions, input))
         return FakeMeditronResponse("Watery diarrhea and dehydration.")
 
