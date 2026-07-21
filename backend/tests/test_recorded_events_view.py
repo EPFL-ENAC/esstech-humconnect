@@ -32,6 +32,24 @@ def test_filterable_recorded_event_metadata_uses_jsonb(column_name):
     assert isinstance(RecordedEvent.__table__.c[column_name].type, JSONB)
 
 
+def test_recorded_event_location_uses_indexed_relational_columns():
+    table = RecordedEvent.__table__
+    assert "event_location" not in table.c
+    assert "location_granularity" not in table.c
+    assert {
+        "location_continent",
+        "location_country_code",
+        "location_latitude",
+        "location_longitude",
+    }.issubset(table.c.keys())
+    assert {
+        "ix_recordedevent_location_continent",
+        "ix_recordedevent_location_country_code",
+        "ix_recordedevent_location_latitude",
+        "ix_recordedevent_location_longitude",
+    }.issubset({index.name for index in table.indexes})
+
+
 def test_list_recorded_events_returns_all_events_in_descending_order():
     FakeAsyncSession.reset()
     older_event = make_recorded_event()
@@ -56,6 +74,44 @@ def test_list_recorded_events_returns_all_events_in_descending_order():
     query_text = str(FakeAsyncSession.last_query)
     assert "ORDER BY recordedevent.created_at DESC" in query_text
     assert "WHERE" not in query_text
+
+
+def test_list_recorded_events_serializes_nested_location():
+    FakeAsyncSession.reset()
+    event = make_recorded_event(
+        event_location={
+            "raw_text": "Geneva, Switzerland",
+            "continent": "europe",
+            "country_code": "CH",
+            "region": "Geneva",
+            "city": "Geneva",
+            "address": None,
+            "place_name": None,
+            "detail": None,
+            "coordinates": None,
+        }
+    )
+    FakeAsyncSession.rows[RecordedEvent][event.id] = event
+
+    response = asyncio.run(
+        list_recorded_events(
+            filters=ListRecordedEventsFilters(),
+            user=object(),
+            session=FakeAsyncSession(),
+        )
+    )
+
+    assert response.events[0].event_location.model_dump(mode="json") == {
+        "raw_text": "Geneva, Switzerland",
+        "continent": "europe",
+        "country_code": "CH",
+        "region": "Geneva",
+        "city": "Geneva",
+        "address": None,
+        "place_name": None,
+        "detail": None,
+        "coordinates": None,
+    }
 
 
 def test_recorded_event_filters_are_exposed_as_repeated_query_parameters():

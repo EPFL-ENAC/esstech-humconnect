@@ -42,6 +42,35 @@ export const eventTags = [
 
 export type EventTag = (typeof eventTags)[number];
 
+export const eventContinents = [
+    'africa',
+    'antarctica',
+    'asia',
+    'europe',
+    'north_america',
+    'oceania',
+    'south_america',
+] as const;
+
+export type EventContinent = (typeof eventContinents)[number];
+
+export interface EventCoordinates {
+    latitude: number;
+    longitude: number;
+}
+
+export interface EventLocation {
+    raw_text: string | null;
+    continent: EventContinent | null;
+    country_code: string | null;
+    region: string | null;
+    city: string | null;
+    address: string | null;
+    place_name: string | null;
+    detail: string | null;
+    coordinates: EventCoordinates | null;
+}
+
 export type LanguageCode =
     | 'ar'
     | 'bn'
@@ -136,7 +165,7 @@ export interface RecordedEventResponse {
     event_date_granularity: string;
     event_date_precision: string;
     event_date_input: Record<string, unknown>;
-    event_location: Record<string, unknown>;
+    event_location: EventLocation;
     tags: EventTag[];
     keywords: string[];
     affected_profession_categories: ProfessionCategory[];

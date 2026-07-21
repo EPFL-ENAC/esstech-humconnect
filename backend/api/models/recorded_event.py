@@ -1,10 +1,21 @@
 import json
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import JSON, CheckConstraint, Column, DateTime, Float, Index, Text, cast
+import pycountry
+from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    Column,
+    DateTime,
+    Float,
+    Index,
+    String,
+    Text,
+    cast,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
@@ -31,6 +42,16 @@ EventTag = Literal[
     "community_concern",
     "other",
 ]
+EventContinent = Literal[
+    "africa",
+    "antarctica",
+    "asia",
+    "europe",
+    "north_america",
+    "oceania",
+    "south_america",
+]
+CountryCode = Annotated[str, StringConstraints(pattern=r"^[A-Z]{2}$")]
 
 
 EVENT_TAGS: tuple[EventTag, ...] = (
@@ -52,10 +73,86 @@ EVENT_TAGS: tuple[EventTag, ...] = (
     "community_concern",
     "other",
 )
+EVENT_CONTINENTS: tuple[EventContinent, ...] = (
+    "africa",
+    "antarctica",
+    "asia",
+    "europe",
+    "north_america",
+    "oceania",
+    "south_america",
+)
+
+
+class EventCoordinates(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+class EventLocation(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    raw_text: NonEmptyString | None = Field(
+        description=(
+            "The exact location phrase from the user's message, or null when no "
+            "location phrase is present."
+        )
+    )
+    continent: EventContinent | None = Field(
+        description="The continent when it is unambiguous, otherwise null."
+    )
+    country_code: CountryCode | None = Field(
+        description=(
+            "The uppercase ISO 3166-1 alpha-2 country code when unambiguous, "
+            "otherwise null."
+        )
+    )
+    region: NonEmptyString | None = Field(
+        description="The state, province, district, or other subnational region."
+    )
+    city: NonEmptyString | None = Field(
+        description="The city, town, or village, otherwise null."
+    )
+    address: NonEmptyString | None = Field(
+        description="A street or postal address, otherwise null."
+    )
+    place_name: NonEmptyString | None = Field(
+        description=(
+            "A named or descriptive feature such as a lake, river, clinic, camp, "
+            "or 'the bridge'."
+        )
+    )
+    detail: NonEmptyString | None = Field(
+        description=(
+            "Additional relative context such as 'the river near the bridge', "
+            "otherwise null."
+        )
+    )
+    coordinates: EventCoordinates | None = Field(
+        description=(
+            "Coordinates explicitly supplied by the user. Never estimate or infer "
+            "coordinates from a place name."
+        )
+    )
+
+    @field_validator("country_code")
+    @classmethod
+    def validate_country_code(cls, value: str | None) -> str | None:
+        if value is not None and pycountry.countries.get(alpha_2=value) is None:
+            raise ValueError("country_code must be an ISO 3166-1 alpha-2 code")
+        return value
 
 
 class RecordedEvent(SQLModel, table=True):
     __tablename__ = "recordedevent"
+    __table_args__ = (
+        CheckConstraint(
+            "(location_latitude IS NULL) = (location_longitude IS NULL)",
+            name="ck_recordedevent_location_coordinate_pair",
+        ),
+    )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     chat_id: UUID = Field(foreign_key="chatsession.id", index=True)
@@ -72,8 +169,62 @@ class RecordedEvent(SQLModel, table=True):
     event_date_input: dict[str, Any] = Field(
         sa_column=Column(JSON, nullable=False),
     )
-    event_location: dict[str, Any] = Field(
-        sa_column=Column(JSON, nullable=False),
+    location_raw_text: str | None = Field(default=None)
+    location_continent: EventContinent | None = Field(
+        default=None,
+        sa_column=Column(
+            String,
+            CheckConstraint(
+                "location_continent IN ("
+                "'africa', 'antarctica', 'asia', 'europe', "
+                "'north_america', 'oceania', 'south_america'"
+                ")",
+                name="ck_recordedevent_location_continent",
+            ),
+            nullable=True,
+            index=True,
+        ),
+    )
+    location_country_code: str | None = Field(
+        default=None,
+        sa_column=Column(
+            String(2),
+            CheckConstraint(
+                "location_country_code ~ '^[A-Z]{2}$'",
+                name="ck_recordedevent_location_country_code",
+            ),
+            nullable=True,
+            index=True,
+        ),
+    )
+    location_region: str | None = Field(default=None)
+    location_city: str | None = Field(default=None)
+    location_address: str | None = Field(default=None)
+    location_place_name: str | None = Field(default=None)
+    location_detail: str | None = Field(default=None)
+    location_latitude: float | None = Field(
+        default=None,
+        sa_column=Column(
+            Float,
+            CheckConstraint(
+                "location_latitude BETWEEN -90 AND 90",
+                name="ck_recordedevent_location_latitude_range",
+            ),
+            nullable=True,
+            index=True,
+        ),
+    )
+    location_longitude: float | None = Field(
+        default=None,
+        sa_column=Column(
+            Float,
+            CheckConstraint(
+                "location_longitude BETWEEN -180 AND 180",
+                name="ck_recordedevent_location_longitude_range",
+            ),
+            nullable=True,
+            index=True,
+        ),
     )
     tags: list[EventTag] = Field(
         default_factory=list,
@@ -130,12 +281,32 @@ class RecordedEvent(SQLModel, table=True):
     )
 
     def to_tool_response(self) -> str:
+        event_response = RecordedEventResponse.from_recorded_event(self)
         return json.dumps(
             {
                 "message": f"Recorded event: {self.event_name}",
-                "event": self.model_dump(mode="json"),
+                "event": event_response.model_dump(mode="json"),
             },
             indent=2,
+        )
+
+    def event_location(self) -> EventLocation:
+        coordinates = None
+        if self.location_latitude is not None and self.location_longitude is not None:
+            coordinates = EventCoordinates(
+                latitude=self.location_latitude,
+                longitude=self.location_longitude,
+            )
+        return EventLocation(
+            raw_text=self.location_raw_text,
+            continent=self.location_continent,
+            country_code=self.location_country_code,
+            region=self.location_region,
+            city=self.location_city,
+            address=self.location_address,
+            place_name=self.location_place_name,
+            detail=self.location_detail,
+            coordinates=coordinates,
         )
 
 
@@ -177,7 +348,7 @@ class RecordedEventResponse(BaseModel):
     event_date_granularity: str
     event_date_precision: str
     event_date_input: dict[str, Any]
-    event_location: dict[str, Any]
+    event_location: EventLocation
     tags: list[EventTag]
     keywords: list[str]
     affected_profession_categories: list[ProfessionCategory]
@@ -186,6 +357,12 @@ class RecordedEventResponse(BaseModel):
     country_severity: float | None
     global_severity: float | None
     created_at: datetime
+
+    @classmethod
+    def from_recorded_event(cls, event: RecordedEvent) -> "RecordedEventResponse":
+        values = event.model_dump()
+        values["event_location"] = event.event_location()
+        return cls.model_validate(values)
 
 
 class ListRecordedEventsResponse(BaseModel):

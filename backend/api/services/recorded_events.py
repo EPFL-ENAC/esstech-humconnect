@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import String, Text, cast, or_
+from sqlalchemy import Text, cast, or_
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
@@ -57,7 +57,24 @@ class RecordedEventService:
             event_date_granularity=event_input.event_date.granularity,
             event_date_precision=event_input.event_date.precision,
             event_date_input=event_input.event_date.model_dump(mode="json"),
-            event_location=event_input.event_location.model_dump(mode="json"),
+            location_raw_text=event_input.event_location.raw_text,
+            location_continent=event_input.event_location.continent,
+            location_country_code=event_input.event_location.country_code,
+            location_region=event_input.event_location.region,
+            location_city=event_input.event_location.city,
+            location_address=event_input.event_location.address,
+            location_place_name=event_input.event_location.place_name,
+            location_detail=event_input.event_location.detail,
+            location_latitude=(
+                event_input.event_location.coordinates.latitude
+                if event_input.event_location.coordinates is not None
+                else None
+            ),
+            location_longitude=(
+                event_input.event_location.coordinates.longitude
+                if event_input.event_location.coordinates is not None
+                else None
+            ),
             tags=list(event_input.tags),
             keywords=list(event_input.keywords),
             affected_profession_categories=list(
@@ -108,7 +125,14 @@ class RecordedEventService:
                 or_(
                     col(RecordedEvent.event_name).ilike(keyword_pattern),
                     col(RecordedEvent.original_text).ilike(keyword_pattern),
-                    cast(RecordedEvent.event_location, String).ilike(keyword_pattern),
+                    col(RecordedEvent.location_raw_text).ilike(keyword_pattern),
+                    col(RecordedEvent.location_continent).ilike(keyword_pattern),
+                    col(RecordedEvent.location_country_code).ilike(keyword_pattern),
+                    col(RecordedEvent.location_region).ilike(keyword_pattern),
+                    col(RecordedEvent.location_city).ilike(keyword_pattern),
+                    col(RecordedEvent.location_address).ilike(keyword_pattern),
+                    col(RecordedEvent.location_place_name).ilike(keyword_pattern),
+                    col(RecordedEvent.location_detail).ilike(keyword_pattern),
                     cast(RecordedEvent.keywords, Text).ilike(keyword_pattern),
                 )
             )

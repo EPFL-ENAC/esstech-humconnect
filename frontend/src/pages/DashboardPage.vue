@@ -152,6 +152,40 @@
                                     <dt>{{ t('dashboard.fields.location') }}</dt>
                                     <dd>{{ formatLocation(event.event_location) }}</dd>
                                 </div>
+                                <div v-if="event.event_location.continent">
+                                    <dt>{{ t('dashboard.fields.continent') }}</dt>
+                                    <dd>{{ continentLabel(event.event_location.continent) }}</dd>
+                                </div>
+                                <div v-if="event.event_location.country_code">
+                                    <dt>{{ t('dashboard.fields.countryCode') }}</dt>
+                                    <dd>{{ event.event_location.country_code }}</dd>
+                                </div>
+                                <div v-if="event.event_location.region">
+                                    <dt>{{ t('dashboard.fields.region') }}</dt>
+                                    <dd>{{ event.event_location.region }}</dd>
+                                </div>
+                                <div v-if="event.event_location.city">
+                                    <dt>{{ t('dashboard.fields.city') }}</dt>
+                                    <dd>{{ event.event_location.city }}</dd>
+                                </div>
+                                <div v-if="event.event_location.address">
+                                    <dt>{{ t('dashboard.fields.address') }}</dt>
+                                    <dd>{{ event.event_location.address }}</dd>
+                                </div>
+                                <div v-if="event.event_location.place_name">
+                                    <dt>{{ t('dashboard.fields.placeName') }}</dt>
+                                    <dd>{{ event.event_location.place_name }}</dd>
+                                </div>
+                                <div v-if="event.event_location.detail">
+                                    <dt>{{ t('dashboard.fields.locationDetail') }}</dt>
+                                    <dd>{{ event.event_location.detail }}</dd>
+                                </div>
+                                <div v-if="event.event_location.coordinates">
+                                    <dt>{{ t('dashboard.fields.coordinates') }}</dt>
+                                    <dd class="monospace">
+                                        {{ formatCoordinates(event.event_location.coordinates) }}
+                                    </dd>
+                                </div>
                                 <div>
                                     <dt>{{ t('dashboard.fields.severity') }}</dt>
                                     <dd>
@@ -256,10 +290,6 @@
                                     <h2>{{ t('dashboard.fields.dateInput') }}</h2>
                                     <pre>{{ formatJson(event.event_date_input) }}</pre>
                                 </div>
-                                <div>
-                                    <h2>{{ t('dashboard.fields.locationInput') }}</h2>
-                                    <pre>{{ formatJson(event.event_location) }}</pre>
-                                </div>
                             </div>
                         </div>
                     </q-expansion-item>
@@ -274,7 +304,14 @@ import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { eventTags, professionCategories } from 'src/utils/model';
 import { listRecordedEvents } from 'src/utils/recordedEventsApi';
-import type { EventTag, ProfessionCategory, RecordedEvent } from 'src/utils/model';
+import type {
+    EventContinent,
+    EventCoordinates,
+    EventLocation,
+    EventTag,
+    ProfessionCategory,
+    RecordedEvent,
+} from 'src/utils/model';
 
 interface DashboardFilters {
     keyword: string | null;
@@ -372,12 +409,30 @@ function formatDate(value: string) {
     }).format(new Date(value));
 }
 
-function formatLocation(location: Record<string, unknown>) {
-    const value = location['value'];
-    if (typeof value === 'string' && value.trim()) {
-        return value;
+function formatLocation(location: EventLocation) {
+    if (location.raw_text) {
+        return location.raw_text;
     }
-    return '-';
+    return (
+        [
+            location.address,
+            location.place_name,
+            location.city,
+            location.region,
+            location.country_code,
+            location.continent ? continentLabel(location.continent) : null,
+        ]
+            .filter(Boolean)
+            .join(', ') || '-'
+    );
+}
+
+function formatCoordinates(coordinates: EventCoordinates) {
+    return `${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)}`;
+}
+
+function continentLabel(continent: EventContinent) {
+    return t(`dashboard.continents.${continent}`);
 }
 
 function formatJson(value: unknown) {

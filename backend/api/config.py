@@ -20,7 +20,7 @@ class Config(BaseSettings):
     OPENAI_API_URL: str
     OPENAI_API_KEY: str
     MEDITRON_MCP_API_KEY: str
-    MODEL_NAME: str = "moonshotai/Kimi-K2.6"
+    MODEL_NAME: str = "moonshotai/Kimi-K2.7-Code"
 
     KEYCLOAK_REALM: str = "EPFL"
     KEYCLOAK_URL: str = "https://enac-it-sso2.epfl.ch"

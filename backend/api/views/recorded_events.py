@@ -82,5 +82,7 @@ async def list_recorded_events(
 
     result = await session.exec(query)
     return ListRecordedEventsResponse(
-        events=[RecordedEventResponse.model_validate(event) for event in result.all()]
+        events=[
+            RecordedEventResponse.from_recorded_event(event) for event in result.all()
+        ]
     )

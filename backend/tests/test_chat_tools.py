@@ -431,6 +431,8 @@ def test_record_event_tool_schema_exposes_relative_date_shape():
     defs = parameters["$defs"]
     event_date_schema = defs["RecordEventDateInput"]
     relative_schema = defs["RecordEventRelativeDateInput"]
+    location_schema = defs["RecordEventLocationInput"]
+    coordinates_schema = defs["EventCoordinates"]
     severity_schema = parameters["properties"]["severity"]
 
     assert RECORD_EVENT_TOOL.definition["type"] == "function"
@@ -438,6 +440,7 @@ def test_record_event_tool_schema_exposes_relative_date_shape():
     assert parameters["additionalProperties"] is False
     assert event_date_schema["additionalProperties"] is False
     assert relative_schema["additionalProperties"] is False
+    assert location_schema["additionalProperties"] is False
     assert parameters["properties"]["event_date"] == {
         "$ref": "#/$defs/RecordEventDateInput"
     }
@@ -469,6 +472,31 @@ def test_record_event_tool_schema_exposes_relative_date_shape():
     assert parameters["properties"]["response_profession_categories"]["items"][
         "enum"
     ] == list(PROFESSION_CATEGORIES)
+    assert parameters["properties"]["event_location"] == {
+        "$ref": "#/$defs/RecordEventLocationInput"
+    }
+    assert location_schema["required"] == [
+        "raw_text",
+        "continent",
+        "country_code",
+        "region",
+        "city",
+        "address",
+        "place_name",
+        "detail",
+        "coordinates",
+    ]
+    assert location_schema["properties"]["continent"]["anyOf"][0]["enum"] == list(
+        EVENT_CONTINENTS
+    )
+    assert (
+        location_schema["properties"]["country_code"]["anyOf"][0]["pattern"]
+        == "^[A-Z]{2}$"
+    )
+    assert coordinates_schema["properties"]["latitude"]["minimum"] == -90
+    assert coordinates_schema["properties"]["latitude"]["maximum"] == 90
+    assert coordinates_schema["properties"]["longitude"]["minimum"] == -180
+    assert coordinates_schema["properties"]["longitude"]["maximum"] == 180
     assert severity_schema["additionalProperties"] is False
     assert severity_schema["required"] == ["local", "country", "global"]
     for scale in ["local", "country", "global"]:
@@ -525,6 +553,95 @@ def test_record_event_tool_accepts_json_stringified_structured_fields(monkeypatc
     assert persisted_event.country_severity == 4.0
     assert persisted_event.global_severity == 1.5
     assert output == expected_record_event_tool_output(persisted_event)
+
+
+def test_record_event_tool_persists_structured_location(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    arguments = structured_record_event_arguments()
+    arguments["event_location"] = {
+        "raw_text": "the river near the bridge in Geneva",
+        "continent": "europe",
+        "country_code": "CH",
+        "region": "Geneva",
+        "city": "Geneva",
+        "address": None,
+        "place_name": "the river",
+        "detail": "near the bridge",
+        "coordinates": {"latitude": 46.2044, "longitude": 6.1432},
+    }
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    output = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.location_continent == "europe"
+    assert persisted_event.location_country_code == "CH"
+    assert persisted_event.location_city == "Geneva"
+    assert persisted_event.location_latitude == 46.2044
+    assert persisted_event.location_longitude == 6.1432
+    assert '"country_code": "CH"' in output
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        {
+            "raw_text": "Paris",
+            "continent": "europe",
+            "country_code": "fr",
+            "region": None,
+            "city": "Paris",
+            "address": None,
+            "place_name": None,
+            "detail": None,
+            "coordinates": None,
+        },
+        {
+            "raw_text": "Unknown country",
+            "continent": None,
+            "country_code": "ZZ",
+            "region": None,
+            "city": None,
+            "address": None,
+            "place_name": None,
+            "detail": None,
+            "coordinates": None,
+        },
+        {
+            "raw_text": "coordinates",
+            "continent": None,
+            "country_code": None,
+            "region": None,
+            "city": None,
+            "address": None,
+            "place_name": None,
+            "detail": None,
+            "coordinates": {"latitude": 91, "longitude": 0},
+        },
+        {
+            "raw_text": "coordinates",
+            "continent": None,
+            "country_code": None,
+            "region": None,
+            "city": None,
+            "address": None,
+            "place_name": None,
+            "detail": None,
+            "coordinates": {"latitude": 46},
+        },
+    ],
+)
+def test_record_event_tool_rejects_invalid_structured_location(location):
+    arguments = structured_record_event_arguments()
+    arguments["event_location"] = location
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments)
+
+    with pytest.raises(ValueError, match="invalid event data"):
+        asyncio.run(run())
 
 
 @pytest.mark.parametrize(

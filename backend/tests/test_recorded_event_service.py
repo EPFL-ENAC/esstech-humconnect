@@ -46,7 +46,17 @@ def test_recorded_event_service_persists_event_with_initiator_metadata():
             "precision": "exact",
         },
     }
-    assert persisted_event.event_location == {"value": None, "precision": "unknown"}
+    assert persisted_event.event_location().model_dump(mode="json") == {
+        "raw_text": None,
+        "continent": None,
+        "country_code": None,
+        "region": None,
+        "city": None,
+        "address": None,
+        "place_name": None,
+        "detail": None,
+        "coordinates": None,
+    }
     assert persisted_event.tags == ["health_incident"]
     assert persisted_event.keywords == ["symptom", "cough"]
     assert persisted_event.affected_profession_categories == ["medical_clinical"]
@@ -98,7 +108,9 @@ def test_recorded_event_service_builds_user_scoped_filtered_recall_query():
     assert "recordedevent.event_datetime <= " in query_text
     assert "lower(recordedevent.event_name) LIKE lower(" in query_text
     assert "lower(recordedevent.original_text) LIKE lower(" in query_text
-    assert "CAST(recordedevent.event_location AS VARCHAR)" in query_text
+    assert "lower(recordedevent.location_raw_text) LIKE lower(" in query_text
+    assert "lower(recordedevent.location_country_code) LIKE lower(" in query_text
+    assert "event_location" not in query_text
     assert "CAST(recordedevent.keywords AS TEXT)" in query_text
     assert "recordedevent.tags @>" in query_text
     assert "CAST(recordedevent.tags AS JSONB)" not in query_text

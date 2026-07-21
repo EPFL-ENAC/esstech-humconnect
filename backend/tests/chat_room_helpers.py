@@ -27,7 +27,13 @@ from api.models.chat import (
     Message,
     ToolCallPayload,
 )
-from api.models.recorded_event import EVENT_TAGS, RecordedEvent
+from api.models.recorded_event import (
+    EVENT_CONTINENTS,
+    EVENT_TAGS,
+    EventLocation,
+    RecordedEvent,
+    RecordedEventResponse,
+)
 from api.models.user_profile import (
     PROFESSION_CATEGORIES,
     UserProfile,
@@ -401,7 +407,17 @@ def structured_record_event_arguments():
                 "precision": "exact",
             },
         },
-        "event_location": {"value": None, "precision": "unknown"},
+        "event_location": {
+            "raw_text": None,
+            "continent": None,
+            "country_code": None,
+            "region": None,
+            "city": None,
+            "address": None,
+            "place_name": None,
+            "detail": None,
+            "coordinates": None,
+        },
         "tags": ["health_incident"],
         "keywords": ["symptom", "cough"],
         "affected_profession_categories": ["medical_clinical"],
@@ -449,7 +465,9 @@ def expected_record_event_tool_output(
     return json.dumps(
         {
             "message": f"Recorded event: {event.event_name}",
-            "event": event.model_dump(mode="json"),
+            "event": RecordedEventResponse.from_recorded_event(event).model_dump(
+                mode="json"
+            ),
         },
         indent=2,
     )
@@ -471,6 +489,20 @@ def make_recorded_event(
     global_severity=1.5,
     created_at=datetime(2026, 6, 29, 12, 0, tzinfo=UTC),
 ) -> RecordedEvent:
+    location = EventLocation.model_validate(
+        event_location
+        or {
+            "raw_text": None,
+            "continent": None,
+            "country_code": None,
+            "region": None,
+            "city": None,
+            "address": None,
+            "place_name": None,
+            "detail": None,
+            "coordinates": None,
+        }
+    )
     return RecordedEvent(
         chat_id=chat_id,
         initiated_by_user_id=TEST_USER_ID,
@@ -489,7 +521,20 @@ def make_recorded_event(
             else None,
             "relative": None,
         },
-        event_location=event_location or {"value": None, "precision": "unknown"},
+        location_raw_text=location.raw_text,
+        location_continent=location.continent,
+        location_country_code=location.country_code,
+        location_region=location.region,
+        location_city=location.city,
+        location_address=location.address,
+        location_place_name=location.place_name,
+        location_detail=location.detail,
+        location_latitude=(
+            location.coordinates.latitude if location.coordinates is not None else None
+        ),
+        location_longitude=(
+            location.coordinates.longitude if location.coordinates is not None else None
+        ),
         tags=tags if tags is not None else ["health_incident"],
         keywords=keywords if keywords is not None else ["symptom", "cough"],
         affected_profession_categories=(
@@ -513,7 +558,10 @@ def expected_recall_events_tool_output(events: list[RecordedEvent]) -> str:
     return json.dumps(
         {
             "message": f"Recalled {len(events)} event(s).",
-            "events": [event.model_dump(mode="json") for event in events],
+            "events": [
+                RecordedEventResponse.from_recorded_event(event).model_dump(mode="json")
+                for event in events
+            ],
         },
         indent=2,
     )

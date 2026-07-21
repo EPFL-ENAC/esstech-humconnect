@@ -9,7 +9,7 @@ from pydantic import (
     model_validator,
 )
 
-from api.models.recorded_event import EventTag
+from api.models.recorded_event import EventLocation, EventTag, RecordedEventResponse
 from api.models.user_profile import ProfessionCategory
 from api.services.chat_room.tools.base import (
     HumConnectTool,
@@ -31,7 +31,6 @@ EventDateGranularity = Literal[
 ]
 EventDatePrecision = Literal["exact", "fuzzy", "unknown"]
 EventRelativeDirection = Literal["past", "future"]
-EventLocationPrecision = Literal["exact", "city", "region", "country", "unknown"]
 TagMatchMode = Literal["all", "any"]
 
 
@@ -146,19 +145,6 @@ class RecordEventDateInput(RecordEventBaseModel):
         return self.relative.resolve_relative_to_datetime(reference).isoformat()
 
 
-class RecordEventLocationInput(RecordEventBaseModel):
-    value: NonEmptyString | None = Field(
-        description="The event location, or null if absent."
-    )
-    precision: EventLocationPrecision
-
-    @model_validator(mode="after")
-    def validate_unknown_location(self) -> Self:
-        if self.value is None and self.precision != "unknown":
-            raise ValueError("missing event locations require unknown precision")
-        return self
-
-
 class RecordEventSeverityInput(RecordEventBaseModel):
     local: float = Field(
         ge=0,
@@ -186,6 +172,10 @@ class RecordEventSeverityInput(RecordEventBaseModel):
             "independently from local and country severity."
         ),
     )
+
+
+class RecordEventLocationInput(EventLocation):
+    pass
 
 
 class RecordEventToolInput(RecordEventBaseModel):
@@ -343,7 +333,10 @@ RECORD_EVENT_TOOL_DESCRIPTION = (
     "Record a user-provided fact or event in persistent storage. "
     "Classify it with all applicable fixed tags, keep free-form search terms in "
     "keywords, and identify affected and responding profession categories when "
-    "they can be inferred. Independently assess severity from 0 to 10 at local, "
+    "they can be inferred. Structure the location into administrative, place, and "
+    "address fields while preserving the exact location phrase in raw_text. Only "
+    "include coordinates when the user explicitly provides them; never estimate "
+    "coordinates. Independently assess severity from 0 to 10 at local, "
     "country, and global scales based on the currently known impact. "
     "Use relative dates for phrases like '3 days ago' so the backend can "
     "resolve them against the current datetime. For fuzzy phrases like "
@@ -383,7 +376,10 @@ async def _recall_events(
     return json.dumps(
         {
             "message": f"Recalled {len(events)} event(s).",
-            "events": [event.model_dump(mode="json") for event in events],
+            "events": [
+                RecordedEventResponse.from_recorded_event(event).model_dump(mode="json")
+                for event in events
+            ],
         },
         indent=2,
     )
