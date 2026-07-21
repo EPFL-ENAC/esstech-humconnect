@@ -27,24 +27,18 @@ def test_recorded_event_service_persists_event_with_initiator_metadata():
     assert persisted_event.source_message_id == RECORDED_EVENT_SOURCE_MESSAGE_ID
     assert persisted_event.original_text == "My son started coughing 3 days ago"
     assert persisted_event.event_name == "Son started coughing"
-    assert persisted_event.event_datetime == datetime(2026, 6, 26, 12, 0, tzinfo=UTC)
+    assert persisted_event.event_datetime == datetime(2026, 6, 26, 0, 0, tzinfo=UTC)
     assert persisted_event.event_date_granularity == "day"
     assert persisted_event.event_date_precision == "exact"
     assert persisted_event.event_date_input == {
-        "kind": "relative",
-        "granularity": "day",
+        "year": None,
+        "month": None,
+        "week": None,
+        "day": {"kind": "relative", "value": -3},
+        "hour": None,
+        "minute": None,
         "precision": "exact",
-        "value": None,
-        "relative": {
-            "direction": "past",
-            "years": None,
-            "months": None,
-            "weeks": None,
-            "days": 3,
-            "hours": None,
-            "minutes": None,
-            "precision": "exact",
-        },
+        "timezone": None,
     }
     assert persisted_event.event_location().model_dump(mode="json") == {
         "raw_text": None,

@@ -426,11 +426,12 @@ def test_recall_events_tool_rejects_invalid_date_range():
         asyncio.run(run())
 
 
-def test_record_event_tool_schema_exposes_relative_date_shape():
+def test_record_event_tool_schema_exposes_component_date_shape():
     parameters = RECORD_EVENT_TOOL.definition["parameters"]
     defs = parameters["$defs"]
     event_date_schema = defs["RecordEventDateInput"]
-    relative_schema = defs["RecordEventRelativeDateInput"]
+    temporal_entry_schema = defs["RecordEventTemporalEntryInput"]
+    relative_entry_schema = defs["RecordEventRelativeTemporalEntryInput"]
     location_schema = defs["RecordEventLocationInput"]
     coordinates_schema = defs["EventCoordinates"]
     severity_schema = parameters["properties"]["severity"]
@@ -439,28 +440,24 @@ def test_record_event_tool_schema_exposes_relative_date_shape():
     assert RECORD_EVENT_TOOL.definition["strict"] is True
     assert parameters["additionalProperties"] is False
     assert event_date_schema["additionalProperties"] is False
-    assert relative_schema["additionalProperties"] is False
+    assert temporal_entry_schema["additionalProperties"] is False
+    assert relative_entry_schema["additionalProperties"] is False
     assert location_schema["additionalProperties"] is False
     assert parameters["properties"]["event_date"] == {
         "$ref": "#/$defs/RecordEventDateInput"
     }
     assert event_date_schema["required"] == [
-        "kind",
-        "granularity",
+        "year",
+        "month",
+        "week",
+        "day",
+        "hour",
+        "minute",
         "precision",
-        "value",
-        "relative",
+        "timezone",
     ]
-    assert relative_schema["required"] == [
-        "direction",
-        "years",
-        "months",
-        "weeks",
-        "days",
-        "hours",
-        "minutes",
-        "precision",
-    ]
+    assert temporal_entry_schema["required"] == ["kind", "value"]
+    assert relative_entry_schema["required"] == ["kind", "value"]
     assert parameters["properties"]["original_text"]["description"] == (
         "The exact user text that contains the event."
     )
@@ -513,14 +510,15 @@ def test_record_event_tool_schema_exposes_relative_date_shape():
         "response_profession_categories",
         "severity",
     ]
-    assert event_date_schema["properties"]["value"]["description"].startswith(
-        "For absolute dates"
-    )
-    assert relative_schema["properties"]["direction"]["enum"] == ["past", "future"]
-    assert relative_schema["properties"]["days"]["anyOf"] == [
-        {"minimum": 0, "type": "integer"},
-        {"type": "null"},
+    assert temporal_entry_schema["properties"]["kind"]["enum"] == [
+        "absolute",
+        "relative",
     ]
+    assert relative_entry_schema["properties"]["kind"]["const"] == "relative"
+    assert temporal_entry_schema["properties"]["value"]["type"] == "integer"
+    assert event_date_schema["properties"]["timezone"]["description"].startswith(
+        "An IANA timezone"
+    )
 
 
 def test_record_event_tool_accepts_json_stringified_structured_fields(monkeypatch):
@@ -544,7 +542,7 @@ def test_record_event_tool_accepts_json_stringified_structured_fields(monkeypatc
 
     output = asyncio.run(run())
     [persisted_event] = recorded_events()
-    assert persisted_event.event_datetime == datetime(2026, 6, 26, 12, 0, tzinfo=UTC)
+    assert persisted_event.event_datetime == datetime(2026, 6, 26, 0, 0, tzinfo=UTC)
     assert persisted_event.tags == ["health_incident"]
     assert persisted_event.keywords == ["symptom", "cough"]
     assert persisted_event.affected_profession_categories == ["medical_clinical"]
@@ -703,11 +701,14 @@ def test_record_event_tool_accepts_absolute_datetime(monkeypatch):
     configure_recorded_event_service(monkeypatch)
     arguments = structured_record_event_arguments()
     arguments["event_date"] = {
-        "kind": "absolute",
-        "granularity": "minute",
+        "year": {"kind": "absolute", "value": 2026},
+        "month": {"kind": "absolute", "value": 6},
+        "week": None,
+        "day": {"kind": "absolute", "value": 29},
+        "hour": {"kind": "absolute", "value": 8},
+        "minute": {"kind": "absolute", "value": 15},
         "precision": "exact",
-        "value": "2026-06-29T08:15:00+02:00",
-        "relative": None,
+        "timezone": "Europe/Zurich",
     }
 
     async def run():
@@ -715,8 +716,8 @@ def test_record_event_tool_accepts_absolute_datetime(monkeypatch):
 
     output = asyncio.run(run())
     [persisted_event] = recorded_events()
-    assert persisted_event.event_datetime is not None
-    assert persisted_event.event_datetime.isoformat() == "2026-06-29T08:15:00+02:00"
+    assert persisted_event.event_datetime == datetime(2026, 6, 29, 6, 15, tzinfo=UTC)
+    assert persisted_event.event_date_granularity == "minute"
     assert output == expected_record_event_tool_output(persisted_event)
 
 
@@ -725,11 +726,14 @@ def test_record_event_tool_accepts_absolute_date(monkeypatch):
     configure_recorded_event_service(monkeypatch)
     arguments = structured_record_event_arguments()
     arguments["event_date"] = {
-        "kind": "absolute",
-        "granularity": "day",
+        "year": {"kind": "absolute", "value": 2026},
+        "month": {"kind": "absolute", "value": 6},
+        "week": None,
+        "day": {"kind": "absolute", "value": 29},
+        "hour": None,
+        "minute": None,
         "precision": "exact",
-        "value": "2026-06-29",
-        "relative": None,
+        "timezone": None,
     }
 
     async def run():
@@ -745,35 +749,41 @@ def test_record_event_tool_accepts_fuzzy_relative_datetime(monkeypatch):
     FakeAsyncSession.reset()
     configure_recorded_event_service(monkeypatch)
     arguments = structured_record_event_arguments()
-    arguments["event_date"]["granularity"] = "week"
-    arguments["event_date"]["precision"] = "fuzzy"
-    arguments["event_date"]["relative"]["weeks"] = 3
-    del arguments["event_date"]["relative"]["days"]
-    arguments["event_date"]["relative"]["precision"] = "fuzzy"
+    arguments["event_date"] = {
+        "year": None,
+        "month": None,
+        "week": {"kind": "relative", "value": -3},
+        "day": None,
+        "hour": None,
+        "minute": None,
+        "precision": "fuzzy",
+        "timezone": None,
+    }
 
     async def run():
         return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
 
     output = asyncio.run(run())
     [persisted_event] = recorded_events()
-    assert persisted_event.event_datetime == datetime(2026, 6, 8, 12, 0, tzinfo=UTC)
+    assert persisted_event.event_datetime == datetime(2026, 6, 8, 0, 0, tzinfo=UTC)
+    assert persisted_event.event_date_granularity == "week"
     assert persisted_event.event_date_precision == "fuzzy"
     assert output == expected_record_event_tool_output(persisted_event)
 
 
-def test_record_event_tool_accepts_sparse_relative_datetime(monkeypatch):
+def test_record_event_tool_accepts_relative_clock_datetime(monkeypatch):
     FakeAsyncSession.reset()
     configure_recorded_event_service(monkeypatch)
     arguments = structured_record_event_arguments()
     arguments["event_date"] = {
-        "kind": "relative",
-        "granularity": "minute",
+        "year": None,
+        "month": None,
+        "week": None,
+        "day": None,
+        "hour": None,
+        "minute": {"kind": "relative", "value": -30},
         "precision": "exact",
-        "relative": {
-            "direction": "past",
-            "minutes": 30,
-            "precision": "exact",
-        },
+        "timezone": None,
     }
 
     async def run():
@@ -785,25 +795,19 @@ def test_record_event_tool_accepts_sparse_relative_datetime(monkeypatch):
     assert output == expected_record_event_tool_output(persisted_event)
 
 
-def test_record_event_tool_accepts_strict_nullable_relative_datetime(monkeypatch):
+def test_record_event_tool_resolves_yesterday_at_absolute_hour(monkeypatch):
     FakeAsyncSession.reset()
     configure_recorded_event_service(monkeypatch)
     arguments = structured_record_event_arguments()
     arguments["event_date"] = {
-        "kind": "relative",
-        "granularity": "minute",
+        "year": None,
+        "month": None,
+        "week": None,
+        "day": {"kind": "relative", "value": -1},
+        "hour": {"kind": "absolute", "value": 20},
+        "minute": None,
         "precision": "exact",
-        "value": None,
-        "relative": {
-            "direction": "past",
-            "years": None,
-            "months": None,
-            "weeks": None,
-            "days": None,
-            "hours": None,
-            "minutes": 30,
-            "precision": "exact",
-        },
+        "timezone": "Europe/Zurich",
     }
 
     async def run():
@@ -811,7 +815,33 @@ def test_record_event_tool_accepts_strict_nullable_relative_datetime(monkeypatch
 
     output = asyncio.run(run())
     [persisted_event] = recorded_events()
-    assert persisted_event.event_datetime == datetime(2026, 6, 29, 11, 30, tzinfo=UTC)
+    assert persisted_event.event_datetime == datetime(2026, 6, 28, 18, 0, tzinfo=UTC)
+    assert persisted_event.event_date_granularity == "hour"
+    assert output == expected_record_event_tool_output(persisted_event)
+
+
+def test_record_event_tool_resolves_fifth_of_last_month(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    arguments = structured_record_event_arguments()
+    arguments["event_date"] = {
+        "year": None,
+        "month": {"kind": "relative", "value": -1},
+        "week": None,
+        "day": {"kind": "absolute", "value": 5},
+        "hour": None,
+        "minute": None,
+        "precision": "exact",
+        "timezone": "Europe/Zurich",
+    }
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    output = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.event_datetime == datetime(2026, 5, 4, 22, 0, tzinfo=UTC)
+    assert persisted_event.event_date_granularity == "day"
     assert output == expected_record_event_tool_output(persisted_event)
 
 
@@ -820,11 +850,14 @@ def test_record_event_tool_accepts_unknown_datetime(monkeypatch):
     configure_recorded_event_service(monkeypatch)
     arguments = structured_record_event_arguments()
     arguments["event_date"] = {
-        "kind": "unknown",
-        "granularity": "unknown",
+        "year": None,
+        "month": None,
+        "week": None,
+        "day": None,
+        "hour": None,
+        "minute": None,
         "precision": "unknown",
-        "value": None,
-        "relative": None,
+        "timezone": None,
     }
 
     async def run():
@@ -840,56 +873,64 @@ def test_record_event_tool_accepts_unknown_datetime(monkeypatch):
     "event_date",
     [
         {
-            "kind": "relative",
-            "granularity": "day",
+            "year": None,
+            "month": None,
+            "week": None,
+            "day": None,
+            "hour": None,
+            "minute": None,
             "precision": "exact",
-            "relative": {
-                "direction": "past",
-                "precision": "exact",
-            },
+            "timezone": None,
         },
         {
-            "kind": "relative",
-            "granularity": "day",
+            "year": None,
+            "month": None,
+            "week": None,
+            "day": {"kind": "absolute", "value": 32},
+            "hour": None,
+            "minute": None,
             "precision": "exact",
-            "value": None,
-            "relative": {
-                "direction": "past",
-                "years": None,
-                "months": None,
-                "weeks": None,
-                "days": None,
-                "hours": None,
-                "minutes": None,
-                "precision": "exact",
-            },
+            "timezone": None,
         },
         {
-            "kind": "relative",
-            "granularity": "day",
+            "year": None,
+            "month": {"kind": "absolute", "value": 13},
+            "week": None,
+            "day": None,
+            "hour": None,
+            "minute": None,
             "precision": "exact",
-            "relative": {
-                "direction": "past",
-                "days": -1,
-                "precision": "exact",
-            },
+            "timezone": None,
         },
         {
-            "kind": "absolute",
-            "granularity": "day",
+            "year": None,
+            "month": None,
+            "week": {"kind": "absolute", "value": 1},
+            "day": None,
+            "hour": None,
+            "minute": None,
             "precision": "exact",
-            "value": None,
+            "timezone": None,
         },
         {
-            "kind": "absolute",
-            "granularity": "day",
-            "precision": "exact",
-            "value": "not-a-date",
-        },
-        {
-            "kind": "unknown",
-            "granularity": "day",
+            "year": None,
+            "month": None,
+            "week": None,
+            "day": {"kind": "relative", "value": -1},
+            "hour": None,
+            "minute": None,
             "precision": "unknown",
+            "timezone": None,
+        },
+        {
+            "year": None,
+            "month": None,
+            "week": None,
+            "day": {"kind": "relative", "value": -1},
+            "hour": None,
+            "minute": None,
+            "precision": "exact",
+            "timezone": "Not/A_Timezone",
         },
     ],
 )
@@ -999,20 +1040,88 @@ def test_recall_events_tool_rejects_unknown_or_duplicate_fixed_tags():
         asyncio.run(run(["health_incident", "health_incident"]))
 
 
-def test_resolve_relative_datetime_handles_calendar_and_clock_units():
+def component_event_date_input(
+    **overrides: object,
+) -> events_tool_module.RecordEventDateInput:
+    values: dict[str, object] = {
+        "year": None,
+        "month": None,
+        "week": None,
+        "day": None,
+        "hour": None,
+        "minute": None,
+        "precision": "exact",
+        "timezone": None,
+    }
+    values.update(overrides)
+    return events_tool_module.RecordEventDateInput.model_validate(values)
+
+
+def test_resolve_component_datetime_handles_calendar_and_clock_units():
     reference = datetime(2026, 6, 29, 12, 0, tzinfo=UTC)
-    relative = events_tool_module.RecordEventRelativeDateInput(
-        direction="past",
-        years=1,
-        months=2,
-        weeks=1,
-        days=3,
-        hours=4,
-        minutes=5,
-        precision="exact",
+    event_date = component_event_date_input(
+        year={"kind": "relative", "value": -1},
+        month={"kind": "relative", "value": -2},
+        week={"kind": "relative", "value": -1},
+        day={"kind": "relative", "value": -3},
+        hour={"kind": "relative", "value": -4},
+        minute={"kind": "relative", "value": -5},
     )
 
-    assert (
-        relative.resolve_relative_to_datetime(reference).isoformat()
-        == "2025-04-19T07:55:00+00:00"
+    resolved = event_date.resolve_event_datetime(reference)
+    assert resolved is not None
+    assert resolved.isoformat() == "2025-04-19T07:55:00+00:00"
+
+
+def test_resolve_component_datetime_rejects_invalid_absolute_day():
+    event_date = component_event_date_input(
+        year={"kind": "absolute", "value": 2026},
+        month={"kind": "absolute", "value": 2},
+        day={"kind": "absolute", "value": 31},
     )
+
+    with pytest.raises(ValueError, match="absolute day is invalid"):
+        event_date.resolve_event_datetime(datetime(2026, 1, 1, tzinfo=UTC))
+
+
+def test_resolve_component_datetime_rejects_nonexistent_dst_time():
+    event_date = component_event_date_input(
+        year={"kind": "absolute", "value": 2026},
+        month={"kind": "absolute", "value": 3},
+        day={"kind": "absolute", "value": 29},
+        hour={"kind": "absolute", "value": 2},
+        minute={"kind": "absolute", "value": 30},
+        timezone="Europe/Zurich",
+    )
+
+    with pytest.raises(ValueError, match="nonexistent local time"):
+        event_date.resolve_event_datetime(datetime(2026, 1, 1, tzinfo=UTC))
+
+
+def test_resolve_component_datetime_uses_earlier_ambiguous_dst_time():
+    event_date = component_event_date_input(
+        year={"kind": "absolute", "value": 2026},
+        month={"kind": "absolute", "value": 10},
+        day={"kind": "absolute", "value": 25},
+        hour={"kind": "absolute", "value": 2},
+        minute={"kind": "absolute", "value": 30},
+        timezone="Europe/Zurich",
+    )
+
+    resolved = event_date.resolve_event_datetime(datetime(2026, 1, 1, tzinfo=UTC))
+    assert resolved is not None
+    assert resolved.fold == 0
+    assert resolved.astimezone(UTC) == datetime(2026, 10, 25, 0, 30, tzinfo=UTC)
+
+
+def test_resolve_relative_hour_uses_elapsed_time_across_dst():
+    event_date = component_event_date_input(
+        hour={"kind": "relative", "value": 1},
+        timezone="Europe/Zurich",
+    )
+
+    resolved = event_date.resolve_event_datetime(
+        datetime(2026, 3, 29, 0, 30, tzinfo=UTC)
+    )
+    assert resolved is not None
+    assert resolved.isoformat() == "2026-03-29T03:30:00+02:00"

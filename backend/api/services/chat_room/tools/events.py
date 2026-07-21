@@ -1,11 +1,14 @@
 import json
-from datetime import datetime
+from calendar import monthrange
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Self
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_validator,
     model_validator,
 )
 
@@ -16,21 +19,14 @@ from api.services.chat_room.tools.base import (
     ToolExecutionContext,
 )
 from api.services.recorded_events import RecordedEventService
-from api.utils.datetime_utils import (
-    iso_date_to_utc_datetime,
-    parse_iso_datetime,
-)
+from api.utils.datetime_utils import parse_iso_datetime
 from api.utils.pydantic_types import NonEmptyString
-from api.utils.relative_dates import (
-    resolve_relative_datetime as resolve_relative_datetime_from_units,
-)
+from api.utils.relative_dates import add_calendar_months
 
-EventDateKind = Literal["absolute", "relative", "unknown"]
 EventDateGranularity = Literal[
     "minute", "hour", "day", "week", "month", "year", "unknown"
 ]
 EventDatePrecision = Literal["exact", "fuzzy", "unknown"]
-EventRelativeDirection = Literal["past", "future"]
 TagMatchMode = Literal["all", "any"]
 
 
@@ -38,111 +34,178 @@ class RecordEventBaseModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
-class RecordEventRelativeDateInput(RecordEventBaseModel):
-    direction: EventRelativeDirection = Field(
+class RecordEventTemporalEntryInput(RecordEventBaseModel):
+    kind: Literal["absolute", "relative"]
+    value: int = Field(
         description=(
-            "Use past for phrases like 'ago' or 'before'; use future for phrases "
-            "like 'in 2 days'."
+            "The calendar or clock value when kind is absolute, or a signed "
+            "offset when kind is relative. Negative offsets refer to the past."
         )
     )
-    years: int | None = Field(default=None, ge=0)
-    months: int | None = Field(default=None, ge=0)
-    weeks: int | None = Field(default=None, ge=0)
-    days: int | None = Field(default=None, ge=0)
-    hours: int | None = Field(default=None, ge=0)
-    minutes: int | None = Field(default=None, ge=0)
-    precision: Literal["exact", "fuzzy"]
 
-    @model_validator(mode="after")
-    def require_at_least_one_unit(self) -> Self:
-        if not any(
-            [
-                self.years,
-                self.months,
-                self.weeks,
-                self.days,
-                self.hours,
-                self.minutes,
-            ]
-        ):
-            raise ValueError("relative event dates require at least one non-zero unit")
-        return self
 
-    def resolve_relative_to_datetime(self, reference: datetime) -> datetime:
-        return resolve_relative_datetime_from_units(
-            reference,
-            direction=self.direction,
-            years=self.years or 0,
-            months=self.months or 0,
-            weeks=self.weeks or 0,
-            days=self.days or 0,
-            hours=self.hours or 0,
-            minutes=self.minutes or 0,
+class RecordEventRelativeTemporalEntryInput(RecordEventBaseModel):
+    kind: Literal["relative"]
+    value: int = Field(
+        description=(
+            "A signed offset. Negative values refer to the past and positive "
+            "values refer to the future."
         )
+    )
 
 
 class RecordEventDateInput(RecordEventBaseModel):
-    kind: EventDateKind
-    granularity: EventDateGranularity
+    year: RecordEventTemporalEntryInput | None
+    month: RecordEventTemporalEntryInput | None
+    week: RecordEventRelativeTemporalEntryInput | None
+    day: RecordEventTemporalEntryInput | None
+    hour: RecordEventTemporalEntryInput | None
+    minute: RecordEventTemporalEntryInput | None
     precision: EventDatePrecision
-    value: str | None = Field(
-        default=None,
+    timezone: str | None = Field(
         description=(
-            "For absolute dates, an ISO date (YYYY-MM-DD) when granularity is "
-            "day/week/month/year, or an ISO 8601 datetime when granularity is "
-            "hour/minute. Use null for relative or unknown dates."
-        ),
+            "An IANA timezone such as Europe/Zurich when it can be inferred "
+            "unambiguously from the event; otherwise null to use UTC."
+        )
     )
-    relative: RecordEventRelativeDateInput | None = Field(
-        default=None,
-        description=(
-            "Required only when kind is relative. For '2 days ago', use direction "
-            "'past', days 2, precision 'exact'. For 'in a few weeks', use "
-            "direction 'future', weeks 3, precision 'fuzzy'."
-        ),
-    )
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("timezone must be a valid IANA timezone") from exc
+        return value
 
     @model_validator(mode="after")
-    def validate_shape_for_kind(self) -> Self:
-        if self.kind == "absolute":
-            if self.relative is not None:
-                raise ValueError("absolute event dates cannot include relative offsets")
-            if self.value is None:
-                raise ValueError("absolute event dates require a value")
-            if self.granularity in {"minute", "hour"}:
-                parse_iso_datetime(self.value)
-            else:
-                iso_date_to_utc_datetime(self.value)
-        elif self.kind == "relative":
-            if self.relative is None:
-                raise ValueError("relative event dates require relative offsets")
-            if self.value is not None:
-                raise ValueError("relative event dates cannot include absolute values")
-            if self.precision != self.relative.precision:
+    def validate_components(self) -> Self:
+        component_names = ("year", "month", "week", "day", "hour", "minute")
+        components = {
+            name: getattr(self, name)
+            for name in component_names
+            if getattr(self, name) is not None
+        }
+        if not components:
+            if self.precision != "unknown" or self.timezone is not None:
                 raise ValueError(
-                    "relative event date precision must match relative precision"
+                    "unknown event dates require unknown precision and no timezone"
                 )
-        else:
-            if self.value is not None or self.relative is not None:
-                raise ValueError("unknown event dates cannot include date values")
-            if self.granularity != "unknown" or self.precision != "unknown":
-                raise ValueError(
-                    "unknown event dates require unknown granularity and precision"
-                )
+            return self
+        if self.precision == "unknown":
+            raise ValueError("known event dates require exact or fuzzy precision")
+
+        absolute_bounds = {
+            "year": (1, 9999),
+            "month": (1, 12),
+            "day": (1, 31),
+            "hour": (0, 23),
+            "minute": (0, 59),
+        }
+        for name, component in components.items():
+            if component.kind != "absolute":
+                continue
+            lower, upper = absolute_bounds[name]
+            if not lower <= component.value <= upper:
+                raise ValueError(f"absolute {name} must be between {lower} and {upper}")
         return self
 
-    def resolve_event_datetime(self, reference: datetime) -> str | None:
-        if self.kind == "unknown":
+    @property
+    def granularity(self) -> EventDateGranularity:
+        for name in ("minute", "hour", "day", "week", "month", "year"):
+            if getattr(self, name) is not None:
+                return name
+        return "unknown"
+
+    @staticmethod
+    def _replace_year_or_month(
+        value: datetime,
+        *,
+        year: int | None = None,
+        month: int | None = None,
+    ) -> datetime:
+        target_year = year if year is not None else value.year
+        target_month = month if month is not None else value.month
+        target_day = min(value.day, monthrange(target_year, target_month)[1])
+        return value.replace(year=target_year, month=target_month, day=target_day)
+
+    @staticmethod
+    def _is_valid_local_datetime(value: datetime, zone: ZoneInfo) -> bool:
+        round_trip = value.astimezone(UTC).astimezone(zone)
+        return round_trip.replace(fold=value.fold) == value
+
+    def _normalize_calendar_only(self, value: datetime) -> datetime:
+        granularity = self.granularity
+        if granularity == "year":
+            return value.replace(month=1, day=1, hour=0, minute=0)
+        if granularity == "month":
+            return value.replace(day=1, hour=0, minute=0)
+        if granularity == "week":
+            return (value - timedelta(days=value.weekday())).replace(hour=0, minute=0)
+        return value.replace(hour=0, minute=0)
+
+    def resolve_event_datetime(self, reference: datetime) -> datetime | None:
+        if self.granularity == "unknown":
             return None
-        if self.kind == "absolute":
-            if self.value is None:
-                return None
-            if self.granularity in {"minute", "hour"}:
-                return parse_iso_datetime(self.value).isoformat()
-            return iso_date_to_utc_datetime(self.value).isoformat()
-        if self.relative is None:
-            return None
-        return self.relative.resolve_relative_to_datetime(reference).isoformat()
+
+        zone = ZoneInfo(self.timezone or "UTC")
+        resolved = reference.astimezone(zone).replace(second=0, microsecond=0, fold=0)
+
+        if self.year is not None:
+            if self.year.kind == "relative":
+                resolved = add_calendar_months(resolved, self.year.value * 12)
+            else:
+                resolved = self._replace_year_or_month(resolved, year=self.year.value)
+
+        if self.month is not None:
+            if self.month.kind == "relative":
+                resolved = add_calendar_months(resolved, self.month.value)
+            else:
+                resolved = self._replace_year_or_month(resolved, month=self.month.value)
+
+        if self.week is not None:
+            resolved += timedelta(weeks=self.week.value)
+
+        if self.day is not None:
+            if self.day.kind == "relative":
+                resolved += timedelta(days=self.day.value)
+            else:
+                try:
+                    resolved = resolved.replace(day=self.day.value)
+                except ValueError as exc:
+                    raise ValueError(
+                        "absolute day is invalid for the resolved month"
+                    ) from exc
+
+        if self.hour is not None:
+            if self.hour.kind == "relative":
+                resolved = (
+                    resolved.astimezone(UTC) + timedelta(hours=self.hour.value)
+                ).astimezone(zone)
+            else:
+                resolved = resolved.replace(
+                    hour=self.hour.value,
+                    minute=0 if self.minute is None else resolved.minute,
+                    fold=0,
+                )
+
+        if self.minute is not None:
+            if self.minute.kind == "relative":
+                resolved = (
+                    resolved.astimezone(UTC) + timedelta(minutes=self.minute.value)
+                ).astimezone(zone)
+            else:
+                resolved = resolved.replace(minute=self.minute.value, fold=0)
+
+        if self.hour is None and self.minute is None:
+            resolved = self._normalize_calendar_only(resolved)
+
+        resolved = resolved.replace(second=0, microsecond=0)
+        if not self._is_valid_local_datetime(resolved, zone):
+            raise ValueError("event date resolves to a nonexistent local time")
+        return resolved
 
 
 class RecordEventSeverityInput(RecordEventBaseModel):
@@ -338,9 +401,13 @@ RECORD_EVENT_TOOL_DESCRIPTION = (
     "include coordinates when the user explicitly provides them; never estimate "
     "coordinates. Independently assess severity from 0 to 10 at local, "
     "country, and global scales based on the currently known impact. "
-    "Use relative dates for phrases like '3 days ago' so the backend can "
-    "resolve them against the current datetime. For fuzzy phrases like "
-    "'a few weeks ago', use the numeric value 3 and precision 'fuzzy'."
+    "Express dates with absolute calendar or clock values and signed relative "
+    "offsets for each supplied component. For 'yesterday at 8pm', use relative "
+    "day -1 and absolute hour 20. For 'the 5th of last month', use relative "
+    "month -1 and absolute day 5. For 'in 2 hours', use relative hour 2. For "
+    "'a few weeks ago', use relative week -3 and fuzzy precision. Supply an "
+    "IANA timezone such as Europe/Zurich when the event location makes it "
+    "unambiguous; otherwise use null and the backend will resolve in UTC."
 )
 
 

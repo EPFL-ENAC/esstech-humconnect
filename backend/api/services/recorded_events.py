@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -10,7 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
 from api.db import get_engine
 from api.models.recorded_event import RecordedEvent
-from api.utils.datetime_utils import parse_iso_datetime, utc_now
+from api.utils.datetime_utils import utc_now
 
 if TYPE_CHECKING:
     from api.services.chat_room.tools.events import (
@@ -39,12 +39,12 @@ class RecordedEventService:
         user_id: UUID,
         source_message_id: UUID,
     ) -> RecordedEvent:
-        event_datetime_value = event_input.event_date.resolve_event_datetime(
+        resolved_event_datetime = event_input.event_date.resolve_event_datetime(
             self._now_factory()
         )
         event_datetime = (
-            parse_iso_datetime(event_datetime_value)
-            if event_datetime_value is not None
+            resolved_event_datetime.astimezone(UTC)
+            if resolved_event_datetime is not None
             else None
         )
         recorded_event = RecordedEvent(

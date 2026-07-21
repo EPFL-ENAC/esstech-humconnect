@@ -398,14 +398,14 @@ def structured_record_event_arguments():
         "original_text": "My son started coughing 3 days ago",
         "event_name": "Son started coughing",
         "event_date": {
-            "kind": "relative",
-            "granularity": "day",
+            "year": None,
+            "month": None,
+            "week": None,
+            "day": {"kind": "relative", "value": -3},
+            "hour": None,
+            "minute": None,
             "precision": "exact",
-            "relative": {
-                "direction": "past",
-                "days": 3,
-                "precision": "exact",
-            },
+            "timezone": None,
         },
         "event_location": {
             "raw_text": None,
