@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import Column, DateTime
 from sqlmodel import Field, SQLModel
+from sqlmodel.sql.sqltypes import AutoString
 
 from api.utils.datetime_utils import utc_now
 
@@ -65,7 +66,9 @@ class RootCauseAnalysisStep(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     analysis_id: UUID = Field(foreign_key="rootcauseanalysis.id", index=True)
-    step_type: str = Field(index=True)
+    step_type: RootCauseAnalysisStepType = Field(
+        sa_column=Column(AutoString, nullable=False, index=True)
+    )
     level: int | None = Field(default=None, index=True)
     position: int = Field(index=True)
     content: str
