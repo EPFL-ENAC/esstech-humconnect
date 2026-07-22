@@ -35,8 +35,8 @@ from api.services.chat_room.tools.base import ToolExecutionContext
 ModelInputMessage = EasyInputMessageParam
 MAX_TOOL_CALL_ROUNDS = 5
 BASE_INSTRUCTIONS = (
-    "When the user states a problem, run a 5 Whys analysis "
-    "starting with the create_analysis tool call to find the root cause. "
+    "When the user states a problem, run a 5 Whys root cause analysis by calling "
+    "the create_analysis tool. "
     "Don't hesitate to record events when they could be useful for later queries. "
     "Events are used in a global context to help with emergencies, health hazard, etc. "
     "In the case that you don't have all the information needed to create an event, "

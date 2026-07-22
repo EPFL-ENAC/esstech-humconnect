@@ -144,7 +144,7 @@ class CreateAnalysisInput(RootCauseAnalysisBaseModel):
     problem_statement: NonEmptyString = Field(
         description=(
             "The problem or incident being investigated, stated clearly and "
-            "factually. This is the starting point of the 5 Whys analysis."
+            "factually. Starting point of the 5 Whys analysis."
         )
     )
 
@@ -153,9 +153,9 @@ class SaveWhyQuestionInput(RootCauseAnalysisBaseModel):
     analysis_id: NonEmptyString = Field(description="ID of the analysis session.")
     question: NonEmptyString = Field(
         description=(
-            "The 'why' question for the next level. It should ask why the "
-            "previous answer occurred, or why the problem statement occurred "
-            "for level 1. The level is assigned automatically; do not pass one."
+            "The 'why' question for the next level. It should ask a SINGLE question "
+            "to understand why the previous answer occurred, or why the problem "
+            "statement occurred (for level 1)."
         )
     )
 
@@ -164,8 +164,7 @@ class SaveWhyAnswerInput(RootCauseAnalysisBaseModel):
     analysis_id: NonEmptyString = Field(description="ID of the analysis session.")
     answer: NonEmptyString = Field(
         description=(
-            "The cause identified at the current level. State a concrete cause, "
-            "not a symptom. The level is assigned automatically; do not pass one."
+            "The cause identified at the current level, stated by the user or another tool call."
         )
     )
 
@@ -178,9 +177,9 @@ class SetRootCauseInput(RootCauseAnalysisBaseModel):
     analysis_id: NonEmptyString = Field(description="ID of the analysis session.")
     root_cause: NonEmptyString = Field(
         description=(
-            "The final, actionable root cause statement: something that can be "
-            "fixed. May be set after any completed question/answer pair once the "
-            "fundamental cause is clear, before or at 5 levels."
+            "The final root cause statement. "
+            "Must be set after any completed question/answer pair once the "
+            "fundamental cause is clear of if the user wants to, before or at 5 levels."
         )
     )
 
@@ -305,16 +304,18 @@ async def _list_analyses(
 
 CREATE_ANALYSIS_TOOL_DESCRIPTION = (
     "Start a 5 Whys root cause analysis by recording the problem statement; "
-    "returns an analysis_id. Then alternate save_why_question and "
-    "save_why_answer (level auto-assigned, max 5), calling get_analysis before "
-    "each step, and finish with set_root_cause (allowed before 5 levels). "
-    "Only ask one question at a time. Questions should only come from you. "
-    "Answers should only come from the user or tool outputs."
+    "returns an analysis_id. Then, alternate tool calls to save_why_question and "
+    "save_why_answer (max 5 levels), "
+    "and finish with set_root_cause (allowed before 5 levels). "
+    "Use get_analysis to check the current state of an analysis. "
+    "Only ask a SINGLE question at a time. Questions should only come from you. "
+    "Answers should only come from the user or tool outputs. "
+    "Don't call create_analysis again if the analysis is already in progress."
 )
 
 SAVE_WHY_QUESTION_TOOL_DESCRIPTION = (
-    "Save the next 'why' question. Ask why the previous answer - or the "
-    "problem statement for level 1 - occurred."
+    "Save the next 'why' question. Ask why the previous answer or the "
+    "problem statement occurred, with a single question."
 )
 
 SAVE_WHY_ANSWER_TOOL_DESCRIPTION = (
@@ -324,11 +325,11 @@ SAVE_WHY_ANSWER_TOOL_DESCRIPTION = (
 
 GET_ANALYSIS_TOOL_DESCRIPTION = (
     "Read an analysis's current state: steps, current level, and next expected "
-    "action. Call before each write."
+    "action. Call before a write to recall the current analysis state."
 )
 
 SET_ROOT_CAUSE_TOOL_DESCRIPTION = (
-    "Record the final, actionable root cause and mark the analysis completed."
+    "Record the final root cause and mark the analysis completed."
 )
 
 LIST_ANALYSES_TOOL_DESCRIPTION = (
