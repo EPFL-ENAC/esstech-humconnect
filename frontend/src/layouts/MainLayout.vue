@@ -2,7 +2,13 @@
     <q-layout view="hHh LpR lFf">
         <q-header>
             <q-toolbar class="q-px-md">
-                EPFL
+                <q-img
+                    src="/epfl.svg"
+                    alt="EPFL logo"
+                    class="logo q-mr-sm"
+                    no-spinner
+                    style="width: 96px"
+                />
                 <q-toolbar-title> {{ t('appTitle') }} </q-toolbar-title>
                 <q-btn flat round icon="logout" @click="logout">
                     <q-tooltip>{{ t('auth.logout') }}</q-tooltip>
