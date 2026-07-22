@@ -158,14 +158,14 @@ class RootCauseAnalysisService:
         self,
         *,
         analysis_id: UUID,
-        user_id: UUID,
+        chat_id: UUID,
         question: str,
     ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
         async with self._session_factory(
             self._engine_factory(),
             expire_on_commit=False,
         ) as session:
-            analysis, steps = await self._load(session, analysis_id, user_id)
+            analysis, steps = await self._load(session, analysis_id, chat_id)
             state = compute_analysis_state(steps, status=analysis.status)
             if not state.can_ask_next_why:
                 reason = self._question_rejection_reason(state)
@@ -193,14 +193,14 @@ class RootCauseAnalysisService:
         self,
         *,
         analysis_id: UUID,
-        user_id: UUID,
+        chat_id: UUID,
         answer: str,
     ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
         async with self._session_factory(
             self._engine_factory(),
             expire_on_commit=False,
         ) as session:
-            analysis, steps = await self._load(session, analysis_id, user_id)
+            analysis, steps = await self._load(session, analysis_id, chat_id)
             state = compute_analysis_state(steps, status=analysis.status)
             if state.next_expected != "answer":
                 reason = self._answer_rejection_reason(state)
@@ -228,14 +228,14 @@ class RootCauseAnalysisService:
         self,
         *,
         analysis_id: UUID,
-        user_id: UUID,
+        chat_id: UUID,
         root_cause: str,
     ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
         async with self._session_factory(
             self._engine_factory(),
             expire_on_commit=False,
         ) as session:
-            analysis, steps = await self._load(session, analysis_id, user_id)
+            analysis, steps = await self._load(session, analysis_id, chat_id)
             state = compute_analysis_state(steps, status=analysis.status)
             if not state.can_set_root_cause:
                 reason = self._root_cause_rejection_reason(state)
@@ -263,18 +263,18 @@ class RootCauseAnalysisService:
         self,
         *,
         analysis_id: UUID,
-        user_id: UUID,
+        chat_id: UUID,
     ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
         async with self._session_factory(
             self._engine_factory(),
             expire_on_commit=False,
         ) as session:
-            return await self._load(session, analysis_id, user_id)
+            return await self._load(session, analysis_id, chat_id)
 
     async def list_analyses(
         self,
         *,
-        user_id: UUID,
+        chat_id: UUID,
         status: AnalysisStatus | None = None,
     ) -> list[tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]]:
         async with self._session_factory(
@@ -283,7 +283,7 @@ class RootCauseAnalysisService:
         ) as session:
             query = (
                 select(RootCauseAnalysis)
-                .where(RootCauseAnalysis.initiated_by_user_id == user_id)
+                .where(RootCauseAnalysis.chat_id == chat_id)
                 .order_by(col(RootCauseAnalysis.created_at).desc())
             )
             if status is not None:
@@ -300,10 +300,10 @@ class RootCauseAnalysisService:
         self,
         session: AsyncSQLModelSession,
         analysis_id: UUID,
-        user_id: UUID,
+        chat_id: UUID,
     ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
         analysis = await session.get(RootCauseAnalysis, analysis_id)
-        if analysis is None or analysis.initiated_by_user_id != user_id:
+        if analysis is None or analysis.chat_id != chat_id:
             raise ValueError(f"Analysis not found: {analysis_id}")
         steps = await self._load_steps(session, analysis_id)
         return analysis, steps

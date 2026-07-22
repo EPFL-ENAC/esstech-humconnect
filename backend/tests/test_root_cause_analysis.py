@@ -290,7 +290,7 @@ def test_save_why_question_assigns_next_level_and_position():
 
     analysis, steps = _run(
         service.save_why_question(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, question="Why latency?"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="Why latency?"
         )
     )
 
@@ -308,13 +308,13 @@ def test_save_why_answer_matches_pending_question_level():
     analysis, _ = _create(service)
     _run(
         service.save_why_question(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, question="Why latency?"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="Why latency?"
         )
     )
 
     analysis, steps = _run(
         service.save_why_answer(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, answer="DB pool exhausted"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, answer="DB pool exhausted"
         )
     )
 
@@ -349,7 +349,7 @@ def test_service_rejects_out_of_order_writes_before_first_question(
 
     call = getattr(service, method)
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
-        _run(call(analysis_id=analysis.id, user_id=TEST_USER_ID, **kwargs))
+        _run(call(analysis_id=analysis.id, chat_id=RCA_CHAT_ID, **kwargs))
     assert label
 
 
@@ -359,14 +359,14 @@ def test_service_rejects_consecutive_question_while_answer_pending():
     analysis, _ = _create(service)
     _run(
         service.save_why_question(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, question="q1"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q1"
         )
     )
 
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
         _run(
             service.save_why_question(
-                analysis_id=analysis.id, user_id=TEST_USER_ID, question="q1b"
+                analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q1b"
             )
         )
 
@@ -379,25 +379,25 @@ def test_service_enforces_max_five_levels():
     for i in range(1, config.MAX_WHYS + 1):
         _run(
             service.save_why_question(
-                analysis_id=analysis.id, user_id=TEST_USER_ID, question=f"q{i}"
+                analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question=f"q{i}"
             )
         )
         _run(
             service.save_why_answer(
-                analysis_id=analysis.id, user_id=TEST_USER_ID, answer=f"a{i}"
+                analysis_id=analysis.id, chat_id=RCA_CHAT_ID, answer=f"a{i}"
             )
         )
 
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
         _run(
             service.save_why_question(
-                analysis_id=analysis.id, user_id=TEST_USER_ID, question="q6"
+                analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q6"
             )
         )
 
     analysis, steps = _run(
         service.set_root_cause(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, root_cause="fix timeout"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, root_cause="fix timeout"
         )
     )
     assert analysis.status == "completed"
@@ -412,30 +412,30 @@ def test_service_rejects_writes_after_completion():
     analysis, _ = _create(service)
     _run(
         service.save_why_question(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, question="q1"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q1"
         )
     )
     _run(
         service.save_why_answer(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, answer="a1"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, answer="a1"
         )
     )
     _run(
         service.set_root_cause(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, root_cause="done"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, root_cause="done"
         )
     )
 
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
         _run(
             service.save_why_question(
-                analysis_id=analysis.id, user_id=TEST_USER_ID, question="late"
+                analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="late"
             )
         )
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
         _run(
             service.set_root_cause(
-                analysis_id=analysis.id, user_id=TEST_USER_ID, root_cause="again"
+                analysis_id=analysis.id, chat_id=RCA_CHAT_ID, root_cause="again"
             )
         )
 
@@ -446,18 +446,18 @@ def test_service_allows_early_root_cause_after_one_pair():
     analysis, _ = _create(service)
     _run(
         service.save_why_question(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, question="q1"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q1"
         )
     )
     _run(
         service.save_why_answer(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, answer="a1"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, answer="a1"
         )
     )
 
     analysis, steps = _run(
         service.set_root_cause(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, root_cause="quick fix"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, root_cause="quick fix"
         )
     )
     assert analysis.status == "completed"
@@ -470,22 +470,22 @@ def test_service_get_analysis_returns_steps_ordered_by_position():
     analysis, _ = _create(service)
     _run(
         service.save_why_question(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, question="q1"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q1"
         )
     )
     _run(
         service.save_why_answer(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, answer="a1"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, answer="a1"
         )
     )
     _run(
         service.save_why_question(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, question="q2"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q2"
         )
     )
 
     analysis, steps = _run(
-        service.get_analysis(analysis_id=analysis.id, user_id=TEST_USER_ID)
+        service.get_analysis(analysis_id=analysis.id, chat_id=RCA_CHAT_ID)
     )
     assert [s.position for s in steps] == [1, 2, 3, 4]
     assert [s.step_type for s in steps] == [
@@ -496,24 +496,28 @@ def test_service_get_analysis_returns_steps_ordered_by_position():
     ]
 
 
-def test_service_rejects_access_by_other_user_and_unknown_id():
+def test_service_rejects_access_from_other_chat_and_unknown_id():
     FakeRcaAsyncSession.reset()
     service = _service()
     analysis, _ = _create(service)
+    other_chat = uuid4()
 
+    # analysis from a different chat is not accessible
     with pytest.raises(ValueError, match="Analysis not found"):
-        _run(service.get_analysis(analysis_id=analysis.id, user_id=uuid4()))
+        _run(service.get_analysis(analysis_id=analysis.id, chat_id=other_chat))
+    # unknown analysis id is not accessible even from the owning chat
     with pytest.raises(ValueError, match="Analysis not found"):
-        _run(service.get_analysis(analysis_id=uuid4(), user_id=TEST_USER_ID))
+        _run(service.get_analysis(analysis_id=uuid4(), chat_id=RCA_CHAT_ID))
+    # writes are also rejected for a different chat
     with pytest.raises(ValueError, match="Analysis not found"):
         _run(
             service.save_why_question(
-                analysis_id=analysis.id, user_id=uuid4(), question="q"
+                analysis_id=analysis.id, chat_id=other_chat, question="q"
             )
         )
 
 
-def test_service_list_analyses_is_user_scoped_filtered_and_ordered():
+def test_service_list_analyses_is_chat_scoped_filtered_and_ordered():
     FakeRcaAsyncSession.reset()
     service = _service(now=lambda: datetime(2026, 7, 21, 12, 0, tzinfo=UTC))
     first, _ = _create(service)
@@ -528,30 +532,37 @@ def test_service_list_analyses_is_user_scoped_filtered_and_ordered():
         )
     )
 
-    # other user's analysis is hidden
-    other_user = uuid4()
+    # analysis in a different chat is hidden when listing for RCA_CHAT_ID
+    other_chat = uuid4()
     _run(
         _service().create_analysis(
-            problem_statement="someone else",
-            chat_id=RCA_CHAT_ID,
-            user_id=other_user,
+            problem_statement="other chat",
+            chat_id=other_chat,
+            user_id=TEST_USER_ID,
             source_message_id=RCA_SOURCE_MESSAGE_ID,
         )
     )
 
-    pairs = _run(service.list_analyses(user_id=TEST_USER_ID))
+    pairs = _run(service.list_analyses(chat_id=RCA_CHAT_ID))
     assert [a.id for a, _ in pairs] == [second.id, first.id]
 
     in_progress = _run(
-        service.list_analyses(user_id=TEST_USER_ID, status="in_progress")
+        service.list_analyses(chat_id=RCA_CHAT_ID, status="in_progress")
     )
     assert [a.id for a, _ in in_progress] == [second.id, first.id]
-    completed = _run(service.list_analyses(user_id=TEST_USER_ID, status="completed"))
+    completed = _run(service.list_analyses(chat_id=RCA_CHAT_ID, status="completed"))
     assert completed == []
 
+    # the empty completed result leaves the analyses SELECT as the last query;
+    # verify it scopes by chat_id and filters by status.
     query_text = str(FakeRcaAsyncSession.last_query)
-    assert "rootcauseanalysis.initiated_by_user_id" in query_text
+    assert "rootcauseanalysis.chat_id" in query_text
     assert "rootcauseanalysis.status" in query_text
+
+    # the other chat only exposes its own analysis
+    other_pairs = _run(service.list_analyses(chat_id=other_chat))
+    assert len(other_pairs) == 1
+    assert other_pairs[0][0].chat_id == other_chat
 
 
 def test_service_steps_query_scopes_by_analysis_id():
@@ -560,11 +571,11 @@ def test_service_steps_query_scopes_by_analysis_id():
     analysis, _ = _create(service)
     _run(
         service.save_why_question(
-            analysis_id=analysis.id, user_id=TEST_USER_ID, question="q1"
+            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q1"
         )
     )
 
-    _run(service.get_analysis(analysis_id=analysis.id, user_id=TEST_USER_ID))
+    _run(service.get_analysis(analysis_id=analysis.id, chat_id=RCA_CHAT_ID))
     query_text = str(FakeRcaAsyncSession.last_query)
     assert "rootcauseanalysisstep.analysis_id" in query_text
     assert "ORDER BY" in query_text
@@ -687,6 +698,33 @@ def test_get_analysis_tool_reflects_current_state(monkeypatch):
     ]
 
 
+def test_get_analysis_tool_only_returns_analyses_for_current_chat(monkeypatch):
+    FakeRcaAsyncSession.reset()
+    configure_rca_service(monkeypatch)
+    analysis_id = _tool_json(
+        CREATE_ANALYSIS_TOOL.execute({"problem_statement": "p"}, rca_tool_context())
+    )["analysis"]["analysis_id"]
+
+    # fetching from a different chat must not expose the analysis
+    other_chat_ctx = ToolExecutionContext(
+        chat_id=uuid4(),
+        user_id=TEST_USER_ID,
+        source_message_id=RCA_SOURCE_MESSAGE_ID,
+    )
+    with pytest.raises(ValueError, match="Analysis not found"):
+        _run(
+            GET_ANALYSIS_TOOL.execute({"analysis_id": analysis_id}, other_chat_ctx)
+        )
+
+    # writes from a different chat are rejected too
+    with pytest.raises(ValueError, match="Analysis not found"):
+        _run(
+            SAVE_WHY_QUESTION_TOOL.execute(
+                {"analysis_id": analysis_id, "question": "q1"}, other_chat_ctx
+            )
+        )
+
+
 def test_list_analyses_tool_returns_summaries(monkeypatch):
     FakeRcaAsyncSession.reset()
     configure_rca_service(monkeypatch)
@@ -706,10 +744,10 @@ def test_list_analyses_tool_returns_summaries(monkeypatch):
     assert all(s["status"] == "in_progress" for s in summaries)
     assert all(s["current_level"] == 0 for s in summaries)
 
-    # other user sees nothing
+    # other chat sees nothing
     other_ctx = ToolExecutionContext(
-        chat_id=RCA_CHAT_ID,
-        user_id=uuid4(),
+        chat_id=uuid4(),
+        user_id=TEST_USER_ID,
         source_message_id=RCA_SOURCE_MESSAGE_ID,
     )
     output = _tool_json(LIST_ANALYSES_TOOL.execute({}, other_ctx))

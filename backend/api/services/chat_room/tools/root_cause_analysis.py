@@ -222,7 +222,7 @@ async def _save_why_question(
 ) -> str:
     analysis, steps = await RootCauseAnalysisService().save_why_question(
         analysis_id=_parse_analysis_id(tool_input.analysis_id),
-        user_id=tool_context.user_id,
+        chat_id=tool_context.chat_id,
         question=tool_input.question,
     )
     snapshot = build_snapshot(analysis, steps)
@@ -237,7 +237,7 @@ async def _save_why_answer(
 ) -> str:
     analysis, steps = await RootCauseAnalysisService().save_why_answer(
         analysis_id=_parse_analysis_id(tool_input.analysis_id),
-        user_id=tool_context.user_id,
+        chat_id=tool_context.chat_id,
         answer=tool_input.answer,
     )
     snapshot = build_snapshot(analysis, steps)
@@ -252,7 +252,7 @@ async def _get_analysis(
 ) -> str:
     analysis, steps = await RootCauseAnalysisService().get_analysis(
         analysis_id=_parse_analysis_id(tool_input.analysis_id),
-        user_id=tool_context.user_id,
+        chat_id=tool_context.chat_id,
     )
     snapshot = build_snapshot(analysis, steps)
     return snapshot.to_tool_response(
@@ -266,7 +266,7 @@ async def _set_root_cause(
 ) -> str:
     analysis, steps = await RootCauseAnalysisService().set_root_cause(
         analysis_id=_parse_analysis_id(tool_input.analysis_id),
-        user_id=tool_context.user_id,
+        chat_id=tool_context.chat_id,
         root_cause=tool_input.root_cause,
     )
     snapshot = build_snapshot(analysis, steps)
@@ -283,7 +283,7 @@ async def _list_analyses(
     import json
 
     pairs = await RootCauseAnalysisService().list_analyses(
-        user_id=tool_context.user_id,
+        chat_id=tool_context.chat_id,
         status=tool_input.status,
     )
     summaries = [
@@ -325,7 +325,8 @@ SAVE_WHY_ANSWER_TOOL_DESCRIPTION = (
 
 GET_ANALYSIS_TOOL_DESCRIPTION = (
     "Read an analysis's current state: steps, current level, and next expected "
-    "action. Call before a write to recall the current analysis state."
+    "action. Call before a write to recall the current analysis state. Only "
+    "analyses belonging to the current chat are accessible."
 )
 
 SET_ROOT_CAUSE_TOOL_DESCRIPTION = (
@@ -333,7 +334,8 @@ SET_ROOT_CAUSE_TOOL_DESCRIPTION = (
 )
 
 LIST_ANALYSES_TOOL_DESCRIPTION = (
-    "List your analyses with IDs, statuses, and current levels."
+    "List the analyses for the current chat with IDs, statuses, and current "
+    "levels. Only analyses belonging to the current chat are returned."
 )
 
 
