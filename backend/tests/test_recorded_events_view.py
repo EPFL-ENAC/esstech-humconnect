@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import FastAPI
@@ -48,6 +49,26 @@ def test_recorded_event_location_uses_indexed_relational_columns():
         "ix_recordedevent_location_latitude",
         "ix_recordedevent_location_longitude",
     }.issubset({index.name for index in table.indexes})
+
+
+def test_recorded_event_end_dates_use_indexed_nullable_columns_and_range_constraint():
+    table = RecordedEvent.__table__
+    assert {
+        "event_end_datetime",
+        "event_end_date_granularity",
+        "event_end_date_precision",
+        "event_end_date_input",
+    }.issubset(table.c.keys())
+    assert table.c.event_end_datetime.nullable is True
+    assert table.c.event_end_date_input.nullable is True
+    assert {
+        "ix_recordedevent_event_end_datetime",
+        "ix_recordedevent_event_end_date_granularity",
+        "ix_recordedevent_event_end_date_precision",
+    }.issubset({index.name for index in table.indexes})
+    assert "ck_recordedevent_event_date_range" in {
+        constraint.name for constraint in table.constraints
+    }
 
 
 def test_list_recorded_events_returns_all_events_in_descending_order():
@@ -112,6 +133,30 @@ def test_list_recorded_events_serializes_nested_location():
         "detail": None,
         "coordinates": None,
     }
+
+
+def test_list_recorded_events_serializes_optional_event_end_date():
+    FakeAsyncSession.reset()
+    event = make_recorded_event(
+        event_end_datetime=datetime(2026, 6, 28, 23, 59, tzinfo=UTC)
+    )
+    FakeAsyncSession.rows[RecordedEvent][event.id] = event
+
+    response = asyncio.run(
+        list_recorded_events(
+            filters=ListRecordedEventsFilters(),
+            user=object(),
+            session=FakeAsyncSession(),
+        )
+    )
+
+    [serialized_event] = response.events
+    assert serialized_event.event_end_datetime == datetime(
+        2026, 6, 28, 23, 59, tzinfo=UTC
+    )
+    assert serialized_event.event_end_date_granularity == "day"
+    assert serialized_event.event_end_date_precision == "exact"
+    assert serialized_event.event_end_date_input is not None
 
 
 def test_recorded_event_filters_are_exposed_as_repeated_query_parameters():

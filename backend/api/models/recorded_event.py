@@ -152,6 +152,11 @@ class RecordedEvent(SQLModel, table=True):
             "(location_latitude IS NULL) = (location_longitude IS NULL)",
             name="ck_recordedevent_location_coordinate_pair",
         ),
+        CheckConstraint(
+            "event_end_datetime IS NULL OR event_datetime IS NULL "
+            "OR event_end_datetime >= event_datetime",
+            name="ck_recordedevent_event_date_range",
+        ),
     )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
@@ -168,6 +173,16 @@ class RecordedEvent(SQLModel, table=True):
     event_date_precision: str = Field(index=True)
     event_date_input: dict[str, Any] = Field(
         sa_column=Column(JSON, nullable=False),
+    )
+    event_end_datetime: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True, index=True),
+    )
+    event_end_date_granularity: str | None = Field(default=None, index=True)
+    event_end_date_precision: str | None = Field(default=None, index=True)
+    event_end_date_input: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
     )
     location_raw_text: str | None = Field(default=None)
     location_continent: EventContinent | None = Field(
@@ -348,6 +363,10 @@ class RecordedEventResponse(BaseModel):
     event_date_granularity: str
     event_date_precision: str
     event_date_input: dict[str, Any]
+    event_end_datetime: datetime | None
+    event_end_date_granularity: str | None
+    event_end_date_precision: str | None
+    event_end_date_input: dict[str, Any] | None
     event_location: EventLocation
     tags: list[EventTag]
     keywords: list[str]

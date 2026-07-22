@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import Text, cast, or_
+from sqlalchemy import Text, cast, func, or_
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
@@ -39,14 +39,37 @@ class RecordedEventService:
         user_id: UUID,
         source_message_id: UUID,
     ) -> RecordedEvent:
+        reference_datetime = self._now_factory()
         resolved_event_datetime = event_input.event_date.resolve_event_datetime(
-            self._now_factory()
+            reference_datetime,
+        )
+        resolved_event_end_datetime = (
+            event_input.event_end_date.resolve_event_datetime(
+                reference_datetime,
+                boundary="end",
+            )
+            if event_input.event_end_date is not None
+            else None
         )
         event_datetime = (
             resolved_event_datetime.astimezone(UTC)
             if resolved_event_datetime is not None
             else None
         )
+        event_end_datetime = (
+            resolved_event_end_datetime.astimezone(UTC)
+            if resolved_event_end_datetime is not None
+            else None
+        )
+        if (
+            event_datetime is not None
+            and event_end_datetime is not None
+            and event_end_datetime < event_datetime
+        ):
+            raise ValueError(
+                "event end date must be after or equal to event start date"
+            )
+
         recorded_event = RecordedEvent(
             chat_id=chat_id,
             initiated_by_user_id=user_id,
@@ -57,6 +80,22 @@ class RecordedEventService:
             event_date_granularity=event_input.event_date.granularity,
             event_date_precision=event_input.event_date.precision,
             event_date_input=event_input.event_date.model_dump(mode="json"),
+            event_end_datetime=event_end_datetime,
+            event_end_date_granularity=(
+                event_input.event_end_date.granularity
+                if event_input.event_end_date is not None
+                else None
+            ),
+            event_end_date_precision=(
+                event_input.event_end_date.precision
+                if event_input.event_end_date is not None
+                else None
+            ),
+            event_end_date_input=(
+                event_input.event_end_date.model_dump(mode="json")
+                if event_input.event_end_date is not None
+                else None
+            ),
             location_raw_text=event_input.event_location.raw_text,
             location_continent=event_input.event_location.continent,
             location_country_code=event_input.event_location.country_code,
@@ -114,10 +153,13 @@ class RecordedEventService:
         date_start = recall_input.parsed_date_start()
         date_end = recall_input.parsed_date_end()
         event_datetime_col = col(RecordedEvent.event_datetime)
+        event_end_datetime_col = col(RecordedEvent.event_end_datetime)
+        effective_start = func.coalesce(event_datetime_col, event_end_datetime_col)
+        effective_end = func.coalesce(event_end_datetime_col, event_datetime_col)
         if date_start is not None:
-            query = query.where(event_datetime_col >= date_start)
+            query = query.where(effective_end >= date_start)
         if date_end is not None:
-            query = query.where(event_datetime_col <= date_end)
+            query = query.where(effective_start <= date_end)
 
         if recall_input.keyword is not None:
             keyword_pattern = f"%{recall_input.keyword}%"

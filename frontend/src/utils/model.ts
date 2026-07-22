@@ -165,6 +165,10 @@ export interface RecordedEventResponse {
     event_date_granularity: string;
     event_date_precision: string;
     event_date_input: Record<string, unknown>;
+    event_end_datetime: string | null;
+    event_end_date_granularity: string | null;
+    event_end_date_precision: string | null;
+    event_end_date_input: Record<string, unknown> | null;
     event_location: EventLocation;
     tags: EventTag[];
     keywords: string[];

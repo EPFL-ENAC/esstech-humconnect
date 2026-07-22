@@ -393,20 +393,31 @@ class FakeReliefWebResponse:
         return self.payload
 
 
+def component_event_date_arguments(**overrides):
+    values = {
+        "year": None,
+        "month": None,
+        "day_selection": None,
+        "hour": None,
+        "minute": None,
+        "precision": "exact",
+        "timezone": None,
+    }
+    values.update(overrides)
+    return values
+
+
 def structured_record_event_arguments():
     return {
         "original_text": "My son started coughing 3 days ago",
         "event_name": "Son started coughing",
-        "event_date": {
-            "year": None,
-            "month": None,
-            "week": None,
-            "day": {"kind": "relative", "value": -3},
-            "hour": None,
-            "minute": None,
-            "precision": "exact",
-            "timezone": None,
-        },
+        "event_date": component_event_date_arguments(
+            day_selection={
+                "mode": "day",
+                "day": {"kind": "relative", "value": -3},
+            }
+        ),
+        "event_end_date": None,
         "event_location": {
             "raw_text": None,
             "continent": None,
@@ -479,6 +490,7 @@ def make_recorded_event(
     original_text="My son started coughing 3 days ago",
     event_name="Son started coughing",
     event_datetime=datetime(2026, 6, 26, 12, 0, tzinfo=UTC),
+    event_end_datetime=None,
     event_location=None,
     tags=None,
     keywords=None,
@@ -521,6 +533,20 @@ def make_recorded_event(
             else None,
             "relative": None,
         },
+        event_end_datetime=event_end_datetime,
+        event_end_date_granularity=("day" if event_end_datetime is not None else None),
+        event_end_date_precision="exact" if event_end_datetime is not None else None,
+        event_end_date_input=(
+            {
+                "kind": "absolute",
+                "granularity": "day",
+                "precision": "exact",
+                "value": event_end_datetime.date().isoformat(),
+                "relative": None,
+            }
+            if event_end_datetime is not None
+            else None
+        ),
         location_raw_text=location.raw_text,
         location_continent=location.continent,
         location_country_code=location.country_code,

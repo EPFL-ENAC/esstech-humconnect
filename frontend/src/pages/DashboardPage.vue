@@ -119,9 +119,7 @@
                                 <q-item-label caption>{{ event.original_text }}</q-item-label>
                             </q-item-section>
                             <q-item-section side class="event-meta">
-                                <span>{{
-                                    formatDate(event.event_datetime || event.created_at)
-                                }}</span>
+                                <span>{{ formatEventDateRange(event) }}</span>
                             </q-item-section>
                         </template>
 
@@ -132,7 +130,7 @@
                                     <dd>{{ formatDate(event.created_at) }}</dd>
                                 </div>
                                 <div>
-                                    <dt>{{ t('dashboard.fields.eventDate') }}</dt>
+                                    <dt>{{ t('dashboard.fields.eventStartDate') }}</dt>
                                     <dd>
                                         {{
                                             event.event_datetime
@@ -142,10 +140,21 @@
                                     </dd>
                                 </div>
                                 <div>
-                                    <dt>{{ t('dashboard.fields.dateQuality') }}</dt>
+                                    <dt>{{ t('dashboard.fields.startDateQuality') }}</dt>
                                     <dd>
                                         {{ event.event_date_granularity }} /
                                         {{ event.event_date_precision }}
+                                    </dd>
+                                </div>
+                                <div v-if="event.event_end_datetime">
+                                    <dt>{{ t('dashboard.fields.eventEndDate') }}</dt>
+                                    <dd>{{ formatDate(event.event_end_datetime) }}</dd>
+                                </div>
+                                <div v-if="event.event_end_datetime">
+                                    <dt>{{ t('dashboard.fields.endDateQuality') }}</dt>
+                                    <dd>
+                                        {{ event.event_end_date_granularity }} /
+                                        {{ event.event_end_date_precision }}
                                     </dd>
                                 </div>
                                 <div>
@@ -287,8 +296,12 @@
 
                             <div class="json-grid">
                                 <div>
-                                    <h2>{{ t('dashboard.fields.dateInput') }}</h2>
+                                    <h2>{{ t('dashboard.fields.startDateInput') }}</h2>
                                     <pre>{{ formatJson(event.event_date_input) }}</pre>
+                                </div>
+                                <div v-if="event.event_end_date_input">
+                                    <h2>{{ t('dashboard.fields.endDateInput') }}</h2>
+                                    <pre>{{ formatJson(event.event_end_date_input) }}</pre>
                                 </div>
                             </div>
                         </div>
@@ -407,6 +420,16 @@ function formatDate(value: string) {
         dateStyle: 'medium',
         timeStyle: 'short',
     }).format(new Date(value));
+}
+
+function formatEventDateRange(event: RecordedEvent) {
+    const start = event.event_datetime
+        ? formatDate(event.event_datetime)
+        : formatDate(event.created_at);
+    if (!event.event_end_datetime) {
+        return start;
+    }
+    return `${start} – ${formatDate(event.event_end_datetime)}`;
 }
 
 function formatLocation(location: EventLocation) {

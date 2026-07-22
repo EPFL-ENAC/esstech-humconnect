@@ -39,8 +39,10 @@ export default {
         },
         fields: {
             createdAt: 'Recorded',
-            eventDate: 'Event date',
-            dateQuality: 'Date quality',
+            eventStartDate: 'Start / event date',
+            eventEndDate: 'End date',
+            startDateQuality: 'Start date quality',
+            endDateQuality: 'End date quality',
             location: 'Location',
             continent: 'Continent',
             countryCode: 'Country code',
@@ -58,7 +60,8 @@ export default {
             chatId: 'Chat ID',
             userId: 'User ID',
             sourceMessageId: 'Source message',
-            dateInput: 'Date input',
+            startDateInput: 'Start date input',
+            endDateInput: 'End date input',
             locationInput: 'Location input',
         },
         severity: {

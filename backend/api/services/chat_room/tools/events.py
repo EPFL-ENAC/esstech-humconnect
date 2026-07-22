@@ -1,7 +1,7 @@
 import json
 from calendar import monthrange
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import (
@@ -27,6 +27,7 @@ EventDateGranularity = Literal[
     "minute", "hour", "day", "week", "month", "year", "unknown"
 ]
 EventDatePrecision = Literal["exact", "fuzzy", "unknown"]
+EventDateBoundary = Literal["start", "end"]
 TagMatchMode = Literal["all", "any"]
 
 
@@ -54,11 +55,50 @@ class RecordEventRelativeTemporalEntryInput(RecordEventBaseModel):
     )
 
 
+class RecordEventDaySelectionInput(RecordEventBaseModel):
+    mode: Literal["day"]
+    day: RecordEventTemporalEntryInput = Field(
+        description=(
+            "An absolute day of the month or a relative day offset. For example, "
+            "absolute 5 means the fifth day of the resolved month, while relative "
+            "-1 means yesterday."
+        )
+    )
+
+
+class RecordEventWeekSelectionInput(RecordEventBaseModel):
+    mode: Literal["week"]
+    week: RecordEventRelativeTemporalEntryInput = Field(
+        description=(
+            "The relative ISO week. Use -1 for last week, 0 for this week, and 1 "
+            "for next week."
+        )
+    )
+    weekday: int | None = Field(
+        ge=1,
+        le=7,
+        description=(
+            "An optional ISO weekday within the selected week. Monday is 1 and "
+            "Sunday is 7. Use null for the whole week."
+        ),
+    )
+
+
+RecordEventDayOrWeekInput = Annotated[
+    RecordEventDaySelectionInput | RecordEventWeekSelectionInput,
+    Field(discriminator="mode"),
+]
+
+
 class RecordEventDateInput(RecordEventBaseModel):
     year: RecordEventTemporalEntryInput | None
     month: RecordEventTemporalEntryInput | None
-    week: RecordEventRelativeTemporalEntryInput | None
-    day: RecordEventTemporalEntryInput | None
+    day_selection: RecordEventDayOrWeekInput | None = Field(
+        description=(
+            "Select either a single absolute or relative day, or a relative week "
+            "with an optional weekday. Use null when neither is known."
+        )
+    )
     hour: RecordEventTemporalEntryInput | None
     minute: RecordEventTemporalEntryInput | None
     precision: EventDatePrecision
@@ -82,13 +122,13 @@ class RecordEventDateInput(RecordEventBaseModel):
 
     @model_validator(mode="after")
     def validate_components(self) -> Self:
-        component_names = ("year", "month", "week", "day", "hour", "minute")
+        component_names = ("year", "month", "hour", "minute")
         components = {
             name: getattr(self, name)
             for name in component_names
             if getattr(self, name) is not None
         }
-        if not components:
+        if not components and self.day_selection is None:
             if self.precision != "unknown" or self.timezone is not None:
                 raise ValueError(
                     "unknown event dates require unknown precision and no timezone"
@@ -100,7 +140,6 @@ class RecordEventDateInput(RecordEventBaseModel):
         absolute_bounds = {
             "year": (1, 9999),
             "month": (1, 12),
-            "day": (1, 31),
             "hour": (0, 23),
             "minute": (0, 59),
         }
@@ -110,13 +149,27 @@ class RecordEventDateInput(RecordEventBaseModel):
             lower, upper = absolute_bounds[name]
             if not lower <= component.value <= upper:
                 raise ValueError(f"absolute {name} must be between {lower} and {upper}")
+
+        if isinstance(self.day_selection, RecordEventDaySelectionInput):
+            day = self.day_selection.day
+            if day.kind == "absolute" and not 1 <= day.value <= 31:
+                raise ValueError("absolute day must be between 1 and 31")
         return self
 
     @property
     def granularity(self) -> EventDateGranularity:
-        for name in ("minute", "hour", "day", "week", "month", "year"):
-            if getattr(self, name) is not None:
-                return name
+        if self.minute is not None:
+            return "minute"
+        if self.hour is not None:
+            return "hour"
+        if isinstance(self.day_selection, RecordEventDaySelectionInput):
+            return "day"
+        if isinstance(self.day_selection, RecordEventWeekSelectionInput):
+            return "day" if self.day_selection.weekday is not None else "week"
+        if self.month is not None:
+            return "month"
+        if self.year is not None:
+            return "year"
         return "unknown"
 
     @staticmethod
@@ -136,17 +189,59 @@ class RecordEventDateInput(RecordEventBaseModel):
         round_trip = value.astimezone(UTC).astimezone(zone)
         return round_trip.replace(fold=value.fold) == value
 
-    def _normalize_calendar_only(self, value: datetime) -> datetime:
+    def _normalize_calendar_only(
+        self,
+        value: datetime,
+        *,
+        boundary: EventDateBoundary,
+    ) -> datetime:
         granularity = self.granularity
         if granularity == "year":
-            return value.replace(month=1, day=1, hour=0, minute=0)
+            if boundary == "start":
+                return value.replace(month=1, day=1, hour=0, minute=0)
+            return value.replace(
+                month=12,
+                day=31,
+                hour=23,
+                minute=59,
+                second=59,
+                microsecond=999999,
+            )
         if granularity == "month":
-            return value.replace(day=1, hour=0, minute=0)
+            if boundary == "start":
+                return value.replace(day=1, hour=0, minute=0)
+            return value.replace(
+                day=monthrange(value.year, value.month)[1],
+                hour=23,
+                minute=59,
+                second=59,
+                microsecond=999999,
+            )
         if granularity == "week":
-            return (value - timedelta(days=value.weekday())).replace(hour=0, minute=0)
-        return value.replace(hour=0, minute=0)
+            week_start = value - timedelta(days=value.weekday())
+            if boundary == "start":
+                return week_start.replace(hour=0, minute=0)
+            return (week_start + timedelta(days=6)).replace(
+                hour=23,
+                minute=59,
+                second=59,
+                microsecond=999999,
+            )
+        if boundary == "start":
+            return value.replace(hour=0, minute=0)
+        return value.replace(
+            hour=23,
+            minute=59,
+            second=59,
+            microsecond=999999,
+        )
 
-    def resolve_event_datetime(self, reference: datetime) -> datetime | None:
+    def resolve_event_datetime(
+        self,
+        reference: datetime,
+        *,
+        boundary: EventDateBoundary = "start",
+    ) -> datetime | None:
         if self.granularity == "unknown":
             return None
 
@@ -165,19 +260,23 @@ class RecordEventDateInput(RecordEventBaseModel):
             else:
                 resolved = self._replace_year_or_month(resolved, month=self.month.value)
 
-        if self.week is not None:
-            resolved += timedelta(weeks=self.week.value)
-
-        if self.day is not None:
-            if self.day.kind == "relative":
-                resolved += timedelta(days=self.day.value)
+        if isinstance(self.day_selection, RecordEventDaySelectionInput):
+            day = self.day_selection.day
+            if day.kind == "relative":
+                resolved += timedelta(days=day.value)
             else:
                 try:
-                    resolved = resolved.replace(day=self.day.value)
+                    resolved = resolved.replace(day=day.value)
                 except ValueError as exc:
                     raise ValueError(
                         "absolute day is invalid for the resolved month"
                     ) from exc
+        elif isinstance(self.day_selection, RecordEventWeekSelectionInput):
+            resolved += timedelta(weeks=self.day_selection.week.value)
+            if self.day_selection.weekday is not None:
+                resolved += timedelta(
+                    days=self.day_selection.weekday - resolved.isoweekday()
+                )
 
         if self.hour is not None:
             if self.hour.kind == "relative":
@@ -200,9 +299,10 @@ class RecordEventDateInput(RecordEventBaseModel):
                 resolved = resolved.replace(minute=self.minute.value, fold=0)
 
         if self.hour is None and self.minute is None:
-            resolved = self._normalize_calendar_only(resolved)
+            resolved = self._normalize_calendar_only(resolved, boundary=boundary)
+        else:
+            resolved = resolved.replace(second=0, microsecond=0)
 
-        resolved = resolved.replace(second=0, microsecond=0)
         if not self._is_valid_local_datetime(resolved, zone):
             raise ValueError("event date resolves to a nonexistent local time")
         return resolved
@@ -247,6 +347,13 @@ class RecordEventToolInput(RecordEventBaseModel):
     )
     event_name: NonEmptyString = Field(description="A short human-readable event name.")
     event_date: RecordEventDateInput
+    event_end_date: RecordEventDateInput | None = Field(
+        description=(
+            "The inclusive end date for an event interval, using the same component "
+            "format as event_date, or null for a point event. Never provide an end "
+            "date without at least a fuzzy known event_date."
+        )
+    )
     event_location: RecordEventLocationInput
     tags: list[EventTag] = Field(
         min_length=1,
@@ -295,6 +402,7 @@ class RecordEventToolInput(RecordEventBaseModel):
         decoded = dict(data)
         for field_name in [
             "event_date",
+            "event_end_date",
             "event_location",
             "tags",
             "keywords",
@@ -311,7 +419,12 @@ class RecordEventToolInput(RecordEventBaseModel):
         return decoded
 
     @model_validator(mode="after")
-    def validate_tags(self) -> Self:
+    def validate_input(self) -> Self:
+        if self.event_end_date is not None:
+            if self.event_date.granularity == "unknown":
+                raise ValueError("event end dates require a known event start date")
+            if self.event_end_date.granularity == "unknown":
+                raise ValueError("event end dates must contain a known date")
         if len(self.tags) != len(set(self.tags)):
             raise ValueError("event tags must be unique")
         if "other" in self.tags and len(self.tags) != 1:
@@ -330,15 +443,17 @@ class RecallEventsToolInput(RecordEventBaseModel):
     date_start: str | None = Field(
         default=None,
         description=(
-            "Optional inclusive ISO 8601 datetime lower bound for event_datetime. "
-            "Use null if no lower bound is needed."
+            "Optional inclusive ISO 8601 lower bound for interval overlap. Events "
+            "whose effective end is before this value are excluded. Use null if no "
+            "lower bound is needed."
         ),
     )
     date_end: str | None = Field(
         default=None,
         description=(
-            "Optional inclusive ISO 8601 datetime upper bound for event_datetime. "
-            "Use null if no upper bound is needed."
+            "Optional inclusive ISO 8601 upper bound for interval overlap. Events "
+            "whose effective start is after this value are excluded. Use null if no "
+            "upper bound is needed."
         ),
     )
     tags: list[EventTag] = Field(
@@ -402,18 +517,30 @@ RECORD_EVENT_TOOL_DESCRIPTION = (
     "coordinates. Independently assess severity from 0 to 10 at local, "
     "country, and global scales based on the currently known impact. "
     "Express dates with absolute calendar or clock values and signed relative "
-    "offsets for each supplied component. For 'yesterday at 8pm', use relative "
-    "day -1 and absolute hour 20. For 'the 5th of last month', use relative "
-    "month -1 and absolute day 5. For 'in 2 hours', use relative hour 2. For "
-    "'a few weeks ago', use relative week -3 and fuzzy precision. Supply an "
+    "offsets for each supplied component. Use day_selection mode day for an "
+    "absolute day of the month or a relative day offset, and mode week for a "
+    "relative ISO week with an optional ISO weekday (Monday 1 through Sunday 7). "
+    "For 'yesterday at 8pm', use mode day with relative day -1 and absolute hour "
+    "20. For 'the 5th of last month', use relative month -1 and mode day with "
+    "absolute day 5. For 'Thursday of last week', use mode week with relative "
+    "week -1 and weekday 4. Ask for clarification when a named weekday has no "
+    "explicit week context. For 'in 2 hours', use relative hour 2. For 'a few "
+    "weeks ago', use mode week with relative week -3, null weekday, and fuzzy "
+    "precision. Supply an "
     "IANA timezone such as Europe/Zurich when the event location makes it "
-    "unambiguous; otherwise use null and the backend will resolve in UTC."
+    "unambiguous; otherwise use null and the backend will resolve in UTC. Use "
+    "event_end_date for intervals: for 'a flood between the 4th of June and "
+    "yesterday', put June 4 in event_date and mode day with relative day -1 in "
+    "event_end_date. "
+    "Use null for event_end_date when the event is a point in time. If only an end "
+    "is known, ask the user for at least a fuzzy start before recording the event."
 )
 
 
 RECALL_EVENTS_TOOL_DESCRIPTION = (
     "Recall previously recorded events across all chats by keyword, event "
-    "datetime range, and exact fixed tags. Use this before answering questions "
+    "datetime overlap range, and exact fixed tags. Point events and event intervals "
+    "are both matched inclusively. Use this before answering questions "
     "that ask about prior events, timelines, repeated symptoms, or links between "
     "events."
 )

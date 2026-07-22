@@ -430,6 +430,8 @@ def test_record_event_tool_schema_exposes_component_date_shape():
     parameters = RECORD_EVENT_TOOL.definition["parameters"]
     defs = parameters["$defs"]
     event_date_schema = defs["RecordEventDateInput"]
+    day_selection_schema = defs["RecordEventDaySelectionInput"]
+    week_selection_schema = defs["RecordEventWeekSelectionInput"]
     temporal_entry_schema = defs["RecordEventTemporalEntryInput"]
     relative_entry_schema = defs["RecordEventRelativeTemporalEntryInput"]
     location_schema = defs["RecordEventLocationInput"]
@@ -440,17 +442,26 @@ def test_record_event_tool_schema_exposes_component_date_shape():
     assert RECORD_EVENT_TOOL.definition["strict"] is True
     assert parameters["additionalProperties"] is False
     assert event_date_schema["additionalProperties"] is False
+    assert day_selection_schema["additionalProperties"] is False
+    assert week_selection_schema["additionalProperties"] is False
     assert temporal_entry_schema["additionalProperties"] is False
     assert relative_entry_schema["additionalProperties"] is False
     assert location_schema["additionalProperties"] is False
     assert parameters["properties"]["event_date"] == {
         "$ref": "#/$defs/RecordEventDateInput"
     }
+    assert any(
+        option.get("$ref") == "#/$defs/RecordEventDateInput"
+        for option in parameters["properties"]["event_end_date"]["anyOf"]
+    )
+    assert any(
+        option.get("type") == "null"
+        for option in parameters["properties"]["event_end_date"]["anyOf"]
+    )
     assert event_date_schema["required"] == [
         "year",
         "month",
-        "week",
-        "day",
+        "day_selection",
         "hour",
         "minute",
         "precision",
@@ -503,6 +514,7 @@ def test_record_event_tool_schema_exposes_component_date_shape():
         "original_text",
         "event_name",
         "event_date",
+        "event_end_date",
         "event_location",
         "tags",
         "keywords",
@@ -516,6 +528,23 @@ def test_record_event_tool_schema_exposes_component_date_shape():
     ]
     assert relative_entry_schema["properties"]["kind"]["const"] == "relative"
     assert temporal_entry_schema["properties"]["value"]["type"] == "integer"
+    day_or_week_schema = event_date_schema["properties"]["day_selection"]["anyOf"][0]
+    assert day_or_week_schema["discriminator"] == {
+        "mapping": {
+            "day": "#/$defs/RecordEventDaySelectionInput",
+            "week": "#/$defs/RecordEventWeekSelectionInput",
+        },
+        "propertyName": "mode",
+    }
+    assert day_or_week_schema["oneOf"] == [
+        {"$ref": "#/$defs/RecordEventDaySelectionInput"},
+        {"$ref": "#/$defs/RecordEventWeekSelectionInput"},
+    ]
+    assert day_selection_schema["required"] == ["mode", "day"]
+    assert week_selection_schema["required"] == ["mode", "week", "weekday"]
+    weekday_schema = week_selection_schema["properties"]["weekday"]["anyOf"][0]
+    assert weekday_schema["minimum"] == 1
+    assert weekday_schema["maximum"] == 7
     assert event_date_schema["properties"]["timezone"]["description"].startswith(
         "An IANA timezone"
     )
@@ -525,7 +554,14 @@ def test_record_event_tool_accepts_json_stringified_structured_fields(monkeypatc
     FakeAsyncSession.reset()
     configure_recorded_event_service(monkeypatch)
     arguments = structured_record_event_arguments()
+    arguments["event_end_date"] = component_event_date_arguments(
+        day_selection={
+            "mode": "day",
+            "day": {"kind": "relative", "value": -1},
+        }
+    )
     arguments["event_date"] = json.dumps(arguments["event_date"])
+    arguments["event_end_date"] = json.dumps(arguments["event_end_date"])
     arguments["event_location"] = json.dumps(arguments["event_location"])
     arguments["tags"] = json.dumps(arguments["tags"])
     arguments["keywords"] = json.dumps(arguments["keywords"])
@@ -543,6 +579,9 @@ def test_record_event_tool_accepts_json_stringified_structured_fields(monkeypatc
     output = asyncio.run(run())
     [persisted_event] = recorded_events()
     assert persisted_event.event_datetime == datetime(2026, 6, 26, 0, 0, tzinfo=UTC)
+    assert persisted_event.event_end_datetime == datetime(
+        2026, 6, 28, 23, 59, 59, 999999, tzinfo=UTC
+    )
     assert persisted_event.tags == ["health_incident"]
     assert persisted_event.keywords == ["symptom", "cough"]
     assert persisted_event.affected_profession_categories == ["medical_clinical"]
@@ -703,8 +742,10 @@ def test_record_event_tool_accepts_absolute_datetime(monkeypatch):
     arguments["event_date"] = {
         "year": {"kind": "absolute", "value": 2026},
         "month": {"kind": "absolute", "value": 6},
-        "week": None,
-        "day": {"kind": "absolute", "value": 29},
+        "day_selection": {
+            "mode": "day",
+            "day": {"kind": "absolute", "value": 29},
+        },
         "hour": {"kind": "absolute", "value": 8},
         "minute": {"kind": "absolute", "value": 15},
         "precision": "exact",
@@ -728,8 +769,10 @@ def test_record_event_tool_accepts_absolute_date(monkeypatch):
     arguments["event_date"] = {
         "year": {"kind": "absolute", "value": 2026},
         "month": {"kind": "absolute", "value": 6},
-        "week": None,
-        "day": {"kind": "absolute", "value": 29},
+        "day_selection": {
+            "mode": "day",
+            "day": {"kind": "absolute", "value": 29},
+        },
         "hour": None,
         "minute": None,
         "precision": "exact",
@@ -752,8 +795,11 @@ def test_record_event_tool_accepts_fuzzy_relative_datetime(monkeypatch):
     arguments["event_date"] = {
         "year": None,
         "month": None,
-        "week": {"kind": "relative", "value": -3},
-        "day": None,
+        "day_selection": {
+            "mode": "week",
+            "week": {"kind": "relative", "value": -3},
+            "weekday": None,
+        },
         "hour": None,
         "minute": None,
         "precision": "fuzzy",
@@ -778,8 +824,7 @@ def test_record_event_tool_accepts_relative_clock_datetime(monkeypatch):
     arguments["event_date"] = {
         "year": None,
         "month": None,
-        "week": None,
-        "day": None,
+        "day_selection": None,
         "hour": None,
         "minute": {"kind": "relative", "value": -30},
         "precision": "exact",
@@ -802,8 +847,10 @@ def test_record_event_tool_resolves_yesterday_at_absolute_hour(monkeypatch):
     arguments["event_date"] = {
         "year": None,
         "month": None,
-        "week": None,
-        "day": {"kind": "relative", "value": -1},
+        "day_selection": {
+            "mode": "day",
+            "day": {"kind": "relative", "value": -1},
+        },
         "hour": {"kind": "absolute", "value": 20},
         "minute": None,
         "precision": "exact",
@@ -827,8 +874,10 @@ def test_record_event_tool_resolves_fifth_of_last_month(monkeypatch):
     arguments["event_date"] = {
         "year": None,
         "month": {"kind": "relative", "value": -1},
-        "week": None,
-        "day": {"kind": "absolute", "value": 5},
+        "day_selection": {
+            "mode": "day",
+            "day": {"kind": "absolute", "value": 5},
+        },
         "hour": None,
         "minute": None,
         "precision": "exact",
@@ -845,6 +894,154 @@ def test_record_event_tool_resolves_fifth_of_last_month(monkeypatch):
     assert output == expected_record_event_tool_output(persisted_event)
 
 
+def test_record_event_tool_resolves_thursday_of_last_week(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(
+        monkeypatch,
+        now=datetime(2026, 7, 21, 12, 0, tzinfo=UTC),
+    )
+    arguments = structured_record_event_arguments()
+    arguments["original_text"] = "The flood happened on Thursday of last week"
+    arguments["event_name"] = "Flood"
+    arguments["event_date"] = component_event_date_arguments(
+        day_selection={
+            "mode": "week",
+            "week": {"kind": "relative", "value": -1},
+            "weekday": 4,
+        },
+        timezone="Europe/Zurich",
+    )
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    output = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.event_datetime == datetime(
+        2026, 7, 15, 22, 0, tzinfo=UTC
+    )
+    assert persisted_event.event_date_granularity == "day"
+    assert persisted_event.event_date_input == arguments["event_date"]
+    assert output == expected_record_event_tool_output(persisted_event)
+
+
+def test_record_event_tool_persists_interval_with_inclusive_end(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(
+        monkeypatch,
+        now=datetime(2026, 7, 21, 12, 0, tzinfo=UTC),
+    )
+    arguments = structured_record_event_arguments()
+    arguments["original_text"] = "We had a flood between the 4th of June and yesterday"
+    arguments["event_name"] = "Flood"
+    arguments["event_date"] = component_event_date_arguments(
+        month={"kind": "absolute", "value": 6},
+        day_selection={
+            "mode": "day",
+            "day": {"kind": "absolute", "value": 4},
+        },
+        timezone="Europe/Zurich",
+    )
+    arguments["event_end_date"] = component_event_date_arguments(
+        day_selection={
+            "mode": "day",
+            "day": {"kind": "relative", "value": -1},
+        },
+        timezone="Europe/Zurich",
+    )
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    output = asyncio.run(run())
+    [persisted_event] = recorded_events()
+    assert persisted_event.event_datetime == datetime(2026, 6, 3, 22, 0, tzinfo=UTC)
+    assert persisted_event.event_end_datetime == datetime(
+        2026,
+        7,
+        20,
+        21,
+        59,
+        59,
+        999999,
+        tzinfo=UTC,
+    )
+    assert persisted_event.event_end_date_granularity == "day"
+    assert persisted_event.event_end_date_precision == "exact"
+    assert persisted_event.event_end_date_input == arguments["event_end_date"]
+    assert output == expected_record_event_tool_output(persisted_event)
+
+
+@pytest.mark.parametrize(
+    "invalid_end_kind",
+    ["missing_start", "unknown_end"],
+)
+def test_record_event_tool_rejects_end_without_known_dates(invalid_end_kind):
+    arguments = structured_record_event_arguments()
+    known_date = component_event_date_arguments(
+        day_selection={
+            "mode": "day",
+            "day": {"kind": "relative", "value": -1},
+        }
+    )
+    unknown_date = component_event_date_arguments(precision="unknown")
+    if invalid_end_kind == "missing_start":
+        arguments["event_date"] = unknown_date
+        arguments["event_end_date"] = known_date
+    else:
+        arguments["event_end_date"] = unknown_date
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments)
+
+    with pytest.raises(ValueError, match="invalid event data"):
+        asyncio.run(run())
+
+
+def test_record_event_tool_rejects_end_before_start(monkeypatch):
+    FakeAsyncSession.reset()
+    configure_recorded_event_service(monkeypatch)
+    arguments = structured_record_event_arguments()
+    arguments["event_date"] = component_event_date_arguments(
+        month={"kind": "absolute", "value": 6},
+        day_selection={
+            "mode": "day",
+            "day": {"kind": "absolute", "value": 10},
+        },
+    )
+    arguments["event_end_date"] = component_event_date_arguments(
+        month={"kind": "absolute", "value": 6},
+        day_selection={
+            "mode": "day",
+            "day": {"kind": "absolute", "value": 5},
+        },
+    )
+
+    async def run():
+        return await RECORD_EVENT_TOOL.execute(arguments, record_event_tool_context())
+
+    with pytest.raises(ValueError, match="event end date must be after"):
+        asyncio.run(run())
+
+
+def test_record_event_tool_accepts_fuzzy_start_for_interval():
+    arguments = structured_record_event_arguments()
+    arguments["event_date"] = component_event_date_arguments(
+        month={"kind": "relative", "value": -1},
+        precision="fuzzy",
+    )
+    arguments["event_end_date"] = component_event_date_arguments(
+        day_selection={
+            "mode": "day",
+            "day": {"kind": "relative", "value": -1},
+        }
+    )
+
+    validated = events_tool_module.RecordEventToolInput.model_validate(arguments)
+    assert validated.event_date.precision == "fuzzy"
+    assert validated.event_end_date is not None
+
+
 def test_record_event_tool_accepts_unknown_datetime(monkeypatch):
     FakeAsyncSession.reset()
     configure_recorded_event_service(monkeypatch)
@@ -852,8 +1049,7 @@ def test_record_event_tool_accepts_unknown_datetime(monkeypatch):
     arguments["event_date"] = {
         "year": None,
         "month": None,
-        "week": None,
-        "day": None,
+        "day_selection": None,
         "hour": None,
         "minute": None,
         "precision": "unknown",
@@ -875,8 +1071,7 @@ def test_record_event_tool_accepts_unknown_datetime(monkeypatch):
         {
             "year": None,
             "month": None,
-            "week": None,
-            "day": None,
+            "day_selection": None,
             "hour": None,
             "minute": None,
             "precision": "exact",
@@ -885,8 +1080,10 @@ def test_record_event_tool_accepts_unknown_datetime(monkeypatch):
         {
             "year": None,
             "month": None,
-            "week": None,
-            "day": {"kind": "absolute", "value": 32},
+            "day_selection": {
+                "mode": "day",
+                "day": {"kind": "absolute", "value": 32},
+            },
             "hour": None,
             "minute": None,
             "precision": "exact",
@@ -895,8 +1092,7 @@ def test_record_event_tool_accepts_unknown_datetime(monkeypatch):
         {
             "year": None,
             "month": {"kind": "absolute", "value": 13},
-            "week": None,
-            "day": None,
+            "day_selection": None,
             "hour": None,
             "minute": None,
             "precision": "exact",
@@ -905,8 +1101,11 @@ def test_record_event_tool_accepts_unknown_datetime(monkeypatch):
         {
             "year": None,
             "month": None,
-            "week": {"kind": "absolute", "value": 1},
-            "day": None,
+            "day_selection": {
+                "mode": "week",
+                "week": {"kind": "absolute", "value": 1},
+                "weekday": None,
+            },
             "hour": None,
             "minute": None,
             "precision": "exact",
@@ -915,8 +1114,10 @@ def test_record_event_tool_accepts_unknown_datetime(monkeypatch):
         {
             "year": None,
             "month": None,
-            "week": None,
-            "day": {"kind": "relative", "value": -1},
+            "day_selection": {
+                "mode": "day",
+                "day": {"kind": "relative", "value": -1},
+            },
             "hour": None,
             "minute": None,
             "precision": "unknown",
@@ -925,8 +1126,10 @@ def test_record_event_tool_accepts_unknown_datetime(monkeypatch):
         {
             "year": None,
             "month": None,
-            "week": None,
-            "day": {"kind": "relative", "value": -1},
+            "day_selection": {
+                "mode": "day",
+                "day": {"kind": "relative", "value": -1},
+            },
             "hour": None,
             "minute": None,
             "precision": "exact",
@@ -1043,18 +1246,9 @@ def test_recall_events_tool_rejects_unknown_or_duplicate_fixed_tags():
 def component_event_date_input(
     **overrides: object,
 ) -> events_tool_module.RecordEventDateInput:
-    values: dict[str, object] = {
-        "year": None,
-        "month": None,
-        "week": None,
-        "day": None,
-        "hour": None,
-        "minute": None,
-        "precision": "exact",
-        "timezone": None,
-    }
-    values.update(overrides)
-    return events_tool_module.RecordEventDateInput.model_validate(values)
+    return events_tool_module.RecordEventDateInput.model_validate(
+        component_event_date_arguments(**overrides)
+    )
 
 
 def test_resolve_component_datetime_handles_calendar_and_clock_units():
@@ -1062,22 +1256,27 @@ def test_resolve_component_datetime_handles_calendar_and_clock_units():
     event_date = component_event_date_input(
         year={"kind": "relative", "value": -1},
         month={"kind": "relative", "value": -2},
-        week={"kind": "relative", "value": -1},
-        day={"kind": "relative", "value": -3},
+        day_selection={
+            "mode": "day",
+            "day": {"kind": "relative", "value": -3},
+        },
         hour={"kind": "relative", "value": -4},
         minute={"kind": "relative", "value": -5},
     )
 
     resolved = event_date.resolve_event_datetime(reference)
     assert resolved is not None
-    assert resolved.isoformat() == "2025-04-19T07:55:00+00:00"
+    assert resolved.isoformat() == "2025-04-26T07:55:00+00:00"
 
 
 def test_resolve_component_datetime_rejects_invalid_absolute_day():
     event_date = component_event_date_input(
         year={"kind": "absolute", "value": 2026},
         month={"kind": "absolute", "value": 2},
-        day={"kind": "absolute", "value": 31},
+        day_selection={
+            "mode": "day",
+            "day": {"kind": "absolute", "value": 31},
+        },
     )
 
     with pytest.raises(ValueError, match="absolute day is invalid"):
@@ -1088,7 +1287,10 @@ def test_resolve_component_datetime_rejects_nonexistent_dst_time():
     event_date = component_event_date_input(
         year={"kind": "absolute", "value": 2026},
         month={"kind": "absolute", "value": 3},
-        day={"kind": "absolute", "value": 29},
+        day_selection={
+            "mode": "day",
+            "day": {"kind": "absolute", "value": 29},
+        },
         hour={"kind": "absolute", "value": 2},
         minute={"kind": "absolute", "value": 30},
         timezone="Europe/Zurich",
@@ -1102,7 +1304,10 @@ def test_resolve_component_datetime_uses_earlier_ambiguous_dst_time():
     event_date = component_event_date_input(
         year={"kind": "absolute", "value": 2026},
         month={"kind": "absolute", "value": 10},
-        day={"kind": "absolute", "value": 25},
+        day_selection={
+            "mode": "day",
+            "day": {"kind": "absolute", "value": 25},
+        },
         hour={"kind": "absolute", "value": 2},
         minute={"kind": "absolute", "value": 30},
         timezone="Europe/Zurich",
@@ -1125,3 +1330,138 @@ def test_resolve_relative_hour_uses_elapsed_time_across_dst():
     )
     assert resolved is not None
     assert resolved.isoformat() == "2026-03-29T03:30:00+02:00"
+
+
+@pytest.mark.parametrize(
+    ("components", "expected"),
+    [
+        (
+            {"year": {"kind": "absolute", "value": 2026}},
+            "2026-12-31T23:59:59.999999+00:00",
+        ),
+        (
+            {
+                "year": {"kind": "absolute", "value": 2026},
+                "month": {"kind": "absolute", "value": 2},
+            },
+            "2026-02-28T23:59:59.999999+00:00",
+        ),
+        (
+            {
+                "day_selection": {
+                    "mode": "week",
+                    "week": {"kind": "relative", "value": 0},
+                    "weekday": None,
+                }
+            },
+            "2026-07-26T23:59:59.999999+00:00",
+        ),
+        (
+            {
+                "day_selection": {
+                    "mode": "day",
+                    "day": {"kind": "absolute", "value": 21},
+                }
+            },
+            "2026-07-21T23:59:59.999999+00:00",
+        ),
+    ],
+)
+def test_resolve_calendar_end_uses_inclusive_period_end(components, expected):
+    event_date = component_event_date_input(**components)
+    resolved = event_date.resolve_event_datetime(
+        datetime(2026, 7, 21, 12, 0, tzinfo=UTC),
+        boundary="end",
+    )
+    assert resolved is not None
+    assert resolved.isoformat() == expected
+
+
+def test_resolve_clock_end_remains_exact():
+    event_date = component_event_date_input(
+        day_selection={
+            "mode": "day",
+            "day": {"kind": "relative", "value": 1},
+        },
+        hour={"kind": "absolute", "value": 20},
+        timezone="Europe/Zurich",
+    )
+    resolved = event_date.resolve_event_datetime(
+        datetime(2026, 7, 21, 12, 37, 42, tzinfo=UTC),
+        boundary="end",
+    )
+    assert resolved is not None
+    assert resolved.isoformat() == "2026-07-22T20:00:00+02:00"
+
+
+@pytest.mark.parametrize(
+    ("week_offset", "reference", "expected"),
+    [
+        (-1, datetime(2026, 7, 21, 12, 0, tzinfo=UTC), "2026-07-16"),
+        (0, datetime(2026, 7, 21, 12, 0, tzinfo=UTC), "2026-07-23"),
+        (-1, datetime(2026, 1, 2, 12, 0, tzinfo=UTC), "2025-12-25"),
+    ],
+)
+def test_resolve_iso_weekday_within_relative_week(week_offset, reference, expected):
+    event_date = component_event_date_input(
+        day_selection={
+            "mode": "week",
+            "week": {"kind": "relative", "value": week_offset},
+            "weekday": 4,
+        }
+    )
+
+    resolved = event_date.resolve_event_datetime(reference)
+    assert resolved is not None
+    assert resolved.date().isoformat() == expected
+    assert resolved.hour == 0
+    assert event_date.granularity == "day"
+
+
+def test_resolve_weekday_end_uses_inclusive_day_end():
+    event_date = component_event_date_input(
+        day_selection={
+            "mode": "week",
+            "week": {"kind": "relative", "value": -1},
+            "weekday": 4,
+        },
+        timezone="Europe/Zurich",
+    )
+
+    resolved = event_date.resolve_event_datetime(
+        datetime(2026, 7, 21, 12, 0, tzinfo=UTC),
+        boundary="end",
+    )
+    assert resolved is not None
+    assert resolved.isoformat() == "2026-07-16T23:59:59.999999+02:00"
+
+
+def test_resolve_weekday_with_clock_remains_exact():
+    event_date = component_event_date_input(
+        day_selection={
+            "mode": "week",
+            "week": {"kind": "relative", "value": -1},
+            "weekday": 4,
+        },
+        hour={"kind": "absolute", "value": 20},
+        timezone="Europe/Zurich",
+    )
+
+    resolved = event_date.resolve_event_datetime(
+        datetime(2026, 7, 21, 12, 37, 42, tzinfo=UTC),
+        boundary="end",
+    )
+    assert resolved is not None
+    assert resolved.isoformat() == "2026-07-16T20:00:00+02:00"
+
+
+@pytest.mark.parametrize("weekday", [0, 8])
+def test_week_selection_rejects_invalid_iso_weekday(weekday):
+    with pytest.raises(ValueError, match="weekday"):
+        component_event_date_input(
+            day_selection={
+                "mode": "week",
+                "week": {"kind": "relative", "value": -1},
+                "weekday": weekday,
+            }
+        )

@@ -33,13 +33,19 @@ def test_recorded_event_service_persists_event_with_initiator_metadata():
     assert persisted_event.event_date_input == {
         "year": None,
         "month": None,
-        "week": None,
-        "day": {"kind": "relative", "value": -3},
+        "day_selection": {
+            "mode": "day",
+            "day": {"kind": "relative", "value": -3},
+        },
         "hour": None,
         "minute": None,
         "precision": "exact",
         "timezone": None,
     }
+    assert persisted_event.event_end_datetime is None
+    assert persisted_event.event_end_date_granularity is None
+    assert persisted_event.event_end_date_precision is None
+    assert persisted_event.event_end_date_input is None
     assert persisted_event.event_location().model_dump(mode="json") == {
         "raw_text": None,
         "continent": None,
@@ -98,8 +104,14 @@ def test_recorded_event_service_builds_user_scoped_filtered_recall_query():
     assert "recordedevent.initiated_by_user_id" in query_text
     assert "WHERE recordedevent.chat_id" not in query_text
     assert "AND recordedevent.chat_id" not in query_text
-    assert "recordedevent.event_datetime >= " in query_text
-    assert "recordedevent.event_datetime <= " in query_text
+    assert (
+        "coalesce(recordedevent.event_end_datetime, "
+        "recordedevent.event_datetime) >= " in query_text
+    )
+    assert (
+        "coalesce(recordedevent.event_datetime, "
+        "recordedevent.event_end_datetime) <= " in query_text
+    )
     assert "lower(recordedevent.event_name) LIKE lower(" in query_text
     assert "lower(recordedevent.original_text) LIKE lower(" in query_text
     assert "lower(recordedevent.location_raw_text) LIKE lower(" in query_text
