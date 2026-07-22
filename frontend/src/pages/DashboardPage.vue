@@ -91,6 +91,8 @@
                 </q-card-section>
             </q-card>
 
+            <EventCountryMap :events="events" :loading="loading" />
+
             <q-list bordered separator class="event-list">
                 <q-item v-if="loading">
                     <q-item-section>{{ t('dashboard.loading') }}</q-item-section>
@@ -315,6 +317,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
+import EventCountryMap from 'src/components/dashboard/EventCountryMap.vue';
 import { eventTags, professionCategories } from 'src/utils/model';
 import { listRecordedEvents } from 'src/utils/recordedEventsApi';
 import type {

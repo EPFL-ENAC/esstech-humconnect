@@ -37,6 +37,23 @@ export default {
             apply: 'Appliquer les filtres',
             clear: 'Effacer',
         },
+        map: {
+            title: 'Événements par pays',
+            subtitle: 'Événements enregistrés dans les résultats filtrés actuels.',
+            loading: 'Chargement de la carte des événements...',
+            empty: 'Aucun événement associé à un pays dans les résultats actuels.',
+            loadError: "La carte des pays n'a pas pu être affichée.",
+            legend: 'Événements',
+            eventCountOne: '{count} événement',
+            eventCountOther: '{count} événements',
+            countryCountOne: '{count} pays',
+            countryCountOther: '{count} pays',
+            summary: '{events} dans {countries}',
+            unplacedEventOne: "{count} événement n'a pas pu être placé à partir de son code pays.",
+            unplacedEventOther:
+                "{count} événements n'ont pas pu être placés à partir de leur code pays.",
+            ariaLabel: 'Carte mondiale des événements enregistrés par pays. {summary}.',
+        },
         fields: {
             createdAt: 'Enregistré',
             eventStartDate: "Date de début / de l'événement",

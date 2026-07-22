@@ -13,6 +13,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import maplibregl, { type GeoJSONSource, type Map, type Marker } from 'maplibre-gl';
 import type { UserProfileCoordinates } from 'src/utils/model';
+import { createLightMapStyle } from 'src/utils/mapStyle';
 import {
     coordinatesToLngLat,
     createRadiusBounds,
@@ -110,24 +111,7 @@ function createMap() {
         attributionControl: false,
         center,
         container: mapContainer.value,
-        style: {
-            version: 8,
-            sources: {
-                osm: {
-                    type: 'raster',
-                    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-                    tileSize: 256,
-                    attribution: 'OpenStreetMap',
-                },
-            },
-            layers: [
-                {
-                    id: 'osm',
-                    type: 'raster',
-                    source: 'osm',
-                },
-            ],
-        },
+        style: createLightMapStyle(),
         zoom: props.coordinates ? 12 : 1.4,
     });
 
@@ -152,14 +136,7 @@ function createMap() {
         syncMapToCoordinates();
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-    map.addControl(
-        new maplibregl.AttributionControl({
-            compact: true,
-            customAttribution:
-                '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>',
-        }),
-        'bottom-right',
-    );
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 }
 
 onMounted(async () => {
