@@ -163,23 +163,9 @@ import { useI18n } from 'vue-i18n';
 import AddressSuggestionInput from 'src/components/profile/AddressSuggestionInput.vue';
 import CenterLocationMap from 'src/components/profile/CenterLocationMap.vue';
 import { languageCodes, languageLabel } from 'src/utils/languages';
+import { professionCategories } from 'src/utils/model';
 import { getProfile, updateProfile } from 'src/utils/profileApi';
-import type { ProfessionCategory, UserProfile, UserProfileEditableFields } from 'src/utils/model';
-
-const professionCategories: ProfessionCategory[] = [
-    'medical_clinical',
-    'community_health',
-    'wash',
-    'logistics_supply',
-    'surveillance_epidemiology',
-    'coordination_cluster',
-    'safe_burial_community_response',
-    'biomedical_equipment',
-    'infrastructure_energy',
-    'hq_programme_referent',
-    'local_ngo_partner',
-    'other',
-];
+import type { UserProfile, UserProfileEditableFields } from 'src/utils/model';
 
 const emptyForm: UserProfileEditableFields = {
     profession: null,
