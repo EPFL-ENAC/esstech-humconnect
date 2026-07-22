@@ -64,6 +64,7 @@ from api.services.chat_room.chat_assistant import (
 )
 from api.services.chat_room.tools import (
     ASK_MEDITRON_TOOL,
+    ASK_LEGITRON_TOOL,
     GET_HUMANITARIAN_CONTEXT_TOOL,
     GET_NATURAL_EVENTS_CONTEXT_TOOL,
     RECALL_EVENTS_TOOL,
@@ -77,6 +78,7 @@ from api.services.chat_room.tools import (
     humanitarian_context as humanitarian_context_tool_module,
 )
 from api.services.chat_room.tools import meditron as meditron_tool_module
+from api.services.chat_room.tools import legitron as legitron_tool_module
 from api.services.chat_room.tools import natural_events as natural_events_tool_module
 from api.services.reliefweb import client as reliefweb_client_module
 from api.utils.datetime_utils import utc_now

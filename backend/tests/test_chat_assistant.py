@@ -196,6 +196,7 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
     ] == [
         "dummy_tool",
         "ask_meditron",
+        "ask_legitron",
         "record_event",
         "recall_events",
         "get_natural_events_context",
@@ -378,10 +379,21 @@ def test_humconnect_chat_assistant_executes_dummy_tool_calls(monkeypatch):
 
 
 def test_humconnect_chat_assistant_executes_ask_meditron_tool_calls(monkeypatch):
-    def fake_ask_meditron(*, prompt, system_prompt):
-        assert prompt == "What are cholera symptoms?"
-        assert system_prompt == "Answer for a clinician."
-        return "Watery diarrhea and dehydration."
+    meditron_calls = []
+
+    class FakeMeditronResponse:
+        def __init__(self, text):
+            self.output_text = text
+
+    async def fake_meditron_create(*, model, instructions, input):
+        meditron_calls.append((instructions, input))
+        return FakeMeditronResponse("Watery diarrhea and dehydration.")
+
+    monkeypatch.setattr(
+        meditron_tool_module.openai_client.responses,
+        "create",
+        fake_meditron_create,
+    )
 
     fake_client = install_fake_openai_client(
         monkeypatch,
@@ -404,7 +416,6 @@ def test_humconnect_chat_assistant_executes_ask_meditron_tool_calls(monkeypatch)
             [FakeOpenAIStreamEvent("response.output_text.delta", "Summarized")],
         ],
     )
-    monkeypatch.setattr(meditron_tool_module, "ask_meditron", fake_ask_meditron)
     assistant = HumConnectAssistant()
 
     async def run():
@@ -447,6 +458,9 @@ def test_humconnect_chat_assistant_executes_ask_meditron_tool_calls(monkeypatch)
     ]
 
     second_input = fake_client.responses.create_kwargs[1]["input"]
+    assert meditron_calls == [
+        ("Answer for a clinician.", "What are cholera symptoms?")
+    ]
     assert second_input[-2] == {
         "type": "function_call",
         "call_id": "call_meditron",
