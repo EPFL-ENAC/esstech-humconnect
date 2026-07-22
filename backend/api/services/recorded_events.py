@@ -1,17 +1,16 @@
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import String, Text, cast, or_
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Text, cast, func, or_
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
 from api.db import get_engine
 from api.models.recorded_event import RecordedEvent
-from api.utils.datetime_utils import parse_iso_datetime, utc_now
+from api.utils.datetime_utils import utc_now
 
 if TYPE_CHECKING:
     from api.services.chat_room.tools.events import (
@@ -40,14 +39,37 @@ class RecordedEventService:
         user_id: UUID,
         source_message_id: UUID,
     ) -> RecordedEvent:
-        event_datetime_value = event_input.event_date.resolve_event_datetime(
-            self._now_factory()
+        reference_datetime = self._now_factory()
+        resolved_event_datetime = event_input.event_date.resolve_event_datetime(
+            reference_datetime,
         )
-        event_datetime = (
-            parse_iso_datetime(event_datetime_value)
-            if event_datetime_value is not None
+        resolved_event_end_datetime = (
+            event_input.event_end_date.resolve_event_datetime(
+                reference_datetime,
+                boundary="end",
+            )
+            if event_input.event_end_date is not None
             else None
         )
+        event_datetime = (
+            resolved_event_datetime.astimezone(UTC)
+            if resolved_event_datetime is not None
+            else None
+        )
+        event_end_datetime = (
+            resolved_event_end_datetime.astimezone(UTC)
+            if resolved_event_end_datetime is not None
+            else None
+        )
+        if (
+            event_datetime is not None
+            and event_end_datetime is not None
+            and event_end_datetime < event_datetime
+        ):
+            raise ValueError(
+                "event end date must be after or equal to event start date"
+            )
+
         recorded_event = RecordedEvent(
             chat_id=chat_id,
             initiated_by_user_id=user_id,
@@ -58,7 +80,40 @@ class RecordedEventService:
             event_date_granularity=event_input.event_date.granularity,
             event_date_precision=event_input.event_date.precision,
             event_date_input=event_input.event_date.model_dump(mode="json"),
-            event_location=event_input.event_location.model_dump(mode="json"),
+            event_end_datetime=event_end_datetime,
+            event_end_date_granularity=(
+                event_input.event_end_date.granularity
+                if event_input.event_end_date is not None
+                else None
+            ),
+            event_end_date_precision=(
+                event_input.event_end_date.precision
+                if event_input.event_end_date is not None
+                else None
+            ),
+            event_end_date_input=(
+                event_input.event_end_date.model_dump(mode="json")
+                if event_input.event_end_date is not None
+                else None
+            ),
+            location_raw_text=event_input.event_location.raw_text,
+            location_continent=event_input.event_location.continent,
+            location_country_code=event_input.event_location.country_code,
+            location_region=event_input.event_location.region,
+            location_city=event_input.event_location.city,
+            location_address=event_input.event_location.address,
+            location_place_name=event_input.event_location.place_name,
+            location_detail=event_input.event_location.detail,
+            location_latitude=(
+                event_input.event_location.coordinates.latitude
+                if event_input.event_location.coordinates is not None
+                else None
+            ),
+            location_longitude=(
+                event_input.event_location.coordinates.longitude
+                if event_input.event_location.coordinates is not None
+                else None
+            ),
             tags=list(event_input.tags),
             keywords=list(event_input.keywords),
             affected_profession_categories=list(
@@ -67,6 +122,9 @@ class RecordedEventService:
             response_profession_categories=list(
                 event_input.response_profession_categories
             ),
+            local_severity=event_input.severity.local,
+            country_severity=event_input.severity.country,
+            global_severity=event_input.severity.global_,
         )
 
         async with self._session_factory(
@@ -95,10 +153,13 @@ class RecordedEventService:
         date_start = recall_input.parsed_date_start()
         date_end = recall_input.parsed_date_end()
         event_datetime_col = col(RecordedEvent.event_datetime)
+        event_end_datetime_col = col(RecordedEvent.event_end_datetime)
+        effective_start = func.coalesce(event_datetime_col, event_end_datetime_col)
+        effective_end = func.coalesce(event_end_datetime_col, event_datetime_col)
         if date_start is not None:
-            query = query.where(event_datetime_col >= date_start)
+            query = query.where(effective_end >= date_start)
         if date_end is not None:
-            query = query.where(event_datetime_col <= date_end)
+            query = query.where(effective_start <= date_end)
 
         if recall_input.keyword is not None:
             keyword_pattern = f"%{recall_input.keyword}%"
@@ -106,13 +167,20 @@ class RecordedEventService:
                 or_(
                     col(RecordedEvent.event_name).ilike(keyword_pattern),
                     col(RecordedEvent.original_text).ilike(keyword_pattern),
-                    cast(RecordedEvent.event_location, String).ilike(keyword_pattern),
+                    col(RecordedEvent.location_raw_text).ilike(keyword_pattern),
+                    col(RecordedEvent.location_continent).ilike(keyword_pattern),
+                    col(RecordedEvent.location_country_code).ilike(keyword_pattern),
+                    col(RecordedEvent.location_region).ilike(keyword_pattern),
+                    col(RecordedEvent.location_city).ilike(keyword_pattern),
+                    col(RecordedEvent.location_address).ilike(keyword_pattern),
+                    col(RecordedEvent.location_place_name).ilike(keyword_pattern),
+                    col(RecordedEvent.location_detail).ilike(keyword_pattern),
                     cast(RecordedEvent.keywords, Text).ilike(keyword_pattern),
                 )
             )
 
         if recall_input.tags:
-            tags_jsonb = cast(RecordedEvent.tags, JSONB)
+            tags_jsonb = col(RecordedEvent.tags)
             tag_filters = [tags_jsonb.contains([tag]) for tag in recall_input.tags]
             if recall_input.tag_match == "all":
                 for tag_filter in tag_filters:

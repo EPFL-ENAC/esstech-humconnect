@@ -27,7 +27,13 @@ from api.models.chat import (
     Message,
     ToolCallPayload,
 )
-from api.models.recorded_event import EVENT_TAGS, RecordedEvent
+from api.models.recorded_event import (
+    EVENT_CONTINENTS,
+    EVENT_TAGS,
+    EventLocation,
+    RecordedEvent,
+    RecordedEventResponse,
+)
 from api.models.user_profile import (
     PROFESSION_CATEGORIES,
     UserProfile,
@@ -181,9 +187,7 @@ class FakeHistory:
     async def user_has_access(self, user_id):
         return user_id == TEST_USER_ID
 
-    async def build_snapshot(
-        self, user_id, *, interrupt_stale_streaming_messages=True
-    ):
+    async def build_snapshot(self, user_id, *, interrupt_stale_streaming_messages=True):
         return self.snapshot
 
     async def get_assistant_chat_history(
@@ -362,7 +366,9 @@ def make_chat_and_message():
 
 
 def message_content(message, chunk_type=CHUNK_TYPE_MESSAGE_CONTENT):
-    return "".join(chunk.content for chunk in message.chunks if chunk.type == chunk_type)
+    return "".join(
+        chunk.content for chunk in message.chunks if chunk.type == chunk_type
+    )
 
 
 def make_db_message(chat_id, role, content, status):
@@ -389,25 +395,47 @@ class FakeReliefWebResponse:
         return self.payload
 
 
+def component_event_date_arguments(**overrides):
+    values = {
+        "year": None,
+        "month": None,
+        "day_selection": None,
+        "hour": None,
+        "minute": None,
+        "precision": "exact",
+        "timezone": None,
+    }
+    values.update(overrides)
+    return values
+
+
 def structured_record_event_arguments():
     return {
         "original_text": "My son started coughing 3 days ago",
         "event_name": "Son started coughing",
-        "event_date": {
-            "kind": "relative",
-            "granularity": "day",
-            "precision": "exact",
-            "relative": {
-                "direction": "past",
-                "days": 3,
-                "precision": "exact",
-            },
+        "event_date": component_event_date_arguments(
+            day_selection={
+                "mode": "day",
+                "day": {"kind": "relative", "value": -3},
+            }
+        ),
+        "event_end_date": None,
+        "event_location": {
+            "raw_text": None,
+            "continent": None,
+            "country_code": None,
+            "region": None,
+            "city": None,
+            "address": None,
+            "place_name": None,
+            "detail": None,
+            "coordinates": None,
         },
-        "event_location": {"value": None, "precision": "unknown"},
         "tags": ["health_incident"],
         "keywords": ["symptom", "cough"],
         "affected_profession_categories": ["medical_clinical"],
         "response_profession_categories": ["medical_clinical"],
+        "severity": {"local": 7.5, "country": 4.0, "global": 1.5},
     }
 
 
@@ -450,7 +478,9 @@ def expected_record_event_tool_output(
     return json.dumps(
         {
             "message": f"Recorded event: {event.event_name}",
-            "event": event.model_dump(mode="json"),
+            "event": RecordedEventResponse.from_recorded_event(event).model_dump(
+                mode="json"
+            ),
         },
         indent=2,
     )
@@ -462,13 +492,31 @@ def make_recorded_event(
     original_text="My son started coughing 3 days ago",
     event_name="Son started coughing",
     event_datetime=datetime(2026, 6, 26, 12, 0, tzinfo=UTC),
+    event_end_datetime=None,
     event_location=None,
     tags=None,
     keywords=None,
     affected_profession_categories=None,
     response_profession_categories=None,
+    local_severity=7.5,
+    country_severity=4.0,
+    global_severity=1.5,
     created_at=datetime(2026, 6, 29, 12, 0, tzinfo=UTC),
 ) -> RecordedEvent:
+    location = EventLocation.model_validate(
+        event_location
+        or {
+            "raw_text": None,
+            "continent": None,
+            "country_code": None,
+            "region": None,
+            "city": None,
+            "address": None,
+            "place_name": None,
+            "detail": None,
+            "coordinates": None,
+        }
+    )
     return RecordedEvent(
         chat_id=chat_id,
         initiated_by_user_id=TEST_USER_ID,
@@ -487,7 +535,34 @@ def make_recorded_event(
             else None,
             "relative": None,
         },
-        event_location=event_location or {"value": None, "precision": "unknown"},
+        event_end_datetime=event_end_datetime,
+        event_end_date_granularity=("day" if event_end_datetime is not None else None),
+        event_end_date_precision="exact" if event_end_datetime is not None else None,
+        event_end_date_input=(
+            {
+                "kind": "absolute",
+                "granularity": "day",
+                "precision": "exact",
+                "value": event_end_datetime.date().isoformat(),
+                "relative": None,
+            }
+            if event_end_datetime is not None
+            else None
+        ),
+        location_raw_text=location.raw_text,
+        location_continent=location.continent,
+        location_country_code=location.country_code,
+        location_region=location.region,
+        location_city=location.city,
+        location_address=location.address,
+        location_place_name=location.place_name,
+        location_detail=location.detail,
+        location_latitude=(
+            location.coordinates.latitude if location.coordinates is not None else None
+        ),
+        location_longitude=(
+            location.coordinates.longitude if location.coordinates is not None else None
+        ),
         tags=tags if tags is not None else ["health_incident"],
         keywords=keywords if keywords is not None else ["symptom", "cough"],
         affected_profession_categories=(
@@ -500,6 +575,9 @@ def make_recorded_event(
             if response_profession_categories is not None
             else ["medical_clinical"]
         ),
+        local_severity=local_severity,
+        country_severity=country_severity,
+        global_severity=global_severity,
         created_at=created_at,
     )
 
@@ -508,7 +586,10 @@ def expected_recall_events_tool_output(events: list[RecordedEvent]) -> str:
     return json.dumps(
         {
             "message": f"Recalled {len(events)} event(s).",
-            "events": [event.model_dump(mode="json") for event in events],
+            "events": [
+                RecordedEventResponse.from_recorded_event(event).model_dump(mode="json")
+                for event in events
+            ],
         },
         indent=2,
     )

@@ -27,30 +27,43 @@ def test_recorded_event_service_persists_event_with_initiator_metadata():
     assert persisted_event.source_message_id == RECORDED_EVENT_SOURCE_MESSAGE_ID
     assert persisted_event.original_text == "My son started coughing 3 days ago"
     assert persisted_event.event_name == "Son started coughing"
-    assert persisted_event.event_datetime == datetime(2026, 6, 26, 12, 0, tzinfo=UTC)
+    assert persisted_event.event_datetime == datetime(2026, 6, 26, 0, 0, tzinfo=UTC)
     assert persisted_event.event_date_granularity == "day"
     assert persisted_event.event_date_precision == "exact"
     assert persisted_event.event_date_input == {
-        "kind": "relative",
-        "granularity": "day",
-        "precision": "exact",
-        "value": None,
-        "relative": {
-            "direction": "past",
-            "years": None,
-            "months": None,
-            "weeks": None,
-            "days": 3,
-            "hours": None,
-            "minutes": None,
-            "precision": "exact",
+        "year": None,
+        "month": None,
+        "day_selection": {
+            "mode": "day",
+            "day": {"kind": "relative", "value": -3},
         },
+        "hour": None,
+        "minute": None,
+        "precision": "exact",
+        "timezone": None,
     }
-    assert persisted_event.event_location == {"value": None, "precision": "unknown"}
+    assert persisted_event.event_end_datetime is None
+    assert persisted_event.event_end_date_granularity is None
+    assert persisted_event.event_end_date_precision is None
+    assert persisted_event.event_end_date_input is None
+    assert persisted_event.event_location().model_dump(mode="json") == {
+        "raw_text": None,
+        "continent": None,
+        "country_code": None,
+        "region": None,
+        "city": None,
+        "address": None,
+        "place_name": None,
+        "detail": None,
+        "coordinates": None,
+    }
     assert persisted_event.tags == ["health_incident"]
     assert persisted_event.keywords == ["symptom", "cough"]
     assert persisted_event.affected_profession_categories == ["medical_clinical"]
     assert persisted_event.response_profession_categories == ["medical_clinical"]
+    assert persisted_event.local_severity == 7.5
+    assert persisted_event.country_severity == 4.0
+    assert persisted_event.global_severity == 1.5
     assert response == persisted_event
 
 
@@ -91,13 +104,22 @@ def test_recorded_event_service_builds_user_scoped_filtered_recall_query():
     assert "recordedevent.initiated_by_user_id" in query_text
     assert "WHERE recordedevent.chat_id" not in query_text
     assert "AND recordedevent.chat_id" not in query_text
-    assert "recordedevent.event_datetime >= " in query_text
-    assert "recordedevent.event_datetime <= " in query_text
+    assert (
+        "coalesce(recordedevent.event_end_datetime, "
+        "recordedevent.event_datetime) >= " in query_text
+    )
+    assert (
+        "coalesce(recordedevent.event_datetime, "
+        "recordedevent.event_end_datetime) <= " in query_text
+    )
     assert "lower(recordedevent.event_name) LIKE lower(" in query_text
     assert "lower(recordedevent.original_text) LIKE lower(" in query_text
-    assert "CAST(recordedevent.event_location AS VARCHAR)" in query_text
+    assert "lower(recordedevent.location_raw_text) LIKE lower(" in query_text
+    assert "lower(recordedevent.location_country_code) LIKE lower(" in query_text
+    assert "event_location" not in query_text
     assert "CAST(recordedevent.keywords AS TEXT)" in query_text
-    assert "CAST(recordedevent.tags AS JSONB)" in query_text
+    assert "recordedevent.tags @>" in query_text
+    assert "CAST(recordedevent.tags AS JSONB)" not in query_text
     assert "CAST(recordedevent.tags AS VARCHAR)" not in query_text
     assert " LIMIT " in query_text
 
@@ -134,6 +156,7 @@ def test_recorded_event_service_combines_exact_tag_filters(
 
     asyncio.run(run())
     query_text = str(FakeAsyncSession.last_query)
-    assert query_text.count("CAST(recordedevent.tags AS JSONB)") == 2
+    assert query_text.count("recordedevent.tags @>") == 2
+    assert "CAST(recordedevent.tags AS JSONB)" not in query_text
     assert expected_join in query_text
     assert "CAST(recordedevent.tags AS VARCHAR)" not in query_text
