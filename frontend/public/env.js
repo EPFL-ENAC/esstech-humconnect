@@ -4,4 +4,6 @@ window.env = {
     KEYCLOAK_URL: 'https://enac-it-sso2.epfl.ch',
     KEYCLOAK_REALM: 'EPFL',
     AUTH_CLIENT_ID: 'humconnect-dev',
+    SENTRY_ENVIRONMENT: 'local',
+    SENTRY_RATE: '0.00',
 };
