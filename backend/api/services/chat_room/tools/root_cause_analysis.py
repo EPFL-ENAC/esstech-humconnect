@@ -18,6 +18,7 @@ Each analysis owns an ordered list of analysis steps (problem statement,
 questions, answers, root cause); see `api.models.root_cause_analysis`.
 """
 
+import json
 from typing import Literal
 from uuid import UUID
 
@@ -82,8 +83,6 @@ class RootCauseAnalysisSnapshot(RootCauseAnalysisBaseModel):
     updated_at: str
 
     def to_tool_response(self, message: str) -> str:
-        import json
-
         return json.dumps(
             {"message": message, "analysis": self.model_dump(mode="json")},
             indent=2,
@@ -179,7 +178,7 @@ class SetRootCauseInput(RootCauseAnalysisBaseModel):
         description=(
             "The final root cause statement. "
             "Must be set after any completed question/answer pair once the "
-            "fundamental cause is clear of if the user wants to, before or at 5 levels."
+            "fundamental cause is clear or if the user wants to, before or at 5 levels."
         )
     )
 
@@ -280,8 +279,6 @@ async def _list_analyses(
     tool_input: ListAnalysesInput,
     tool_context: ToolExecutionContext,
 ) -> str:
-    import json
-
     pairs = await RootCauseAnalysisService().list_analyses(
         chat_id=tool_context.chat_id,
         status=tool_input.status,

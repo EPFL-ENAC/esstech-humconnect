@@ -41,7 +41,10 @@ class RootCauseAnalysis(SQLModel, table=True):
     chat_id: UUID = Field(foreign_key="chatsession.id", index=True)
     initiated_by_user_id: UUID = Field(foreign_key="userprofile.id", index=True)
     source_message_id: UUID = Field(foreign_key="message.id", index=True)
-    status: str = Field(default="in_progress", index=True)
+    status: AnalysisStatus = Field(
+        default="in_progress",
+        sa_column=Column(AutoString, nullable=False, index=True),
+    )
     created_at: datetime = Field(
         default_factory=utc_now,
         sa_column=Column(DateTime(timezone=True), nullable=False, index=True),
