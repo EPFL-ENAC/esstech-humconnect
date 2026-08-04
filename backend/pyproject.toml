@@ -48,6 +48,7 @@ packages = [
     "api.services.natural_events",
     "api.services.nominatim",
     "api.services.reliefweb",
+    "api.services.who_iris",
     "api.utils",
     "api.views",
 ]

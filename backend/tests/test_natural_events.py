@@ -13,7 +13,6 @@ os.environ.setdefault("MEDITRON_MCP_API_KEY", "test")
 os.environ.setdefault("KEYCLOAK_API_ID", "test")
 os.environ.setdefault("KEYCLOAK_API_SECRET", "test")
 
-from api.services.natural_events import client as natural_events_client_module
 from api.services.natural_events import (
     NasaEonetPullStep,
     NasaEonetService,
@@ -33,6 +32,7 @@ from api.services.natural_events.models import (
     UsgsEarthquakeGeoJsonResponse,
     UsgsEarthquakeProperties,
 )
+from api.utils import http as http_utils
 
 
 class FakeProviderResponse:
@@ -65,7 +65,7 @@ def test_nasa_eonet_service_builds_and_sends_typed_query_params(monkeypatch):
         calls.append((url, params, timeout))
         return FakeProviderResponse({"features": []})
 
-    monkeypatch.setattr(natural_events_client_module.requests, "get", fake_get)
+    monkeypatch.setattr(http_utils.requests, "get", fake_get)
     service = NasaEonetService(
         base_url="https://eonet.example/api/v3/",
         timeout_seconds=7,
@@ -95,7 +95,7 @@ def test_usgs_service_builds_and_sends_typed_query_params(monkeypatch):
         calls.append((url, params, timeout))
         return FakeProviderResponse({"features": []})
 
-    monkeypatch.setattr(natural_events_client_module.requests, "get", fake_get)
+    monkeypatch.setattr(http_utils.requests, "get", fake_get)
     service = UsgsEarthquakeService(
         base_url="https://earthquake.example/fdsnws/event/1/",
         timeout_seconds=8,
@@ -331,7 +331,7 @@ def test_both_malformed_provider_payloads_raise_malformed_error(monkeypatch):
     def fake_get(url, *, params, timeout):
         return FakeProviderResponse({"not_features": []})
 
-    monkeypatch.setattr(natural_events_client_module.requests, "get", fake_get)
+    monkeypatch.setattr(http_utils.requests, "get", fake_get)
     pull = NaturalEventsContextPull(
         context_query(),
         eonet=NasaEonetService(),

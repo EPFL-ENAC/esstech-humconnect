@@ -27,6 +27,10 @@ from api.services.chat_room.tools.root_cause_analysis import (
     SAVE_WHY_QUESTION_TOOL,
     SET_ROOT_CAUSE_TOOL,
 )
+from api.services.chat_room.tools.who_iris import (
+    GET_WHO_PUBLICATION_CONTENT_TOOL,
+    SEARCH_WHO_PUBLICATIONS_TOOL,
+)
 
 __all__ = [
     "ASK_MEDITRON_TOOL",
@@ -36,6 +40,7 @@ __all__ = [
     "GET_ANALYSIS_TOOL",
     "GET_HUMANITARIAN_CONTEXT_TOOL",
     "GET_NATURAL_EVENTS_CONTEXT_TOOL",
+    "GET_WHO_PUBLICATION_CONTENT_TOOL",
     "HumConnectTool",
     "HumConnectToolProvider",
     "HumConnectMCPProxy",
@@ -43,6 +48,7 @@ __all__ = [
     "ROOT_CAUSE_ANALYSIS_TOOLS",
     "SAVE_WHY_ANSWER_TOOL",
     "SAVE_WHY_QUESTION_TOOL",
+    "SEARCH_WHO_PUBLICATIONS_TOOL",
     "SET_ROOT_CAUSE_TOOL",
     "ToolCallExecution",
     "ToolCallInputItem",
