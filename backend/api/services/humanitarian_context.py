@@ -2,6 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from logging import getLogger
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
 import requests
 from pydantic import BaseModel
@@ -19,6 +20,21 @@ from api.utils.datetime_utils import parse_provider_datetime, utc_isoformat_z
 logger = getLogger(__name__)
 
 HumanitarianContextItemType = Literal["report", "disaster"]
+
+
+def safe_source_url(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return None
+
+    return value
 
 
 class HumanitarianContextItem(BaseModel):
@@ -53,7 +69,7 @@ class HumanitarianContextItem(BaseModel):
             title=fields.title_or_name("ReliefWeb item"),
             category=fields.category(item_type),
             time=utc_isoformat_z(item_time),
-            source_url=fields.url,
+            source_url=safe_source_url(fields.url),
             sources=fields.source_names(),
             country=fields.country_name(country_name),
             location_precision="country",
