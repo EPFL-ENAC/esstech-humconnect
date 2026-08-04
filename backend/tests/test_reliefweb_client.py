@@ -42,7 +42,8 @@ def test_reliefweb_service_builds_report_payload():
         context_limit=10,
         now_factory=fixed_now,
     )
-    payload = service.build_report_payload("Haiti")
+    filters = service.build_context_filters("Haiti")
+    payload = service.build_report_payload(filters)
 
     assert payload["limit"] == 10
     assert payload["sort"] == ["date.created:desc"]
@@ -62,7 +63,8 @@ def test_reliefweb_service_builds_disaster_payload():
         context_limit=10,
         now_factory=fixed_now,
     )
-    payload = service.build_disaster_payload("Sudan")
+    filters = service.build_context_filters("Sudan")
+    payload = service.build_disaster_payload(filters)
 
     assert "query" not in payload
     assert payload["fields"]["include"] == RELIEFWEB_DISASTER_FIELDS

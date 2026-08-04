@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from api.services.provider_pull import ProviderPullCollector, ProviderPullStepResult
 from api.services.reliefweb import (
+    ReliefWebContextFilters,
     ReliefWebDataEntry,
     ReliefWebRequestPayload,
     ReliefWebResponse,
@@ -67,6 +68,7 @@ class HumanitarianContextSummary(BaseModel):
 class HumanitarianContextResponse(BaseModel):
     summary: HumanitarianContextSummary
     country: str
+    filters: ReliefWebContextFilters
     items: list[HumanitarianContextItem]
     warnings: list[str] | None = None
 
@@ -81,19 +83,19 @@ class HumanitarianContextPullStepResult(
 class HumanitarianContextPullStep:
     endpoint: str
     item_type: HumanitarianContextItemType
-    build_payload: Callable[[str], ReliefWebRequestPayload]
+    build_payload: Callable[[ReliefWebContextFilters], ReliefWebRequestPayload]
     unreachable_warning: str
 
     def run(
         self,
         *,
-        country_name: str,
+        filters: ReliefWebContextFilters,
         reliefweb: ReliefWebService,
     ) -> HumanitarianContextPullStepResult:
         try:
             response = reliefweb.post(
                 self.endpoint,
-                self.build_payload(country_name),
+                self.build_payload(filters),
             )
         except requests.RequestException as exc:
             logger.warning("Could not fetch ReliefWeb %s: %s", self.endpoint, exc)
@@ -109,7 +111,7 @@ class HumanitarianContextPullStep:
                 malformed_payload=True,
             )
 
-        return self.normalize_response(response, country_name=country_name)
+        return self.normalize_response(response, country_name=filters.country)
 
     def normalize_response(
         self,
@@ -153,8 +155,10 @@ class HumanitarianContextPull:
     )
     steps: tuple[HumanitarianContextPullStep, ...] = field(init=False)
     collector: ProviderPullCollector[HumanitarianContextItem] = field(init=False)
+    filters: ReliefWebContextFilters = field(init=False)
 
     def __post_init__(self) -> None:
+        self.filters = self.reliefweb.build_context_filters(self.country_name)
         self.steps = (
             HumanitarianContextPullStep(
                 endpoint="reports",
@@ -184,7 +188,7 @@ class HumanitarianContextPull:
             self.add_step_result(
                 step,
                 step.run(
-                    country_name=self.country_name,
+                    filters=self.filters,
                     reliefweb=self.reliefweb,
                 ),
             )
@@ -211,6 +215,7 @@ class HumanitarianContextPull:
                 counts=self.counts,
             ),
             country=self.country_name,
+            filters=self.filters,
             items=self.collector.items,
         )
         if self.collector.warnings:

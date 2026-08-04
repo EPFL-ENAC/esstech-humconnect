@@ -1,12 +1,28 @@
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 from api.utils.datetime_utils import parse_provider_datetime
 
 ReliefWebRequestPayload = dict[str, Any]
+
+
+class ReliefWebContextFilters(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    provider: Literal["ReliefWeb"] = "ReliefWeb"
+    country: str
+    created_from: datetime
+    limit_per_endpoint: int
+    sort: tuple[str, ...]
+    report_query: str
+    disaster_status: Literal["current"] = "current"
+
+    @field_serializer("created_from")
+    def serialize_created_from(self, value: datetime) -> str:
+        return value.isoformat()
 
 
 class ReliefWebBaseModel(BaseModel):
