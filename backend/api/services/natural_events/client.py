@@ -1,9 +1,6 @@
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
-import requests
-from pydantic import ValidationError
-
 from api.config import config
 from api.services.natural_events.models import (
     NasaEonetGeoJsonQueryParams,
@@ -13,6 +10,7 @@ from api.services.natural_events.models import (
     UsgsEarthquakeGeoJsonResponse,
 )
 from api.utils.geo_utils import bbox_for_radius
+from api.utils.http import fetch_validated_json
 
 
 class NasaEonetService:
@@ -45,18 +43,15 @@ class NasaEonetService:
         self,
         params: NasaEonetGeoJsonQueryParams,
     ) -> NasaEonetGeoJsonResponse:
-        response = requests.get(
+        return fetch_validated_json(
             f"{self._base_url.rstrip('/')}/events/geojson",
+            NasaEonetGeoJsonResponse,
             params=params.to_request_params(),
-            timeout=self._timeout_seconds,
-        )
-        response.raise_for_status()
-        try:
-            return NasaEonetGeoJsonResponse.model_validate(response.json())
-        except ValidationError as exc:
-            raise ValueError(
+            timeout_seconds=self._timeout_seconds,
+            malformed_payload_message=(
                 "NASA EONET returned malformed natural event data."
-            ) from exc
+            ),
+        )
 
 
 class UsgsEarthquakeService:
@@ -95,15 +90,12 @@ class UsgsEarthquakeService:
         self,
         params: UsgsEarthquakeGeoJsonQueryParams,
     ) -> UsgsEarthquakeGeoJsonResponse:
-        response = requests.get(
+        return fetch_validated_json(
             f"{self._base_url.rstrip('/')}/query",
+            UsgsEarthquakeGeoJsonResponse,
             params=params.to_request_params(),
-            timeout=self._timeout_seconds,
-        )
-        response.raise_for_status()
-        try:
-            return UsgsEarthquakeGeoJsonResponse.model_validate(response.json())
-        except ValidationError as exc:
-            raise ValueError(
+            timeout_seconds=self._timeout_seconds,
+            malformed_payload_message=(
                 "USGS Earthquake Catalog returned malformed natural event data."
-            ) from exc
+            ),
+        )

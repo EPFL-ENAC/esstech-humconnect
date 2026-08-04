@@ -48,6 +48,12 @@ class Config(BaseSettings):
     HUMANITARIAN_CONTEXT_DAYS: int = 30
     HUMANITARIAN_CONTEXT_LIMIT: int = 10
 
+    WHO_IRIS_API_BASE_URL: str = "https://iris.who.int/server/api"
+    WHO_IRIS_TIMEOUT_SECONDS: float = 10
+    WHO_IRIS_SEARCH_LIMIT: int = 5
+    WHO_IRIS_MAX_DOCUMENTS: int = 3
+    WHO_IRIS_EXCERPT_BYTES: int = 12_000
+
     SANIHUB_MCP_URL: str = "https://sanihub.washai.dev/api/test/mcp"
     SANIHUB_MCP_TIMEOUT_SECONDS: float = 30
 
