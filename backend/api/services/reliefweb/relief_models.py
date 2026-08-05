@@ -1,12 +1,16 @@
 from collections.abc import Sequence
-from datetime import datetime
-from typing import Any
+from datetime import datetime, timedelta
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 from api.utils.datetime_utils import parse_provider_datetime
 
 ReliefWebRequestPayload = dict[str, Any]
+HUMANITARIAN_CONTEXT_QUERY = (
+    "outbreak epidemic cholera measles dengue malaria disease health "
+    "displacement conflict food insecurity"
+)
 
 
 class ReliefWebBaseModel(BaseModel):
@@ -16,6 +20,57 @@ class ReliefWebBaseModel(BaseModel):
 class ReliefWebFilterCondition(ReliefWebBaseModel):
     field: str
     value: object
+
+
+class ReliefWebContextFilters(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    provider: Literal["ReliefWeb"] = "ReliefWeb"
+    country: str
+    created_from: datetime
+    limit_per_endpoint: int
+    sort: tuple[str, ...] = ("date.created:desc",)
+    report_query: str = HUMANITARIAN_CONTEXT_QUERY
+    disaster_status: Literal["current"] = "current"
+
+    @classmethod
+    def default_from_country(
+        cls,
+        country: str,
+        *,
+        now: datetime,
+        context_days: int,
+        limit_per_endpoint: int,
+    ) -> Self:
+        return cls(
+            country=country,
+            created_from=(now - timedelta(days=context_days)).replace(microsecond=0),
+            limit_per_endpoint=limit_per_endpoint,
+        )
+
+    def to_conditions(
+        self,
+        *,
+        status: str | None = None,
+    ) -> list[ReliefWebFilterCondition]:
+        conditions = [
+            ReliefWebFilterCondition(
+                field="primary_country.name",
+                value=self.country,
+            ),
+            ReliefWebFilterCondition(
+                field="date.created",
+                value={"from": self.created_from.isoformat()},
+            ),
+        ]
+        if status is not None:
+            conditions.append(ReliefWebFilterCondition(field="status", value=status))
+
+        return conditions
+
+    @field_serializer("created_from")
+    def serialize_created_from(self, value: datetime) -> str:
+        return value.isoformat()
 
 
 class ReliefWebDateFields(ReliefWebBaseModel):

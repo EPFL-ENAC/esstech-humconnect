@@ -1,46 +1,38 @@
 <template>
-    <q-expansion-item
-        dense
-        switch-toggle-side
-        class="reasoning"
-        header-class="reasoning-header"
-        label="Thinking"
+    <ChatActivityBlock
+        :title="t('chat.activities.thinking')"
+        :summary="summary"
+        icon="psychology"
+        color="#667085"
+        mode="raw-only"
     >
-        <div class="reasoning-text">
-            {{ chunk.content }}
-        </div>
-    </q-expansion-item>
+        <template #raw>
+            <div class="reasoning-text">{{ chunk.content }}</div>
+        </template>
+    </ChatActivityBlock>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { ChatMessageChunk } from 'src/utils/model';
+import ChatActivityBlock from './ChatActivityBlock.vue';
 
-defineProps<{
+const props = defineProps<{
     chunk: ChatMessageChunk;
 }>();
+
+const { t } = useI18n();
+const characterCount = computed(() => Array.from(props.chunk.content).length);
+const summary = computed(() =>
+    t(characterCount.value === 1 ? 'chat.activities.character' : 'chat.activities.characters', {
+        count: characterCount.value,
+    }),
+);
 </script>
 
 <style scoped lang="scss">
-.reasoning {
-    border-left: 3px solid #9aa4b2;
-    color: #475467;
-    margin-bottom: 8px;
-}
-
-.reasoning :deep(.q-item) {
-    min-height: 30px;
-    padding: 0 6px;
-}
-
-.reasoning :deep(.q-item__label) {
-    font-size: 12px;
-    font-weight: 600;
-}
-
 .reasoning-text {
-    font-size: 13px;
-    line-height: 1.45;
-    padding: 4px 8px 8px 30px;
     white-space: pre-wrap;
     word-break: break-word;
 }

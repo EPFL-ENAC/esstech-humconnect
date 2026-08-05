@@ -1,13 +1,17 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from logging import getLogger
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
 import requests
 from pydantic import BaseModel
 
+from api.config import config
 from api.services.provider_pull import ProviderPullCollector, ProviderPullStepResult
 from api.services.reliefweb import (
+    ReliefWebContextFilters,
     ReliefWebDataEntry,
     ReliefWebRequestPayload,
     ReliefWebResponse,
@@ -18,6 +22,21 @@ from api.utils.datetime_utils import parse_provider_datetime, utc_isoformat_z
 logger = getLogger(__name__)
 
 HumanitarianContextItemType = Literal["report", "disaster"]
+
+
+def safe_source_url(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return None
+
+    return value
 
 
 class HumanitarianContextItem(BaseModel):
@@ -52,7 +71,7 @@ class HumanitarianContextItem(BaseModel):
             title=fields.title_or_name("ReliefWeb item"),
             category=fields.category(item_type),
             time=utc_isoformat_z(item_time),
-            source_url=fields.url,
+            source_url=safe_source_url(fields.url),
             sources=fields.source_names(),
             country=fields.country_name(country_name),
             location_precision="country",
@@ -67,6 +86,7 @@ class HumanitarianContextSummary(BaseModel):
 class HumanitarianContextResponse(BaseModel):
     summary: HumanitarianContextSummary
     country: str
+    filters: ReliefWebContextFilters
     items: list[HumanitarianContextItem]
     warnings: list[str] | None = None
 
@@ -81,19 +101,19 @@ class HumanitarianContextPullStepResult(
 class HumanitarianContextPullStep:
     endpoint: str
     item_type: HumanitarianContextItemType
-    build_payload: Callable[[str], ReliefWebRequestPayload]
+    build_payload: Callable[[ReliefWebContextFilters], ReliefWebRequestPayload]
     unreachable_warning: str
 
     def run(
         self,
         *,
-        country_name: str,
+        filters: ReliefWebContextFilters,
         reliefweb: ReliefWebService,
     ) -> HumanitarianContextPullStepResult:
         try:
             response = reliefweb.post(
                 self.endpoint,
-                self.build_payload(country_name),
+                self.build_payload(filters),
             )
         except requests.RequestException as exc:
             logger.warning("Could not fetch ReliefWeb %s: %s", self.endpoint, exc)
@@ -109,7 +129,7 @@ class HumanitarianContextPullStep:
                 malformed_payload=True,
             )
 
-        return self.normalize_response(response, country_name=country_name)
+        return self.normalize_response(response, country_name=filters.country)
 
     def normalize_response(
         self,
@@ -145,6 +165,9 @@ class HumanitarianContextPullStep:
 class HumanitarianContextPull:
     country_name: str
     reliefweb: ReliefWebService = field(default_factory=ReliefWebService)
+    context_days: int = config.HUMANITARIAN_CONTEXT_DAYS
+    context_limit: int = config.HUMANITARIAN_CONTEXT_LIMIT
+    now_factory: Callable[[], datetime] = lambda: datetime.now(UTC)
     counts: dict[str, int] = field(
         default_factory=lambda: {
             "reports": 0,
@@ -153,8 +176,15 @@ class HumanitarianContextPull:
     )
     steps: tuple[HumanitarianContextPullStep, ...] = field(init=False)
     collector: ProviderPullCollector[HumanitarianContextItem] = field(init=False)
+    filters: ReliefWebContextFilters = field(init=False)
 
     def __post_init__(self) -> None:
+        self.filters = ReliefWebContextFilters.default_from_country(
+            self.country_name,
+            now=self.now_factory(),
+            context_days=self.context_days,
+            limit_per_endpoint=self.context_limit,
+        )
         self.steps = (
             HumanitarianContextPullStep(
                 endpoint="reports",
@@ -184,7 +214,7 @@ class HumanitarianContextPull:
             self.add_step_result(
                 step,
                 step.run(
-                    country_name=self.country_name,
+                    filters=self.filters,
                     reliefweb=self.reliefweb,
                 ),
             )
@@ -211,6 +241,7 @@ class HumanitarianContextPull:
                 counts=self.counts,
             ),
             country=self.country_name,
+            filters=self.filters,
             items=self.collector.items,
         )
         if self.collector.warnings:

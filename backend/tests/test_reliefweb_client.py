@@ -12,13 +12,21 @@ os.environ.setdefault("KEYCLOAK_API_ID", "test")
 os.environ.setdefault("KEYCLOAK_API_SECRET", "test")
 
 from api.services.reliefweb import client as reliefweb_client_module
-from api.services.humanitarian_context import HumanitarianContextPullStep
+from api.services.humanitarian_context import (
+    HumanitarianContextItem,
+    HumanitarianContextPullStep,
+)
 from api.services.reliefweb.client import (
     RELIEFWEB_DISASTER_FIELDS,
     RELIEFWEB_REPORT_FIELDS,
     ReliefWebService,
 )
-from api.services.reliefweb.relief_models import ReliefWebResponse
+from api.services.reliefweb.relief_models import (
+    ReliefWebContextFilters,
+    ReliefWebDataEntry,
+    ReliefWebItemFields,
+    ReliefWebResponse,
+)
 
 
 class FakeReliefWebResponse:
@@ -37,12 +45,13 @@ def fixed_now() -> datetime:
 
 
 def test_reliefweb_service_builds_report_payload():
-    service = ReliefWebService(
+    filters = ReliefWebContextFilters.default_from_country(
+        "Haiti",
+        now=fixed_now(),
         context_days=30,
-        context_limit=10,
-        now_factory=fixed_now,
+        limit_per_endpoint=10,
     )
-    payload = service.build_report_payload("Haiti")
+    payload = ReliefWebService().build_report_payload(filters)
 
     assert payload["limit"] == 10
     assert payload["sort"] == ["date.created:desc"]
@@ -57,12 +66,13 @@ def test_reliefweb_service_builds_report_payload():
 
 
 def test_reliefweb_service_builds_disaster_payload():
-    service = ReliefWebService(
+    filters = ReliefWebContextFilters.default_from_country(
+        "Sudan",
+        now=fixed_now(),
         context_days=30,
-        context_limit=10,
-        now_factory=fixed_now,
+        limit_per_endpoint=10,
     )
-    payload = service.build_disaster_payload("Sudan")
+    payload = ReliefWebService().build_disaster_payload(filters)
 
     assert "query" not in payload
     assert payload["fields"]["include"] == RELIEFWEB_DISASTER_FIELDS
@@ -163,6 +173,38 @@ def test_humanitarian_context_step_normalizes_reliefweb_items():
     ]
 
 
+@pytest.mark.parametrize(
+    ("source_url", "expected"),
+    [
+        ("https://example.test/report", "https://example.test/report"),
+        ("http://example.test/report", "http://example.test/report"),
+        ("javascript:alert(document.domain)", None),
+        ("data:text/html,<script>alert(1)</script>", None),
+        ("/reports/123", None),
+        ("https://[invalid", None),
+        (None, None),
+    ],
+)
+def test_humanitarian_context_item_only_keeps_http_source_urls(
+    source_url: str | None,
+    expected: str | None,
+):
+    item = HumanitarianContextItem.from_reliefweb_data_entry(
+        ReliefWebDataEntry(
+            id="123",
+            fields=ReliefWebItemFields(
+                title="Cholera outbreak update",
+                url=source_url,
+            ),
+        ),
+        item_type="report",
+        country_name="Haiti",
+    )
+
+    assert item is not None
+    assert item.source_url == expected
+
+
 def test_humanitarian_context_step_returns_warning_for_missing_data_list():
     step = HumanitarianContextPullStep(
         endpoint="disasters",
@@ -177,6 +219,4 @@ def test_humanitarian_context_step_returns_warning_for_missing_data_list():
     )
 
     assert result.items == []
-    assert result.warnings == [
-        "ReliefWeb disaster response returned no data list."
-    ]
+    assert result.warnings == ["ReliefWeb disaster response returned no data list."]

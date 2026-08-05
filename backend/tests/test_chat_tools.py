@@ -221,6 +221,16 @@ def test_get_humanitarian_context_tool_fetches_and_normalizes_items(monkeypatch)
         "disasters": 1,
     }
     assert result["country"] == "Haiti"
+    assert {
+        key: value for key, value in result["filters"].items() if key != "created_from"
+    } == {
+        "provider": "ReliefWeb",
+        "country": "Haiti",
+        "limit_per_endpoint": 10,
+        "sort": ["date.created:desc"],
+        "report_query": reliefweb_client_module.HUMANITARIAN_CONTEXT_QUERY,
+        "disaster_status": "current",
+    }
     assert [item["id"] for item in result["items"]] == ["123", "dis-1"]
     assert result["items"][0] == {
         "provider": "ReliefWeb",
@@ -277,6 +287,7 @@ def test_get_humanitarian_context_tool_fetches_and_normalizes_items(monkeypatch)
     }["date.created"]["from"]
     assert "T" in report_date_from
     assert report_date_from.endswith("+00:00")
+    assert result["filters"]["created_from"] == report_date_from
     assert report_timeout == 5
 
     disaster_url, disaster_params, disaster_payload, disaster_timeout = calls[1]
@@ -304,6 +315,7 @@ def test_get_humanitarian_context_tool_fetches_and_normalizes_items(monkeypatch)
     }["date.created"]["from"]
     assert "T" in disaster_date_from
     assert disaster_date_from.endswith("+00:00")
+    assert disaster_date_from == report_date_from
     assert disaster_timeout == 5
 
 
