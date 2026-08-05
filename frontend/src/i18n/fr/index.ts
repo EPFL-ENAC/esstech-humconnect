@@ -201,6 +201,11 @@ export default {
                 finished: 'Terminé',
                 failed: 'Échec',
             },
+            expert: {
+                question: 'Question',
+                systemPrompt: 'Instructions système',
+                emptyAnswer: "Aucune réponse n'a été renvoyée.",
+            },
             humanitarian: {
                 searching: 'Recherche du contexte humanitaire',
                 searchingCountry: 'Recherche du contexte humanitaire pour {country}',

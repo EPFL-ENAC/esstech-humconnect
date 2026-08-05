@@ -200,6 +200,11 @@ export default {
                 finished: 'Finished',
                 failed: 'Failed',
             },
+            expert: {
+                question: 'Question',
+                systemPrompt: 'System instructions',
+                emptyAnswer: 'No answer was returned.',
+            },
             humanitarian: {
                 searching: 'Searching humanitarian context',
                 searchingCountry: 'Searching humanitarian context for {country}',
