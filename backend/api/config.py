@@ -25,7 +25,7 @@ class Config(BaseSettings):
     MEDITRON_MODEL_NAME: str = "OpenMeditron/Meditron3-70B"
     LEGITRON_MODEL_NAME: str = "EPFLiGHT/Llama-33-70b-Legitron"
 
-    KEYCLOAK_REALM: str = "EPFL"
+    KEYCLOAK_REALM: str = "external"
     KEYCLOAK_URL: str = "https://enac-it-sso2.epfl.ch"
     KEYCLOAK_API_ID: str
     KEYCLOAK_API_SECRET: str
