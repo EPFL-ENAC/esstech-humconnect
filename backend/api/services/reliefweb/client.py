@@ -1,20 +1,15 @@
-from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
-
 import requests
 
 from api.config import config
 from api.services.reliefweb.relief_models import (
+    HUMANITARIAN_CONTEXT_QUERY as HUMANITARIAN_CONTEXT_QUERY,
+)
+from api.services.reliefweb.relief_models import (
     ReliefWebContextFilters,
-    ReliefWebFilterCondition,
     ReliefWebRequestPayload,
     ReliefWebResponse,
 )
 
-HUMANITARIAN_CONTEXT_QUERY = (
-    "outbreak epidemic cholera measles dengue malaria disease health "
-    "displacement conflict food insecurity"
-)
 RELIEFWEB_REPORT_FIELDS = [
     "id",
     "title",
@@ -45,27 +40,10 @@ class ReliefWebService:
         base_url: str = config.RELIEFWEB_BASE_URL,
         app_name: str = config.RELIEFWEB_APP_NAME,
         timeout_seconds: float = config.HUMANITARIAN_CONTEXT_TIMEOUT_SECONDS,
-        context_days: int = config.HUMANITARIAN_CONTEXT_DAYS,
-        context_limit: int = config.HUMANITARIAN_CONTEXT_LIMIT,
-        now_factory: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._base_url = base_url
         self._app_name = app_name
         self._timeout_seconds = timeout_seconds
-        self._context_days = context_days
-        self._context_limit = context_limit
-        self._now_factory = now_factory
-
-    def build_context_filters(self, country_name: str) -> ReliefWebContextFilters:
-        return ReliefWebContextFilters(
-            country=country_name,
-            created_from=(
-                self._now_factory() - timedelta(days=self._context_days)
-            ).replace(microsecond=0),
-            limit_per_endpoint=self._context_limit,
-            sort=("date.created:desc",),
-            report_query=HUMANITARIAN_CONTEXT_QUERY,
-        )
 
     def build_payload(
         self,
@@ -75,22 +53,7 @@ class ReliefWebService:
         include_query_terms: bool,
         status_filter: str | None = None,
     ) -> ReliefWebRequestPayload:
-        conditions: list[ReliefWebFilterCondition] = [
-            ReliefWebFilterCondition(
-                field="primary_country.name",
-                value=filters.country,
-            ),
-            ReliefWebFilterCondition(
-                field="date.created",
-                value={
-                    "from": filters.created_from.isoformat(),
-                },
-            ),
-        ]
-        if status_filter is not None:
-            conditions.append(
-                ReliefWebFilterCondition(field="status", value=status_filter)
-            )
+        conditions = filters.to_conditions(status=status_filter)
 
         payload: ReliefWebRequestPayload = {
             "limit": filters.limit_per_endpoint,

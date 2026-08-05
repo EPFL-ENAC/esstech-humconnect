@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from logging import getLogger
 from typing import Literal, Self
 from urllib.parse import urlsplit
@@ -7,6 +8,7 @@ from urllib.parse import urlsplit
 import requests
 from pydantic import BaseModel
 
+from api.config import config
 from api.services.provider_pull import ProviderPullCollector, ProviderPullStepResult
 from api.services.reliefweb import (
     ReliefWebContextFilters,
@@ -163,6 +165,9 @@ class HumanitarianContextPullStep:
 class HumanitarianContextPull:
     country_name: str
     reliefweb: ReliefWebService = field(default_factory=ReliefWebService)
+    context_days: int = config.HUMANITARIAN_CONTEXT_DAYS
+    context_limit: int = config.HUMANITARIAN_CONTEXT_LIMIT
+    now_factory: Callable[[], datetime] = lambda: datetime.now(UTC)
     counts: dict[str, int] = field(
         default_factory=lambda: {
             "reports": 0,
@@ -174,7 +179,12 @@ class HumanitarianContextPull:
     filters: ReliefWebContextFilters = field(init=False)
 
     def __post_init__(self) -> None:
-        self.filters = self.reliefweb.build_context_filters(self.country_name)
+        self.filters = ReliefWebContextFilters.default_from_country(
+            self.country_name,
+            now=self.now_factory(),
+            context_days=self.context_days,
+            limit_per_endpoint=self.context_limit,
+        )
         self.steps = (
             HumanitarianContextPullStep(
                 endpoint="reports",

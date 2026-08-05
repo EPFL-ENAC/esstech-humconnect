@@ -22,6 +22,7 @@ from api.services.reliefweb.client import (
     ReliefWebService,
 )
 from api.services.reliefweb.relief_models import (
+    ReliefWebContextFilters,
     ReliefWebDataEntry,
     ReliefWebItemFields,
     ReliefWebResponse,
@@ -44,13 +45,13 @@ def fixed_now() -> datetime:
 
 
 def test_reliefweb_service_builds_report_payload():
-    service = ReliefWebService(
+    filters = ReliefWebContextFilters.default_from_country(
+        "Haiti",
+        now=fixed_now(),
         context_days=30,
-        context_limit=10,
-        now_factory=fixed_now,
+        limit_per_endpoint=10,
     )
-    filters = service.build_context_filters("Haiti")
-    payload = service.build_report_payload(filters)
+    payload = ReliefWebService().build_report_payload(filters)
 
     assert payload["limit"] == 10
     assert payload["sort"] == ["date.created:desc"]
@@ -65,13 +66,13 @@ def test_reliefweb_service_builds_report_payload():
 
 
 def test_reliefweb_service_builds_disaster_payload():
-    service = ReliefWebService(
+    filters = ReliefWebContextFilters.default_from_country(
+        "Sudan",
+        now=fixed_now(),
         context_days=30,
-        context_limit=10,
-        now_factory=fixed_now,
+        limit_per_endpoint=10,
     )
-    filters = service.build_context_filters("Sudan")
-    payload = service.build_disaster_payload(filters)
+    payload = ReliefWebService().build_disaster_payload(filters)
 
     assert "query" not in payload
     assert payload["fields"]["include"] == RELIEFWEB_DISASTER_FIELDS
