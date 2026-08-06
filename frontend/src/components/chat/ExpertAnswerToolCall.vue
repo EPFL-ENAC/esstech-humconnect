@@ -45,10 +45,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ToolCallPayload } from 'src/utils/model';
 import ChatActivityBlock from './ChatActivityBlock.vue';
 import ChatMarkdownContent from './ChatMarkdownContent.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
+import type { ExpertAnswerToolCallPayload } from './toolCallSchemas';
 
 interface ExpertPresentation {
     icon: string;
@@ -72,15 +72,15 @@ const DEFAULT_PRESENTATION: ExpertPresentation = {
 };
 
 const props = defineProps<{
-    payload: ToolCallPayload;
+    payload: ExpertAnswerToolCallPayload;
 }>();
 
 const { t } = useI18n();
 const presentation = computed(
     () => EXPERT_PRESENTATIONS[props.payload.tool_name] ?? DEFAULT_PRESENTATION,
 );
-const prompt = computed(() => stringArgument('prompt'));
-const systemPrompt = computed(() => stringArgument('system_prompt'));
+const prompt = computed(() => props.payload.arguments.prompt);
+const systemPrompt = computed(() => props.payload.arguments.system_prompt?.trim() ?? '');
 const expertStyle = computed(() => ({ '--expert-color': presentation.value.color }));
 const mode = computed(() => {
     if (props.payload.status === 'running') {
@@ -115,11 +115,6 @@ function summarySuffix(): string {
     }
 
     return localizedCharacterCount(props.payload.answer ?? '');
-}
-
-function stringArgument(name: string): string {
-    const value = props.payload.arguments?.[name];
-    return typeof value === 'string' ? value.trim() : '';
 }
 
 function truncateUnicode(value: string, maxLength: number): string {

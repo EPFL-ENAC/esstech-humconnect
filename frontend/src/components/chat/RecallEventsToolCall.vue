@@ -16,15 +16,15 @@
                 <section class="recall-filters">
                     <h4>{{ t('chat.activities.events.filters') }}</h4>
                     <div class="filter-pills">
-                        <q-chip v-if="payload.arguments?.keyword" dense outline>
+                        <q-chip v-if="payload.arguments.keyword" dense outline>
                             <span>{{ t('chat.activities.events.keyword') }}:</span>
                             {{ payload.arguments.keyword }}
                         </q-chip>
-                        <q-chip v-if="payload.arguments?.date_start" dense outline>
+                        <q-chip v-if="payload.arguments.date_start" dense outline>
                             <span>{{ t('chat.activities.events.dateStart') }}:</span>
                             {{ formatFilterDate(payload.arguments.date_start) }}
                         </q-chip>
-                        <q-chip v-if="payload.arguments?.date_end" dense outline>
+                        <q-chip v-if="payload.arguments.date_end" dense outline>
                             <span>{{ t('chat.activities.events.dateEnd') }}:</span>
                             {{ formatFilterDate(payload.arguments.date_end) }}
                         </q-chip>
@@ -36,13 +36,13 @@
                             <span>{{ t('chat.activities.events.tagMatch') }}:</span>
                             {{
                                 t(
-                                    `chat.activities.events.tagMatches.${payload.arguments?.tag_match ?? 'all'}`,
+                                    `chat.activities.events.tagMatches.${payload.arguments.tag_match}`,
                                 )
                             }}
                         </q-chip>
                         <q-chip dense outline>
                             <span>{{ t('chat.activities.events.limit') }}:</span>
-                            {{ payload.arguments?.limit ?? 10 }}
+                            {{ payload.arguments.limit }}
                         </q-chip>
                     </div>
                 </section>
@@ -66,61 +66,24 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { EventTag, RecordedEvent, ToolCallPayload } from 'src/utils/model';
 import ChatActivityBlock from './ChatActivityBlock.vue';
 import ChatCardGallery from './ChatCardGallery.vue';
 import RecordedEventCard from './RecordedEventCard.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
-
-interface RecallEventsToolArguments extends Record<string, unknown> {
-    keyword?: string | null;
-    date_start?: string | null;
-    date_end?: string | null;
-    tags?: EventTag[] | string;
-    tag_match?: 'all' | 'any';
-    limit?: number;
-}
-
-interface RecallEventsToolResult {
-    message: string;
-    events: RecordedEvent[];
-}
-
-type RecallEventsToolCallPayload = Omit<ToolCallPayload, 'tool_name' | 'arguments'> & {
-    tool_name: 'recall_events';
-    arguments: RecallEventsToolArguments | null;
-};
+import type { RecallEventsToolCallPayload } from './toolCallSchemas';
 
 const props = defineProps<{
     payload: RecallEventsToolCallPayload;
 }>();
 
 const { locale, t } = useI18n();
-const result = computed(parseResult);
-const events = computed(() => result.value?.events ?? null);
-const tags = computed(() => {
-    const value = props.payload.arguments?.tags ?? [];
-    if (typeof value === 'string') {
-        return JSON.parse(value) as EventTag[];
-    }
-
-    return value;
-});
+const events = computed(() =>
+    props.payload.status === 'finished' ? (props.payload.answer?.events ?? null) : null,
+);
+const tags = computed(() => props.payload.arguments.tags);
 const tagsLabel = computed(() => tags.value.map((tag) => t(`dashboard.tags.${tag}`)).join(', '));
 const mode = computed(resolveMode);
 const summary = computed(resolveSummary);
-
-function parseResult(): RecallEventsToolResult | null {
-    if (props.payload.status !== 'finished' || !props.payload.answer) {
-        return null;
-    }
-
-    try {
-        return JSON.parse(props.payload.answer) as RecallEventsToolResult;
-    } catch {
-        return null;
-    }
-}
 
 function resolveMode(): 'visual-and-raw' | 'raw-only' {
     if (props.payload.status === 'running' || events.value) {
