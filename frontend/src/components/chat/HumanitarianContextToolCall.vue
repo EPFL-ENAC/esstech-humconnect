@@ -73,7 +73,7 @@
                 </q-banner>
 
                 <section class="results-section">
-                    <div v-if="result.items.length" class="context-cards">
+                    <ChatCardGallery v-if="result.items.length">
                         <component
                             :is="item.source_url ? 'a' : 'article'"
                             v-for="item in result.items"
@@ -101,7 +101,7 @@
                                 </div>
                             </dl>
                         </component>
-                    </div>
+                    </ChatCardGallery>
                     <div v-else class="empty-results">
                         <q-icon name="article" size="22px" />
                         <span>{{ t('chat.activities.humanitarian.noResults') }}</span>
@@ -121,6 +121,7 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ToolCallPayload } from 'src/utils/model';
 import ChatActivityBlock from './ChatActivityBlock.vue';
+import ChatCardGallery from './ChatCardGallery.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
 
 interface HumanitarianContextFilters {
@@ -321,27 +322,15 @@ function formatSources(sources: string[], provider: string): string {
     margin-top: 14px;
 }
 
-.context-cards {
-    display: flex;
-    gap: 10px;
-    margin: 0 -2px;
-    overflow-x: auto;
-    padding: 2px 2px 10px;
-    scroll-snap-type: x proximity;
-    scrollbar-width: thin;
-}
-
 .context-card {
     background: white;
     border: 1px solid #d0d5dd;
     border-radius: 9px;
     color: #344054;
     display: flex;
-    flex: 0 0 min(250px, 82%);
     flex-direction: column;
     min-height: 178px;
     padding: 11px;
-    scroll-snap-align: start;
     text-decoration: none;
 }
 
@@ -422,11 +411,5 @@ function formatSources(sources: string[], provider: string): string {
     justify-content: center;
     min-height: 72px;
     padding: 12px;
-}
-
-@media (max-width: 520px) {
-    .context-card {
-        flex-basis: 86%;
-    }
 }
 </style>
