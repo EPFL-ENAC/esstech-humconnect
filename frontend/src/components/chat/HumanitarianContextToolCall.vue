@@ -119,73 +119,21 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ToolCallPayload } from 'src/utils/model';
 import ChatActivityBlock from './ChatActivityBlock.vue';
 import ChatCardGallery from './ChatCardGallery.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
-
-interface HumanitarianContextFilters {
-    provider: string;
-    country: string;
-    created_from: string;
-    limit_per_endpoint: number;
-    sort: string[];
-    report_query: string;
-    disaster_status: string;
-}
-
-interface HumanitarianContextItem {
-    provider: string;
-    type: 'report' | 'disaster';
-    id: string;
-    title: string;
-    category: string;
-    time: string | null;
-    source_url: string | null;
-    sources: string[];
-}
-
-interface HumanitarianContextResult {
-    country: string;
-    filters: HumanitarianContextFilters;
-    items: HumanitarianContextItem[];
-    warnings?: string[];
-}
+import type {
+    HumanitarianContextItem,
+    HumanitarianContextToolCallPayload,
+} from './toolCallSchemas';
 
 const props = defineProps<{
-    payload: ToolCallPayload;
+    payload: HumanitarianContextToolCallPayload;
 }>();
 
 const { locale, t } = useI18n();
-
-function parseResult(answer: string | null): HumanitarianContextResult | null {
-    if (!answer) {
-        return null;
-    }
-
-    try {
-        const value = JSON.parse(answer) as HumanitarianContextResult;
-        if (
-            !value?.filters ||
-            !Array.isArray(value.filters.sort) ||
-            !Array.isArray(value.items) ||
-            (value.warnings !== undefined && !Array.isArray(value.warnings))
-        ) {
-            return null;
-        }
-        return value;
-    } catch {
-        return null;
-    }
-}
-
-const result = computed(() =>
-    props.payload.status === 'finished' ? parseResult(props.payload.answer) : null,
-);
-const country = computed(() => {
-    const value = props.payload.arguments?.country_name;
-    return typeof value === 'string' ? value : '';
-});
+const result = computed(() => (props.payload.status === 'finished' ? props.payload.answer : null));
+const country = computed(() => props.payload.arguments.country_name);
 const mode = computed<'visual-and-raw' | 'raw-only'>(() =>
     props.payload.status === 'running' || result.value ? 'visual-and-raw' : 'raw-only',
 );

@@ -26,41 +26,21 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { RecordedEvent, ToolCallPayload } from 'src/utils/model';
 import ChatActivityBlock from './ChatActivityBlock.vue';
 import RecordedEventCard from './RecordedEventCard.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
-
-interface RecordEventToolResult {
-    message: string;
-    event: RecordedEvent;
-}
-
-type RecordEventToolCallPayload = ToolCallPayload & {
-    tool_name: 'record_event';
-};
+import type { RecordEventToolCallPayload } from './toolCallSchemas';
 
 const props = defineProps<{
     payload: RecordEventToolCallPayload;
 }>();
 
 const { t } = useI18n();
-const result = computed(parseResult);
-const event = computed(() => result.value?.event ?? null);
+const event = computed(() =>
+    props.payload.status === 'finished' ? (props.payload.answer?.event ?? null) : null,
+);
 const mode = computed(resolveMode);
 const summary = computed(resolveSummary);
-
-function parseResult(): RecordEventToolResult | null {
-    if (props.payload.status !== 'finished' || !props.payload.answer) {
-        return null;
-    }
-
-    try {
-        return JSON.parse(props.payload.answer) as RecordEventToolResult;
-    } catch {
-        return null;
-    }
-}
 
 function resolveMode(): 'visual-and-raw' | 'raw-only' {
     if (props.payload.status === 'running' || event.value) {

@@ -26,16 +26,24 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import type { ToolCallPayload } from 'src/utils/model';
+import type { ToolCallDisplayPayload } from './toolCallSchemas';
 
 const props = defineProps<{
-    payload: ToolCallPayload;
+    payload: ToolCallDisplayPayload;
 }>();
 
 const { t } = useI18n();
 
-const formattedArguments = computed(() => JSON.stringify(props.payload.arguments, null, 2));
-const rawOutput = computed(() => props.payload.answer ?? props.payload.error);
+const formattedArguments = computed(() => formatRawValue(props.payload.arguments) ?? 'null');
+const rawOutput = computed(() => formatRawValue(props.payload.answer ?? props.payload.error));
+
+function formatRawValue(value: unknown): string | null {
+    if (value === null) {
+        return null;
+    }
+
+    return typeof value === 'string' ? value : (JSON.stringify(value, null, 2) ?? '');
+}
 </script>
 
 <style scoped lang="scss">

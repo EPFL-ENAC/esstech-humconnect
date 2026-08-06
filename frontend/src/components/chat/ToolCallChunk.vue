@@ -1,15 +1,15 @@
 <template>
-    <component
-        :is="resolveToolCallComponent(chunk.payload?.tool_name)"
-        :payload="chunk.payload ?? null"
-    />
+    <component :is="resolvedToolCall.component" :payload="resolvedToolCall.payload" />
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { ChatMessageChunk } from 'src/utils/model';
-import { resolveToolCallComponent } from './toolCallRegistry';
+import { resolveToolCall } from './toolCallRegistry';
 
-defineProps<{
+const props = defineProps<{
     chunk: ChatMessageChunk;
 }>();
+
+const resolvedToolCall = computed(() => resolveToolCall(props.chunk.payload ?? null));
 </script>
