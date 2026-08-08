@@ -9,105 +9,33 @@
         default-opened
     >
         <template #visualization>
-            <div v-if="payload.status === 'running'" class="visualization-loading">
-                <q-spinner-dots size="22px" color="primary" />
-            </div>
-            <div v-else-if="result" class="humanitarian-context">
-                <section>
-                    <h4 class="section-title">
-                        {{ t('chat.activities.humanitarian.filters') }}
-                    </h4>
-                    <div class="filter-pills">
-                        <q-chip dense outline>
-                            <span class="filter-label">
-                                {{ t('chat.activities.humanitarian.provider') }}:
-                            </span>
-                            {{ result.filters.provider }}
-                        </q-chip>
-                        <q-chip dense outline>
-                            <span class="filter-label">
-                                {{ t('chat.activities.humanitarian.country') }}:
-                            </span>
-                            {{ result.filters.country }}
-                        </q-chip>
-                        <q-chip dense outline>
-                            <span class="filter-label">
-                                {{ t('chat.activities.humanitarian.createdFrom') }}:
-                            </span>
-                            {{ formatDate(result.filters.created_from) }}
-                        </q-chip>
-                        <q-chip dense outline>
-                            <span class="filter-label">
-                                {{ t('chat.activities.humanitarian.limit') }}:
-                            </span>
-                            {{
-                                t('chat.activities.humanitarian.limitValue', {
-                                    count: result.filters.limit_per_endpoint,
-                                })
-                            }}
-                        </q-chip>
-                        <q-chip dense outline>
-                            <span class="filter-label">
-                                {{ t('chat.activities.humanitarian.sort') }}:
-                            </span>
-                            {{ formatSort(result.filters.sort) }}
-                        </q-chip>
-                        <q-chip dense outline>
-                            <span class="filter-label">
-                                {{ t('chat.activities.humanitarian.disasterStatus') }}:
-                            </span>
-                            {{ formatDisasterStatus(result.filters.disaster_status) }}
-                        </q-chip>
-                    </div>
-                    <div class="report-query">
-                        <div>{{ t('chat.activities.humanitarian.reportQuery') }}</div>
-                        <p>{{ result.filters.report_query }}</p>
-                    </div>
-                </section>
-
-                <q-banner v-if="result.warnings?.length" dense rounded class="warning-banner">
-                    <template #avatar><q-icon name="warning_amber" /></template>
-                    <ul>
-                        <li v-for="warning in result.warnings" :key="warning">{{ warning }}</li>
-                    </ul>
-                </q-banner>
-
-                <section class="results-section">
-                    <ChatCardGallery v-if="result.items.length">
-                        <component
-                            :is="item.source_url ? 'a' : 'article'"
+            <ToolCallVisualizationSkeleton
+                :loading="payload.status === 'running'"
+                accent-color="#1570ef"
+                :query="visualizationQuery"
+                :filters="visualizationFilters"
+                :warnings="result?.warnings"
+                :results-summary="visualizationResultsSummary"
+                :empty-state="visualizationEmptyState"
+            >
+                <template #results>
+                    <ChatCardGallery v-if="result?.items.length">
+                        <ToolCardItem
                             v-for="item in result.items"
                             :key="`${item.type}-${item.id}`"
-                            class="context-card"
-                            :class="{ 'context-card-link': item.source_url }"
                             :href="item.source_url ?? undefined"
-                            :target="item.source_url ? '_blank' : undefined"
-                            :rel="item.source_url ? 'noopener noreferrer' : undefined"
+                            color="#1570ef"
+                            :eyebrow="formatItemType(item.type)"
+                            :title="item.title"
+                            :extra-info="itemExtraInfo(item)"
                         >
-                            <div class="card-heading">
-                                <span class="item-type">{{ formatItemType(item.type) }}</span>
-                                <q-icon v-if="item.source_url" name="open_in_new" size="15px" />
-                            </div>
-                            <h5>{{ item.title }}</h5>
-                            <div class="item-category">{{ item.category }}</div>
-                            <dl class="card-meta">
-                                <div>
-                                    <dt><q-icon name="calendar_today" /></dt>
-                                    <dd>{{ formatDate(item.time) }}</dd>
-                                </div>
-                                <div>
-                                    <dt><q-icon name="source" /></dt>
-                                    <dd>{{ formatSources(item.sources, item.provider) }}</dd>
-                                </div>
-                            </dl>
-                        </component>
+                            <template #content>
+                                <div class="item-category">{{ item.category }}</div>
+                            </template>
+                        </ToolCardItem>
                     </ChatCardGallery>
-                    <div v-else class="empty-results">
-                        <q-icon name="article" size="22px" />
-                        <span>{{ t('chat.activities.humanitarian.noResults') }}</span>
-                    </div>
-                </section>
-            </div>
+                </template>
+            </ToolCallVisualizationSkeleton>
         </template>
 
         <template #raw>
@@ -121,7 +49,9 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ChatActivityBlock from './ChatActivityBlock.vue';
 import ChatCardGallery from './ChatCardGallery.vue';
+import ToolCardItem from './ToolCardItem.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
+import ToolCallVisualizationSkeleton from './ToolCallVisualizationSkeleton.vue';
 import type {
     HumanitarianContextItem,
     HumanitarianContextToolCallPayload,
@@ -136,6 +66,61 @@ const result = computed(() => (props.payload.status === 'finished' ? props.paylo
 const country = computed(() => props.payload.arguments.country_name);
 const mode = computed<'visual-and-raw' | 'raw-only'>(() =>
     props.payload.status === 'running' || result.value ? 'visual-and-raw' : 'raw-only',
+);
+const visualizationQuery = computed(() =>
+    result.value
+        ? {
+              label: t('chat.activities.humanitarian.reportQuery'),
+              value: result.value.filters.report_query,
+          }
+        : null,
+);
+const visualizationFilters = computed(() => {
+    const filters = result.value?.filters;
+    if (!filters) {
+        return [];
+    }
+
+    return [
+        {
+            icon: 'public',
+            label: t('chat.activities.humanitarian.country'),
+            value: filters.country,
+        },
+        {
+            icon: 'calendar_today',
+            label: t('chat.activities.humanitarian.createdFrom'),
+            value: formatDate(filters.created_from),
+        },
+        {
+            icon: 'filter_list',
+            label: t('chat.activities.humanitarian.limit'),
+            value: t('chat.activities.humanitarian.limitValue', {
+                count: filters.limit_per_endpoint,
+            }),
+        },
+        {
+            icon: 'sort',
+            label: t('chat.activities.humanitarian.sort'),
+            value: formatSort(filters.sort),
+        },
+        {
+            icon: 'emergency',
+            label: t('chat.activities.humanitarian.disasterStatus'),
+            value: formatDisasterStatus(filters.disaster_status),
+        },
+    ];
+});
+const visualizationResultsSummary = computed(() =>
+    result.value ? String(result.value.items.length) : undefined,
+);
+const visualizationEmptyState = computed(() =>
+    result.value && !result.value.items.length
+        ? {
+              icon: 'article',
+              message: t('chat.activities.humanitarian.noResults'),
+          }
+        : null,
 );
 const summary = computed(() => {
     if (props.payload.status === 'running') {
@@ -190,174 +175,18 @@ function formatItemType(type: HumanitarianContextItem['type']): string {
 function formatSources(sources: string[], provider: string): string {
     return sources.length ? sources.join(' · ') : provider;
 }
+
+function itemExtraInfo(item: HumanitarianContextItem) {
+    return [
+        { icon: 'calendar_today', value: formatDate(item.time) },
+        { icon: 'source', value: formatSources(item.sources, item.provider) },
+    ];
+}
 </script>
 
 <style scoped lang="scss">
-.visualization-loading {
-    align-items: center;
-    color: #667085;
-    display: flex;
-    min-height: 48px;
-}
-
-.section-title {
-    color: #344054;
-    font-size: 12px;
-    font-weight: 650;
-    margin: 0 0 6px;
-}
-
-.filter-pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-}
-
-.filter-pills :deep(.q-chip) {
-    color: #475467;
-    font-size: 10px;
-    margin: 0;
-    max-width: 100%;
-}
-
-.filter-pills :deep(.q-chip__content) {
-    overflow-wrap: anywhere;
-    white-space: normal;
-}
-
-.filter-label {
-    color: #667085;
-    font-weight: 650;
-    margin-right: 3px;
-}
-
-.report-query {
-    background: #f8fafc;
-    border: 1px solid #eaecf0;
-    border-radius: 7px;
-    margin-top: 8px;
-    padding: 7px 8px;
-}
-
-.report-query > div {
-    color: #667085;
-    font-size: 10px;
-    font-weight: 650;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-}
-
-.report-query p {
-    color: #344054;
-    font-size: 12px;
-    margin: 2px 0 0;
-    overflow-wrap: anywhere;
-}
-
-.warning-banner {
-    background: #fffaeb;
-    color: #7a2e0e;
-    font-size: 12px;
-    margin-top: 10px;
-}
-
-.warning-banner ul {
-    margin: 0;
-    padding-left: 18px;
-}
-
-.results-section {
-    margin-top: 14px;
-}
-
-.context-card {
-    background: white;
-    border: 1px solid #d0d5dd;
-    border-radius: 9px;
-    color: #344054;
-    display: flex;
-    flex-direction: column;
-    min-height: 178px;
-    padding: 11px;
-    text-decoration: none;
-}
-
-.context-card-link {
-    cursor: pointer;
-    transition:
-        border-color 140ms ease,
-        box-shadow 140ms ease,
-        transform 140ms ease;
-}
-
-.context-card-link:hover,
-.context-card-link:focus-visible {
-    border-color: #84adff;
-    box-shadow: 0 4px 12px rgba(21, 112, 239, 0.12);
-    outline: none;
-    transform: translateY(-1px);
-}
-
-.card-heading {
-    align-items: center;
-    color: #1570ef;
-    display: flex;
-    justify-content: space-between;
-}
-
-.item-type {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-
-.context-card h5 {
-    color: #101828;
-    display: -webkit-box;
-    font-size: 13px;
-    font-weight: 650;
-    line-height: 1.35;
-    margin: 8px 0 6px;
-    overflow: hidden;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
-}
-
 .item-category {
     color: #475467;
     font-size: 11px;
-    margin-bottom: 10px;
-}
-
-.card-meta {
-    color: #667085;
-    font-size: 11px;
-    margin: auto 0 0;
-}
-
-.card-meta > div {
-    align-items: flex-start;
-    display: flex;
-    gap: 5px;
-    margin-top: 5px;
-}
-
-.card-meta dt,
-.card-meta dd {
-    margin: 0;
-}
-
-.empty-results {
-    align-items: center;
-    background: #f8fafc;
-    border: 1px dashed #d0d5dd;
-    border-radius: 8px;
-    color: #667085;
-    display: flex;
-    gap: 8px;
-    justify-content: center;
-    min-height: 72px;
-    padding: 12px;
 }
 </style>

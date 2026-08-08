@@ -126,6 +126,22 @@ function jsonString<Schema extends z.ZodType>(schema: Schema) {
         .pipe(schema);
 }
 
+function jsonStringWithOptionalTrailer<Schema extends z.ZodType>(schema: Schema) {
+    return z
+        .string()
+        .transform((raw, context): unknown => {
+            const json = raw.split(/\n\s*---\s*\n/, 1)[0]?.trim() ?? '';
+
+            try {
+                return JSON.parse(json) as unknown;
+            } catch {
+                context.addIssue({ code: 'custom', message: 'Expected a JSON-encoded value' });
+                return z.NEVER;
+            }
+        })
+        .pipe(schema);
+}
+
 function valueOrJsonString<Schema extends z.ZodType>(schema: Schema) {
     return z.union([schema, jsonString(schema)]);
 }
@@ -181,6 +197,218 @@ export type HumanitarianContextToolCallPayload = z.output<
     typeof humanitarianContextToolCallPayloadSchema
 >;
 export type HumanitarianContextItem = z.output<typeof humanitarianContextItemSchema>;
+
+const naturalEventsArgumentsSchema = z.strictObject({
+    center_latitude: z.number().min(-90).max(90),
+    center_longitude: z.number().min(-180).max(180),
+    radius_km: z.number().positive().max(1000),
+});
+
+const naturalEventSchema = z.looseObject({
+    provider: z.enum(['NASA EONET', 'USGS Earthquake Catalog']),
+    id: z.string(),
+    title: z.string(),
+    category: z.string().nullable().optional().default(null),
+    time: z.string().nullable().optional().default(null),
+    status: z.string(),
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    distance_km: z.number().nonnegative(),
+    magnitude: z.number().nullable().optional().default(null),
+    source_url: z.string().nullable().optional().default(null),
+});
+
+const naturalEventsResultSchema = z.looseObject({
+    summary: z.looseObject({
+        message: z.string(),
+        counts: z.looseObject({
+            nasa_eonet: z.number().int().nonnegative(),
+            usgs_earthquakes: z.number().int().nonnegative(),
+        }),
+    }),
+    center: z.looseObject({
+        latitude: z.number().min(-90).max(90),
+        longitude: z.number().min(-180).max(180),
+        radius_km: z.number().positive().max(1000),
+    }),
+    events: z.array(naturalEventSchema),
+    warnings: z.array(z.string()).nullable().optional().default(null),
+});
+
+export const naturalEventsToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('get_natural_events_context'),
+        arguments: naturalEventsArgumentsSchema,
+        answer: jsonString(naturalEventsResultSchema).nullable(),
+    }),
+);
+
+export type NaturalEventsToolCallPayload = z.output<typeof naturalEventsToolCallPayloadSchema>;
+export type NaturalEvent = z.output<typeof naturalEventSchema>;
+
+const whoPublicationSchema = z.looseObject({
+    item_id: z.string().uuid(),
+    title: z.string(),
+    abstract: z.string().nullable(),
+    authors: z.array(z.string()),
+    published_date: z.string().nullable(),
+    languages: z.array(z.string()),
+    subjects: z.array(z.string()),
+    document_types: z.array(z.string()),
+    source_url: z.string(),
+});
+
+const whoPublicationSearchResultSchema = z.looseObject({
+    query: z.string(),
+    total: z.number().int().nonnegative(),
+    results: z.array(whoPublicationSchema),
+});
+
+const whoPublicationDocumentSchema = z.looseObject({
+    filename: z.string(),
+    content: z.string(),
+    truncated: z.boolean(),
+});
+
+const whoPublicationContentResultSchema = z.looseObject({
+    item_id: z.string().uuid(),
+    title: z.string(),
+    source_url: z.string(),
+    documents: z.array(whoPublicationDocumentSchema),
+    warnings: z.array(z.string()),
+});
+
+export const whoPublicationSearchToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('search_who_publications'),
+        arguments: z.strictObject({
+            query: z.string().trim().min(1),
+            limit: z.number().int().min(1).max(10).optional().default(5),
+        }),
+        answer: jsonString(whoPublicationSearchResultSchema).nullable(),
+    }),
+);
+
+export const whoPublicationContentToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('get_who_publication_content'),
+        arguments: z.strictObject({ item_id: z.string().uuid() }),
+        answer: jsonString(whoPublicationContentResultSchema).nullable(),
+    }),
+);
+
+export type WhoPublicationSearchToolCallPayload = z.output<
+    typeof whoPublicationSearchToolCallPayloadSchema
+>;
+export type WhoPublicationContentToolCallPayload = z.output<
+    typeof whoPublicationContentToolCallPayloadSchema
+>;
+export type WhoPublication = z.output<typeof whoPublicationSchema>;
+
+const sanihubTopicSchema = z.enum([
+    'Preparedness',
+    'Needs Assessment',
+    'Strategic Planning',
+    'Resource Mobilisation',
+    'Implementation Monitoring',
+    'Review Evaluation',
+    'Sanitation Technologies',
+    'Technology Selection',
+    'Faecal Sludge',
+    'Sanitation Software',
+    'Wider Systems',
+    'Cross-Cutting Issues',
+    'Coordination Sectors',
+    'Accountability',
+    'Capacity Development',
+    'Research Innovation',
+    'Knowledge Management',
+    'Case Studies',
+    'Challenging Contexts',
+    'Disaster Scenarios',
+    'Climate Challenges',
+    'Ground Conditions',
+]);
+
+const sanihubKnowledgeSearchArgumentsSchema = z.strictObject({
+    tenant: z.literal('sanihub').optional().default('sanihub'),
+    queries: z.array(z.string().trim().min(1)).min(1).max(6),
+    userQuery: z.string().trim().min(1),
+    documentListOnly: z.boolean().optional().default(false),
+    segments: z.array(z.string().trim().min(1)).max(4).optional().default([]),
+    topics: z.array(sanihubTopicSchema).max(5).optional().default([]),
+    locations: z
+        .array(z.string().regex(/^[A-Z]{2}$/))
+        .max(10)
+        .optional()
+        .default([]),
+});
+
+const sanihubKnowledgeResultSchema = z.looseObject({
+    REF_ID: z.string(),
+    url: z.string().startsWith('http'),
+    title: z.string(),
+    documentId: z.string(),
+    pageNum: z.number().int().positive().optional(),
+    content: z.string(),
+    score: z.number(),
+    source: z.string(),
+    documentListOnly: z.boolean().optional(),
+    rerank_score: z.number().optional(),
+});
+
+const sanihubKnowledgeSearchResultSchema = z.looseObject({
+    message: z.string(),
+    queries: z.array(z.string()),
+    query: z.string(),
+    resultCount: z.number().int().nonnegative(),
+    results: z.array(sanihubKnowledgeResultSchema),
+});
+
+const sanihubDocumentPagesSchema = z
+    .string()
+    .trim()
+    .regex(/^\d+(?:\s*,\s*\d+){0,19}$/);
+
+const sanihubDocumentContentResultSchema = z.looseObject({
+    documentId: z.string(),
+    title: z.string(),
+    totalPages: z.number().int().nonnegative(),
+    pages: z.array(
+        z.looseObject({
+            pageNum: z.number().int().positive(),
+            content: z.string(),
+        }),
+    ),
+    message: z.string(),
+});
+
+export const sanihubKnowledgeSearchToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('sanihub_knowledgeSearch'),
+        arguments: sanihubKnowledgeSearchArgumentsSchema,
+        answer: jsonStringWithOptionalTrailer(sanihubKnowledgeSearchResultSchema).nullable(),
+    }),
+);
+
+export const sanihubDocumentContentToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('sanihub_getDocumentContent'),
+        arguments: z.strictObject({
+            documentId: z.string().trim().min(1),
+            pages: sanihubDocumentPagesSchema,
+        }),
+        answer: jsonStringWithOptionalTrailer(sanihubDocumentContentResultSchema).nullable(),
+    }),
+);
+
+export type SaniHubKnowledgeSearchToolCallPayload = z.output<
+    typeof sanihubKnowledgeSearchToolCallPayloadSchema
+>;
+export type SaniHubDocumentContentToolCallPayload = z.output<
+    typeof sanihubDocumentContentToolCallPayloadSchema
+>;
+export type SaniHubKnowledgeResult = z.output<typeof sanihubKnowledgeResultSchema>;
 
 const recordEventDateSchema = z.record(z.string(), z.unknown());
 const recordEventSeveritySchema = z.strictObject({

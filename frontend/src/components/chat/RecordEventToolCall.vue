@@ -9,12 +9,18 @@
         default-opened
     >
         <template #visualization>
-            <div v-if="payload.status === 'running'" class="event-loading">
-                <q-spinner-dots size="22px" />
-            </div>
-            <div v-else-if="event" class="recorded-event-single">
-                <RecordedEventCard :event="event" />
-            </div>
+            <ToolCallVisualizationSkeleton
+                :loading="payload.status === 'running'"
+                accent-color="#039855"
+                :query="visualizationQuery"
+                :results-summary="event ? '1' : undefined"
+            >
+                <template #results>
+                    <ChatCardGallery v-if="event">
+                        <RecordedEventCard :event="event" />
+                    </ChatCardGallery>
+                </template>
+            </ToolCallVisualizationSkeleton>
         </template>
 
         <template #raw>
@@ -27,8 +33,10 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import ChatActivityBlock from './ChatActivityBlock.vue';
+import ChatCardGallery from './ChatCardGallery.vue';
 import RecordedEventCard from './RecordedEventCard.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
+import ToolCallVisualizationSkeleton from './ToolCallVisualizationSkeleton.vue';
 import type { RecordEventToolCallPayload } from './toolCallSchemas';
 
 const props = defineProps<{
@@ -41,6 +49,11 @@ const event = computed(() =>
 );
 const mode = computed(resolveMode);
 const summary = computed(resolveSummary);
+const visualizationQuery = computed(() => ({
+    label: t('chat.activities.events.sourceText'),
+    value: props.payload.arguments.original_text,
+    icon: 'notes',
+}));
 
 function resolveMode(): 'visual-and-raw' | 'raw-only' {
     if (props.payload.status === 'running' || event.value) {
@@ -73,17 +86,3 @@ function truncateUnicode(value: string, maxLength: number): string {
     return `${characters.slice(0, maxLength - 1).join('')}…`;
 }
 </script>
-
-<style scoped lang="scss">
-.event-loading {
-    align-items: center;
-    color: #667085;
-    display: flex;
-    min-height: 48px;
-}
-
-.recorded-event-single {
-    max-width: 340px;
-    width: 100%;
-}
-</style>
