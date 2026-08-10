@@ -24,21 +24,25 @@
                     />
                 </q-item-section>
                 <q-item-section>
-                    <q-item-label class="answer-option__label">
+                    <div v-if="option.value === OTHER_VALUE" class="answer-option__other-row">
+                        <q-item-label class="answer-option__label answer-option__other-label">
+                            {{ option.label }}
+                        </q-item-label>
+                        <q-input
+                            v-model="otherText"
+                            outlined
+                            dense
+                            autogrow
+                            :placeholder="t('chat.askQuestion.otherPlaceholder')"
+                            :disable="isDisabled"
+                            class="answer-option__other-input"
+                            @update:model-value="onOtherInput"
+                            @keydown.enter.prevent="handleSubmit"
+                        />
+                    </div>
+                    <q-item-label v-else class="answer-option__label">
                         {{ option.label }}
                     </q-item-label>
-                    <q-input
-                        v-if="option.value === OTHER_VALUE"
-                        v-model="otherText"
-                        outlined
-                        dense
-                        autogrow
-                        :placeholder="t('chat.askQuestion.otherPlaceholder')"
-                        :disable="isDisabled"
-                        class="answer-option__other-input"
-                        @update:model-value="onOtherInput"
-                        @keydown.enter.prevent="handleSubmit"
-                    />
                 </q-item-section>
             </q-item>
         </q-list>
@@ -210,8 +214,22 @@ async function handleSubmit() {
     font-weight: 600;
 }
 
+.answer-option__other-row {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    width: 100%;
+}
+
+.answer-option__other-label {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
 .answer-option__other-input {
-    margin-top: 6px;
+    flex: 1 1 auto;
+    margin-top: 0;
+    min-width: 0;
 }
 
 .answer-row {
