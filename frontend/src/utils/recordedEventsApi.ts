@@ -6,6 +6,7 @@ import type {
     ListRecordedEventsResponse,
     ProfessionCategory,
     RecordedEvent,
+    RecordedEventCountsByCountry,
 } from 'src/utils/model';
 
 export interface RecordedEventFilters {
@@ -15,11 +16,7 @@ export interface RecordedEventFilters {
     responseProfessionCategories?: readonly ProfessionCategory[];
 }
 
-export async function listRecordedEvents(
-    filters: RecordedEventFilters = {},
-): Promise<RecordedEvent[]> {
-    const t = getI18nT();
-    const authStore = useAuthStore();
+function queryRecordedEvents(filters: RecordedEventFilters): string {
     const params = new URLSearchParams();
     const keyword = filters.keyword?.trim();
     if (keyword) {
@@ -32,10 +29,20 @@ export async function listRecordedEvents(
     filters.responseProfessionCategories?.forEach((category) =>
         params.append('response_profession_categories', category),
     );
+    return params.toString();
+}
 
-    const query = params.toString();
-    const url = `${baseUrl}/recorded-events${query ? `?${query}` : ''}`;
-    const response = await authStore.fetchApi(url);
+function recordedEventsUrl(path: string, filters: RecordedEventFilters): string {
+    const query = queryRecordedEvents(filters);
+    return `${baseUrl}/recorded-events${path}${query ? `?${query}` : ''}`;
+}
+
+export async function listRecordedEvents(
+    filters: RecordedEventFilters = {},
+): Promise<RecordedEvent[]> {
+    const t = getI18nT();
+    const authStore = useAuthStore();
+    const response = await authStore.fetchApi(recordedEventsUrl('', filters));
 
     if (!response.ok) {
         throw new Error(t('errors.loadRecordedEvents'));
@@ -43,4 +50,18 @@ export async function listRecordedEvents(
 
     const payload = (await response.json()) as ListRecordedEventsResponse;
     return payload.events;
+}
+
+export async function getRecordedEventCountsByCountry(
+    filters: RecordedEventFilters = {},
+): Promise<RecordedEventCountsByCountry> {
+    const t = getI18nT();
+    const authStore = useAuthStore();
+    const response = await authStore.fetchApi(recordedEventsUrl('/count-by-country', filters));
+
+    if (!response.ok) {
+        throw new Error(t('errors.loadRecordedEventMap'));
+    }
+
+    return (await response.json()) as RecordedEventCountsByCountry;
 }

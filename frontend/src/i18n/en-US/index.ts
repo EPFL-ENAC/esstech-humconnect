@@ -49,8 +49,6 @@ export default {
             countryCountOne: '{count} country',
             countryCountOther: '{count} countries',
             summary: '{events} across {countries}',
-            unplacedEventOne: '{count} event could not be placed from its country code.',
-            unplacedEventOther: '{count} events could not be placed from their country codes.',
             ariaLabel: 'World map of recorded events by country. {summary}.',
         },
         fields: {
@@ -353,6 +351,7 @@ export default {
         createChat: 'Could not create chat.',
         loadChats: 'Could not load chats.',
         loadProfile: 'Could not load profile.',
+        loadRecordedEventMap: 'Could not load recorded event counts by country.',
         loadRecordedEvents: 'Could not load recorded events.',
         saveProfile: 'Could not save profile.',
     },

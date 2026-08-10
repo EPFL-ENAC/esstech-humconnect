@@ -1,4 +1,120 @@
+from typing import Any, cast
+
 from tests.chat_room_helpers import *  # noqa: F403
+
+
+def dashboard_filters():
+    return recorded_events_module.ListRecordedEventsFilters(
+        keyword=" medical ",
+        tags=["supply_shortage", "equipment_issue"],
+        affected_profession_categories=["medical_clinical", "community_health"],
+        response_profession_categories=[
+            "logistics_supply",
+            "biomedical_equipment",
+        ],
+    )
+
+
+def assert_dashboard_filter_query(query_text):
+    assert "CAST(recordedevent.keywords AS TEXT)" in query_text
+    assert "lower(recordedevent.event_name)" not in query_text
+    assert query_text.count("recordedevent.tags @>") == 2
+    assert query_text.count("recordedevent.affected_profession_categories @>") == 2
+    assert query_text.count("recordedevent.response_profession_categories @>") == 2
+    assert " AS JSONB)" not in query_text
+    assert query_text.count(" OR ") == 3
+    assert query_text.count(" AND ") >= 3
+
+
+def test_recorded_event_service_lists_events_in_descending_order():
+    FakeAsyncSession.reset()
+    older_event = make_recorded_event()
+    newer_event = make_recorded_event(event_name="Newer event")
+    newer_event.created_at = newer_event.created_at.replace(day=30)
+    FakeAsyncSession.rows[RecordedEvent][older_event.id] = older_event
+    FakeAsyncSession.rows[RecordedEvent][newer_event.id] = newer_event
+    service = recorded_events_module.RecordedEventService(
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
+    )
+
+    events = asyncio.run(
+        service.list_events(filters=recorded_events_module.ListRecordedEventsFilters())
+    )
+
+    assert events == [newer_event, older_event]
+    query_text = str(FakeAsyncSession.last_query)
+    assert "ORDER BY recordedevent.created_at DESC" in query_text
+    assert "WHERE" not in query_text
+
+
+def test_recorded_event_service_applies_dashboard_filters_to_list_query():
+    FakeAsyncSession.reset()
+    filters = dashboard_filters()
+    service = recorded_events_module.RecordedEventService(
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
+    )
+
+    asyncio.run(service.list_events(filters=filters))
+
+    assert filters.keyword == "medical"
+    query_text = str(FakeAsyncSession.last_query)
+    assert_dashboard_filter_query(query_text)
+    assert "ORDER BY recordedevent.created_at DESC" in query_text
+
+
+def test_recorded_event_service_counts_events_by_country():
+    FakeAsyncSession.reset()
+    swiss_event = make_recorded_event(
+        event_location={
+            "raw_text": "Geneva, Switzerland",
+            "continent": "europe",
+            "country_code": "CH",
+            "region": "Geneva",
+            "city": "Geneva",
+            "address": None,
+            "place_name": None,
+            "detail": None,
+            "coordinates": None,
+        }
+    )
+    other_swiss_event = make_recorded_event(event_name="Another Swiss event")
+    other_swiss_event.location_country_code = "CH"
+    unknown_event = make_recorded_event(event_name="Unplaced event")
+    for event in [swiss_event, other_swiss_event, unknown_event]:
+        FakeAsyncSession.rows[RecordedEvent][event.id] = event
+    service = recorded_events_module.RecordedEventService(
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
+    )
+
+    counts = asyncio.run(
+        service.count_events_by_country(
+            filters=recorded_events_module.ListRecordedEventsFilters()
+        )
+    )
+
+    assert counts == {"CH": 2, "UNKNOWN": 1}
+    query_text = str(FakeAsyncSession.last_query)
+    assert "coalesce(recordedevent.location_country_code" in query_text
+    assert "count(recordedevent.id)" in query_text
+    assert "GROUP BY coalesce(recordedevent.location_country_code" in query_text
+
+
+def test_recorded_event_service_applies_dashboard_filters_to_country_count_query():
+    FakeAsyncSession.reset()
+    filters = dashboard_filters()
+    service = recorded_events_module.RecordedEventService(
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
+    )
+
+    counts = asyncio.run(service.count_events_by_country(filters=filters))
+
+    assert counts == {}
+    assert filters.keyword == "medical"
+    assert_dashboard_filter_query(str(FakeAsyncSession.last_query))
 
 
 def test_recorded_event_service_persists_event_with_initiator_metadata():
@@ -7,8 +123,8 @@ def test_recorded_event_service_persists_event_with_initiator_metadata():
         structured_record_event_arguments()
     )
     service = recorded_events_module.RecordedEventService(
-        session_factory=FakeAsyncSession,
-        engine_factory=lambda: object(),
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
         now_factory=lambda: datetime(2026, 6, 29, 12, 0, tzinfo=UTC),
     )
 
@@ -88,8 +204,8 @@ def test_recorded_event_service_builds_user_scoped_filtered_recall_query():
         }
     )
     service = recorded_events_module.RecordedEventService(
-        session_factory=FakeAsyncSession,
-        engine_factory=lambda: object(),
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
     )
 
     async def run():
@@ -144,8 +260,8 @@ def test_recorded_event_service_combines_exact_tag_filters(
         }
     )
     service = recorded_events_module.RecordedEventService(
-        session_factory=FakeAsyncSession,
-        engine_factory=lambda: object(),
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
     )
 
     async def run():

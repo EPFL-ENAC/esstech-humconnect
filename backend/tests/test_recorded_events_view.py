@@ -16,8 +16,29 @@ os.environ.setdefault("KEYCLOAK_API_ID", "test")
 os.environ.setdefault("KEYCLOAK_API_SECRET", "test")
 
 from api.models.recorded_event import ListRecordedEventsFilters, RecordedEvent
-from api.views.recorded_events import list_recorded_events, router
-from tests.chat_room_helpers import FakeAsyncSession, make_recorded_event
+from api.services.recorded_events import RecordedEventService
+from api.views.recorded_events import (
+    count_recorded_events_by_country,
+    list_recorded_events,
+    router,
+)
+from tests.chat_room_helpers import make_recorded_event
+
+
+class FakeRecordedEventService(RecordedEventService):
+    def __init__(self, *, events=None, counts=None):
+        self.events = events or []
+        self.counts = counts or {}
+        self.list_filters = None
+        self.count_filters = None
+
+    async def list_events(self, *, filters):
+        self.list_filters = filters
+        return self.events
+
+    async def count_events_by_country(self, *, filters):
+        self.count_filters = filters
+        return self.counts
 
 
 @pytest.mark.parametrize(
@@ -30,11 +51,14 @@ from tests.chat_room_helpers import FakeAsyncSession, make_recorded_event
     ],
 )
 def test_filterable_recorded_event_metadata_uses_jsonb(column_name):
-    assert isinstance(RecordedEvent.__table__.c[column_name].type, JSONB)
+    assert isinstance(
+        RecordedEvent.__table__.c[column_name].type,  # ty: ignore[unresolved-attribute]
+        JSONB,
+    )
 
 
 def test_recorded_event_location_uses_indexed_relational_columns():
-    table = RecordedEvent.__table__
+    table = RecordedEvent.__table__  # ty: ignore[unresolved-attribute]
     assert "event_location" not in table.c
     assert "location_granularity" not in table.c
     assert {
@@ -52,7 +76,7 @@ def test_recorded_event_location_uses_indexed_relational_columns():
 
 
 def test_recorded_event_end_dates_use_indexed_nullable_columns_and_range_constraint():
-    table = RecordedEvent.__table__
+    table = RecordedEvent.__table__  # ty: ignore[unresolved-attribute]
     assert {
         "event_end_datetime",
         "event_end_date_granularity",
@@ -72,19 +96,16 @@ def test_recorded_event_end_dates_use_indexed_nullable_columns_and_range_constra
 
 
 def test_list_recorded_events_returns_all_events_in_descending_order():
-    FakeAsyncSession.reset()
     older_event = make_recorded_event()
     newer_event = make_recorded_event(event_name="Newer event")
     newer_event.created_at = newer_event.created_at.replace(day=30)
-    FakeAsyncSession.rows[RecordedEvent][older_event.id] = older_event
-    FakeAsyncSession.rows[RecordedEvent][newer_event.id] = newer_event
-    session = FakeAsyncSession()
+    filters = ListRecordedEventsFilters()
+    service = FakeRecordedEventService(events=[newer_event, older_event])
 
     response = asyncio.run(
         list_recorded_events(
-            filters=ListRecordedEventsFilters(),
-            user=object(),
-            session=session,
+            filters=filters,
+            service=service,
         )
     )
 
@@ -92,13 +113,10 @@ def test_list_recorded_events_returns_all_events_in_descending_order():
     assert response.events[0].local_severity == 7.5
     assert response.events[0].country_severity == 4.0
     assert response.events[0].global_severity == 1.5
-    query_text = str(FakeAsyncSession.last_query)
-    assert "ORDER BY recordedevent.created_at DESC" in query_text
-    assert "WHERE" not in query_text
+    assert service.list_filters is filters
 
 
 def test_list_recorded_events_serializes_nested_location():
-    FakeAsyncSession.reset()
     event = make_recorded_event(
         event_location={
             "raw_text": "Geneva, Switzerland",
@@ -112,13 +130,10 @@ def test_list_recorded_events_serializes_nested_location():
             "coordinates": None,
         }
     )
-    FakeAsyncSession.rows[RecordedEvent][event.id] = event
-
     response = asyncio.run(
         list_recorded_events(
             filters=ListRecordedEventsFilters(),
-            user=object(),
-            session=FakeAsyncSession(),
+            service=FakeRecordedEventService(events=[event]),
         )
     )
 
@@ -136,17 +151,14 @@ def test_list_recorded_events_serializes_nested_location():
 
 
 def test_list_recorded_events_serializes_optional_event_end_date():
-    FakeAsyncSession.reset()
     event = make_recorded_event(
         event_end_datetime=datetime(2026, 6, 28, 23, 59, tzinfo=UTC)
     )
-    FakeAsyncSession.rows[RecordedEvent][event.id] = event
 
     response = asyncio.run(
         list_recorded_events(
             filters=ListRecordedEventsFilters(),
-            user=object(),
-            session=FakeAsyncSession(),
+            service=FakeRecordedEventService(events=[event]),
         )
     )
 
@@ -163,49 +175,39 @@ def test_recorded_event_filters_are_exposed_as_repeated_query_parameters():
     app = FastAPI()
     app.include_router(router)
 
-    parameters = app.openapi()["paths"]["/recorded-events"]["get"]["parameters"]
-    parameters_by_name = {parameter["name"]: parameter for parameter in parameters}
+    for path in ["/recorded-events", "/recorded-events/count-by-country"]:
+        parameters = app.openapi()["paths"][path]["get"]["parameters"]
+        parameters_by_name = {parameter["name"]: parameter for parameter in parameters}
 
-    assert parameters_by_name["keyword"]["in"] == "query"
-    for parameter_name in [
-        "tags",
-        "affected_profession_categories",
-        "response_profession_categories",
-    ]:
-        assert parameters_by_name[parameter_name]["in"] == "query"
-        schema = parameters_by_name[parameter_name]["schema"]
-        assert any(option.get("type") == "array" for option in schema["anyOf"])
+        assert parameters_by_name["keyword"]["in"] == "query"
+        for parameter_name in [
+            "tags",
+            "affected_profession_categories",
+            "response_profession_categories",
+        ]:
+            assert parameters_by_name[parameter_name]["in"] == "query"
+            schema = parameters_by_name[parameter_name]["schema"]
+            assert any(option.get("type") == "array" for option in schema["anyOf"])
 
 
-def test_list_recorded_events_combines_filter_groups_with_exact_any_matching():
-    FakeAsyncSession.reset()
-    session = FakeAsyncSession()
-    filters = ListRecordedEventsFilters(
-        keyword=" medical ",
-        tags=["supply_shortage", "equipment_issue"],
-        affected_profession_categories=["medical_clinical", "community_health"],
-        response_profession_categories=["logistics_supply", "biomedical_equipment"],
-    )
+def test_count_recorded_events_by_country_serializes_service_counts():
+    filters = ListRecordedEventsFilters()
+    service = FakeRecordedEventService(counts={"CH": 2, "UNKNOWN": 1})
 
-    asyncio.run(
-        list_recorded_events(
+    response = asyncio.run(
+        count_recorded_events_by_country(
             filters=filters,
-            user=object(),
-            session=session,
+            service=service,
         )
     )
 
-    assert filters.keyword == "medical"
-    query_text = str(FakeAsyncSession.last_query)
-    assert "CAST(recordedevent.keywords AS TEXT)" in query_text
-    assert "lower(recordedevent.event_name)" not in query_text
-    assert query_text.count("recordedevent.tags @>") == 2
-    assert query_text.count("recordedevent.affected_profession_categories @>") == 2
-    assert query_text.count("recordedevent.response_profession_categories @>") == 2
-    assert " AS JSONB)" not in query_text
-    assert query_text.count(" OR ") == 3
-    assert query_text.count(" AND ") >= 3
-    assert "ORDER BY recordedevent.created_at DESC" in query_text
+    assert {
+        country_code: count.model_dump() for country_code, count in response.items()
+    } == {
+        "CH": {"event_count": 2},
+        "UNKNOWN": {"event_count": 1},
+    }
+    assert service.count_filters is filters
 
 
 @pytest.mark.parametrize(

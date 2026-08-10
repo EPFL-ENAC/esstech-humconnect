@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, TypeAlias
 from uuid import UUID, uuid4
 
 import pycountry
@@ -52,6 +52,7 @@ EventContinent = Literal[
     "south_america",
 ]
 CountryCode = Annotated[str, StringConstraints(pattern=r"^[A-Z]{2}$")]
+UNKNOWN_COUNTRY_CODE = "UNKNOWN"
 
 
 EVENT_TAGS: tuple[EventTag, ...] = (
@@ -386,6 +387,16 @@ class RecordedEventResponse(BaseModel):
 
 class ListRecordedEventsResponse(BaseModel):
     events: list[RecordedEventResponse]
+
+
+class RecordedEventCountryCount(BaseModel):
+    event_count: int = Field(ge=0)
+
+
+RecordedEventCountsByCountryResponse: TypeAlias = dict[
+    CountryCode | Literal["UNKNOWN"],
+    RecordedEventCountryCount,
+]
 
 
 class ListRecordedEventsFilters(BaseModel):

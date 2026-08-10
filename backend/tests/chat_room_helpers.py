@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -30,6 +31,7 @@ from api.models.chat import (
 from api.models.recorded_event import (
     EVENT_CONTINENTS,
     EVENT_TAGS,
+    UNKNOWN_COUNTRY_CODE,
     EventLocation,
     RecordedEvent,
     RecordedEventResponse,
@@ -63,8 +65,8 @@ from api.services.chat_room.chat_assistant import (
     AssistantStreamPayloadUpdate,
 )
 from api.services.chat_room.tools import (
-    ASK_MEDITRON_TOOL,
     ASK_LEGITRON_TOOL,
+    ASK_MEDITRON_TOOL,
     GET_HUMANITARIAN_CONTEXT_TOOL,
     GET_NATURAL_EVENTS_CONTEXT_TOOL,
     RECALL_EVENTS_TOOL,
@@ -77,8 +79,8 @@ from api.services.chat_room.tools import events as events_tool_module
 from api.services.chat_room.tools import (
     humanitarian_context as humanitarian_context_tool_module,
 )
-from api.services.chat_room.tools import meditron as meditron_tool_module
 from api.services.chat_room.tools import legitron as legitron_tool_module
+from api.services.chat_room.tools import meditron as meditron_tool_module
 from api.services.chat_room.tools import natural_events as natural_events_tool_module
 from api.services.reliefweb import client as reliefweb_client_module
 from api.utils.datetime_utils import utc_now
@@ -130,6 +132,12 @@ class FakeAsyncSession:
             return FakeResult(list(self.rows[ChatSession].values()))
         if "recordedevent" in query_text:
             events = list(self.rows[RecordedEvent].values())
+            if "count(recordedevent.id)" in query_text.lower():
+                counts = {}
+                for event in events:
+                    country_code = event.location_country_code or UNKNOWN_COUNTRY_CODE
+                    counts[country_code] = counts.get(country_code, 0) + 1
+                return FakeResult(list(counts.items()))
             events.sort(key=lambda event: event.created_at, reverse=True)
             return FakeResult(events)
 
@@ -460,8 +468,8 @@ def configure_recorded_event_service(
 
     def service_factory():
         return recorded_events_module.RecordedEventService(
-            session_factory=FakeAsyncSession,
-            engine_factory=lambda: object(),
+            session_factory=cast(Any, FakeAsyncSession),
+            engine_factory=cast(Any, lambda: object()),
             now_factory=lambda: fixed_now,
         )
 

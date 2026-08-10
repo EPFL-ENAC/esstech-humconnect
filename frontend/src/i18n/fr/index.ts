@@ -49,9 +49,6 @@ export default {
             countryCountOne: '{count} pays',
             countryCountOther: '{count} pays',
             summary: '{events} dans {countries}',
-            unplacedEventOne: "{count} événement n'a pas pu être placé à partir de son code pays.",
-            unplacedEventOther:
-                "{count} événements n'ont pas pu être placés à partir de leur code pays.",
             ariaLabel: 'Carte mondiale des événements enregistrés par pays. {summary}.',
         },
         fields: {
@@ -354,6 +351,7 @@ export default {
         createChat: 'Impossible de créer la discussion.',
         loadChats: 'Impossible de charger les discussions.',
         loadProfile: 'Impossible de charger le profil.',
+        loadRecordedEventMap: 'Impossible de charger le nombre d’événements par pays.',
         loadRecordedEvents: 'Impossible de charger les événements enregistrés.',
         saveProfile: "Impossible d'enregistrer le profil.",
     },

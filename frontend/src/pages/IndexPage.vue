@@ -38,7 +38,9 @@
                     >
                         <q-item-section>
                             <q-item-label>{{ chat.title || t('chats.untitledChat') }}</q-item-label>
-                            <q-item-label caption>{{ formatDate(chat.updated_at) }}</q-item-label>
+                            <q-item-label caption>{{
+                                formatDate(chat.updated_at, '-')
+                            }}</q-item-label>
                         </q-item-section>
                         <q-item-section side>
                             <q-icon name="chevron_right" />
@@ -55,10 +57,12 @@ import { onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
+import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
 import { useChatsStore } from 'src/stores/chats';
 
 const router = useRouter();
-const { locale, t } = useI18n();
+const { t } = useI18n();
+const { formatDate } = useLocalizedFormatters();
 const chatsStore = useChatsStore();
 const { chats, creating, error, loading } = storeToRefs(chatsStore);
 
@@ -71,13 +75,6 @@ async function startNewChat() {
 
 function openChat(chatId: string) {
     void router.push(`/chat/${chatId}`);
-}
-
-function formatDate(value: string) {
-    return new Intl.DateTimeFormat(locale.value, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-    }).format(new Date(value));
 }
 
 onMounted(() => {

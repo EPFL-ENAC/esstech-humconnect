@@ -5,11 +5,16 @@ from uuid import UUID
 
 from sqlalchemy import Text, cast, func, or_
 from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
 from api.db import get_engine
-from api.models.recorded_event import RecordedEvent
+from api.models.recorded_event import (
+    UNKNOWN_COUNTRY_CODE,
+    ListRecordedEventsFilters,
+    RecordedEvent,
+)
 from api.utils.datetime_utils import utc_now
 
 if TYPE_CHECKING:
@@ -30,6 +35,47 @@ class RecordedEventService:
         self._session_factory = session_factory
         self._engine_factory = engine_factory
         self._now_factory = now_factory
+
+    async def list_events(
+        self,
+        *,
+        filters: ListRecordedEventsFilters,
+    ) -> list[RecordedEvent]:
+        query = (
+            select(RecordedEvent)
+            .where(*_filter_clauses(filters))
+            .order_by(col(RecordedEvent.created_at).desc())
+        )
+
+        async with self._session_factory(
+            self._engine_factory(),
+            expire_on_commit=False,
+        ) as session:
+            result = await session.exec(query)
+            return list(result.all())
+
+    async def count_events_by_country(
+        self,
+        *,
+        filters: ListRecordedEventsFilters,
+    ) -> dict[str, int]:
+        country_key = func.coalesce(
+            col(RecordedEvent.location_country_code),
+            UNKNOWN_COUNTRY_CODE,
+        ).label("country_code")
+        event_count = func.count(col(RecordedEvent.id)).label("event_count")
+        query = (
+            select(country_key, event_count)
+            .where(*_filter_clauses(filters))
+            .group_by(country_key)
+        )
+
+        async with self._session_factory(
+            self._engine_factory(),
+            expire_on_commit=False,
+        ) as session:
+            result = await session.exec(query)
+            return {country_code: count for country_code, count in result.all()}
 
     async def record_event_from_tool(
         self,
@@ -194,3 +240,40 @@ class RecordedEventService:
         ) as session:
             result = await session.exec(query)
             return list(result.all())
+
+
+def _filter_clauses(
+    filters: ListRecordedEventsFilters,
+) -> tuple[ColumnElement[bool], ...]:
+    clauses: list[ColumnElement[bool]] = []
+
+    if filters.keyword is not None:
+        clauses.append(cast(RecordedEvent.keywords, Text).ilike(f"%{filters.keyword}%"))
+
+    if filters.tags:
+        tags_jsonb = col(RecordedEvent.tags)
+        clauses.append(or_(*(tags_jsonb.contains([tag]) for tag in filters.tags)))
+
+    if filters.affected_profession_categories:
+        affected_jsonb = col(RecordedEvent.affected_profession_categories)
+        clauses.append(
+            or_(
+                *(
+                    affected_jsonb.contains([category])
+                    for category in filters.affected_profession_categories
+                )
+            )
+        )
+
+    if filters.response_profession_categories:
+        response_jsonb = col(RecordedEvent.response_profession_categories)
+        clauses.append(
+            or_(
+                *(
+                    response_jsonb.contains([category])
+                    for category in filters.response_profession_categories
+                )
+            )
+        )
+
+    return tuple(clauses)

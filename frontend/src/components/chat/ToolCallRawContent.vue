@@ -27,6 +27,7 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import type { ToolCallDisplayPayload } from './toolCallSchemas';
+import { prettyPrintJson } from 'src/utils/text';
 
 const props = defineProps<{
     payload: ToolCallDisplayPayload;
@@ -42,7 +43,7 @@ function formatRawValue(value: unknown): string | null {
         return null;
     }
 
-    return typeof value === 'string' ? value : (JSON.stringify(value, null, 2) ?? '');
+    return typeof value === 'string' ? value : prettyPrintJson(value);
 }
 </script>
 

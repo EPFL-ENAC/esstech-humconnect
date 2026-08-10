@@ -184,6 +184,12 @@ export interface ListRecordedEventsResponse {
     events: RecordedEventResponse[];
 }
 
+export interface RecordedEventCountryCount {
+    event_count: number;
+}
+
+export type RecordedEventCountsByCountry = Record<string, RecordedEventCountryCount>;
+
 export interface UserProfileEditableFields {
     profession: string | null;
     profession_category: ProfessionCategory | null;
