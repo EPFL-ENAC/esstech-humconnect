@@ -9,6 +9,8 @@ from sqlmodel.sql.sqltypes import AutoString
 
 from api.utils.datetime_utils import utc_now
 
+MAX_WHYS: int = 5
+
 RootCauseAnalysisStepType = Literal[
     "problem_statement",
     "question",

@@ -31,7 +31,6 @@ class Config(BaseSettings):
     KEYCLOAK_API_SECRET: str
     KEYCLOAK_TOTP: bool = True
 
-    MAX_WHYS: int = 5
 
     NOMINATIM_BASE_URL: str = "https://nominatim.openstreetmap.org"
     NOMINATIM_TIMEOUT_SECONDS: float = 5

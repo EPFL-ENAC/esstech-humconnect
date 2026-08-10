@@ -8,9 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
-from api.config import config
 from api.db import get_engine
 from api.models.root_cause_analysis import (
+    MAX_WHYS,
     AnalysisStatus,
     RootCauseAnalysis,
     RootCauseAnalysisStep,
@@ -72,7 +72,7 @@ def compute_analysis_state(
         next_expected = "question"
     elif has_pending_question:
         next_expected = "answer"
-    elif current_level >= config.MAX_WHYS:
+    elif current_level >= MAX_WHYS:
         next_expected = "root_cause"
     else:
         next_expected = "question_or_root_cause"
@@ -154,7 +154,7 @@ class RootCauseAnalysisService:
 
         return analysis, [step]
 
-    async def save_why_question(
+    async def ask_why_question(
         self,
         *,
         analysis_id: UUID,
@@ -330,10 +330,8 @@ class RootCauseAnalysisService:
                 f"Expected an answer for level {state.current_level}, "
                 "not a new question."
             )
-        if state.current_level >= config.MAX_WHYS:
-            return (
-                f"Maximum of {config.MAX_WHYS} why levels reached; call set_root_cause."
-            )
+        if state.current_level >= MAX_WHYS:
+            return f"Maximum of {MAX_WHYS} why levels reached; call set_root_cause."
         return "A new question cannot be saved right now."
 
     @staticmethod
@@ -341,12 +339,10 @@ class RootCauseAnalysisService:
         if state.is_completed:
             return "Analysis is already completed."
         if not state.has_pending_question and state.current_level == 0:
-            return "No pending question to answer. Call save_why_question first."
-        if state.current_level >= config.MAX_WHYS and not state.has_pending_question:
-            return (
-                f"Maximum of {config.MAX_WHYS} why levels reached; call set_root_cause."
-            )
-        return "No pending question to answer. Call save_why_question next."
+            return "No pending question to answer. Call ask_why_question first."
+        if state.current_level >= MAX_WHYS and not state.has_pending_question:
+            return f"Maximum of {MAX_WHYS} why levels reached; call set_root_cause."
+        return "No pending question to answer. Call ask_why_question next."
 
     @staticmethod
     def _root_cause_rejection_reason(state: AnalysisState) -> str:

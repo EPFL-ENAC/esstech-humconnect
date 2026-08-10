@@ -24,8 +24,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.config import config
 from api.models.root_cause_analysis import (
+    MAX_WHYS,
     RootCauseAnalysis,
     RootCauseAnalysisStep,
 )
@@ -49,7 +49,7 @@ class RootCauseAnalysisBaseModel(BaseModel):
 
 
 class WhyQuestionAnswer(RootCauseAnalysisBaseModel):
-    level: int = Field(ge=1, le=config.MAX_WHYS, description="1-indexed why level.")
+    level: int = Field(ge=1, le=MAX_WHYS, description="1-indexed why level.")
     question: NonEmptyString = Field(description="The 'why' question at this level.")
     answer: NonEmptyString | None = Field(
         default=None,
@@ -63,7 +63,7 @@ class RootCauseAnalysisSnapshot(RootCauseAnalysisBaseModel):
     status: str
     current_level: int = Field(
         ge=0,
-        le=config.MAX_WHYS,
+        le=MAX_WHYS,
         description=(
             "Level of the most recent question/answer pair, or 0 if no "
             "question has been asked yet."
@@ -148,13 +148,13 @@ class CreateAnalysisInput(RootCauseAnalysisBaseModel):
     )
 
 
-class SaveWhyQuestionInput(RootCauseAnalysisBaseModel):
+class AskWhyQuestionInput(RootCauseAnalysisBaseModel):
     analysis_id: NonEmptyString = Field(description="ID of the analysis session.")
     question: NonEmptyString = Field(
         description=(
-            "The 'why' question for the next level. It should ask a SINGLE question "
+            "The 'why' question for the next level. It must ask a SINGLE clarifying question "
             "to understand why the previous answer occurred, or why the problem "
-            "statement occurred (for level 1)."
+            "statement occurred (for level 1). It must not ask multiple questions in one call: each question must be asked in a separate call. It must not be the same as the problem statement or any previous question."
         )
     )
 
@@ -215,11 +215,11 @@ async def _create_analysis(
     )
 
 
-async def _save_why_question(
-    tool_input: SaveWhyQuestionInput,
+async def _ask_why_question(
+    tool_input: AskWhyQuestionInput,
     tool_context: ToolExecutionContext,
 ) -> str:
-    analysis, steps = await RootCauseAnalysisService().save_why_question(
+    analysis, steps = await RootCauseAnalysisService().ask_why_question(
         analysis_id=_parse_analysis_id(tool_input.analysis_id),
         chat_id=tool_context.chat_id,
         question=tool_input.question,
@@ -300,24 +300,26 @@ async def _list_analyses(
 
 
 CREATE_ANALYSIS_TOOL_DESCRIPTION = (
-    "Start a 5 Whys root cause analysis by recording the problem statement; "
-    "returns an analysis_id. Then, alternate tool calls to save_why_question and "
-    "save_why_answer (max 5 levels), "
-    "and finish with set_root_cause (allowed before 5 levels). "
+    "Use this tool to start a 5 Whys root cause analysis by recording the problem statement. "
+    "Returns an analysis_id. "
+    "Ask a root-cause clarifying question to the user using the ask_why_question tool."
+    "After receiving the answer, save it with the save_why_answer tool. "
+    "Loop between ask_why_question and save_why_answer until the root cause is clear, "
+    "and finish by calling the set_root_cause tool (allowed before reaching 5 levels). "
     "Use get_analysis to check the current state of an analysis. "
-    "Only ask a SINGLE question at a time. Questions should only come from you. "
-    "Answers should only come from the user or tool outputs. "
     "Don't call create_analysis again if the analysis is already in progress."
 )
 
-SAVE_WHY_QUESTION_TOOL_DESCRIPTION = (
-    "Save the next 'why' question. Ask why the previous answer or the "
-    "problem statement occurred, with a single question."
+ASK_WHY_QUESTION_TOOL_DESCRIPTION = (
+    "Ask a 'why' question to the user. "
+    "Ask why the previous answer or the problem statement occurred, with a SINGLE question. "
+    "Multiple questions should be asked in separate calls, after saving the answer to the previous question. "
+    "The question can be asked to the user or to another tool. "
 )
 
 SAVE_WHY_ANSWER_TOOL_DESCRIPTION = (
-    "Save the answer to the current 'why' question; state a concrete cause, "
-    "not a symptom."
+    "Save the answer to the current 'why' question. "
+    "An answer can come from the user or from another tool call. "
 )
 
 GET_ANALYSIS_TOOL_DESCRIPTION = (
@@ -345,13 +347,13 @@ CREATE_ANALYSIS_TOOL = HumConnectTool.from_async_with_context_handler(
     handler=_create_analysis,
 )
 
-SAVE_WHY_QUESTION_TOOL = HumConnectTool.from_async_with_context_handler(
-    name="save_why_question",
+ASK_WHY_QUESTION_TOOL = HumConnectTool.from_async_with_context_handler(
+    name="ask_why_question",
     label="Save why question",
-    input_model=SaveWhyQuestionInput,
-    description=SAVE_WHY_QUESTION_TOOL_DESCRIPTION,
-    invalid_input_message="save_why_question received invalid input data",
-    handler=_save_why_question,
+    input_model=AskWhyQuestionInput,
+    description=ASK_WHY_QUESTION_TOOL_DESCRIPTION,
+    invalid_input_message="ask_why_question received invalid input data",
+    handler=_ask_why_question,
 )
 
 SAVE_WHY_ANSWER_TOOL = HumConnectTool.from_async_with_context_handler(
@@ -392,7 +394,7 @@ LIST_ANALYSES_TOOL = HumConnectTool.from_async_with_context_handler(
 
 ROOT_CAUSE_ANALYSIS_TOOLS: tuple[HumConnectTool, ...] = (
     CREATE_ANALYSIS_TOOL,
-    SAVE_WHY_QUESTION_TOOL,
+    ASK_WHY_QUESTION_TOOL,
     SAVE_WHY_ANSWER_TOOL,
     GET_ANALYSIS_TOOL,
     SET_ROOT_CAUSE_TOOL,
@@ -402,7 +404,7 @@ ROOT_CAUSE_ANALYSIS_TOOLS: tuple[HumConnectTool, ...] = (
 __all__ = [
     "InvalidAnalysisOrderError",
     "CREATE_ANALYSIS_TOOL",
-    "SAVE_WHY_QUESTION_TOOL",
+    "ASK_WHY_QUESTION_TOOL",
     "SAVE_WHY_ANSWER_TOOL",
     "GET_ANALYSIS_TOOL",
     "SET_ROOT_CAUSE_TOOL",

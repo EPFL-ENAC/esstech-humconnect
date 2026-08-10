@@ -19,12 +19,12 @@ from api.services.chat_room.tools.mcp_proxy import HumConnectMCPProxy
 from api.services.chat_room.tools.meditron import ASK_MEDITRON_TOOL
 from api.services.chat_room.tools.natural_events import GET_NATURAL_EVENTS_CONTEXT_TOOL
 from api.services.chat_room.tools.root_cause_analysis import (
+    ASK_WHY_QUESTION_TOOL,
     CREATE_ANALYSIS_TOOL,
     GET_ANALYSIS_TOOL,
     LIST_ANALYSES_TOOL,
     ROOT_CAUSE_ANALYSIS_TOOLS,
     SAVE_WHY_ANSWER_TOOL,
-    SAVE_WHY_QUESTION_TOOL,
     SET_ROOT_CAUSE_TOOL,
 )
 from api.services.chat_room.tools.who_iris import (
@@ -47,7 +47,7 @@ __all__ = [
     "LIST_ANALYSES_TOOL",
     "ROOT_CAUSE_ANALYSIS_TOOLS",
     "SAVE_WHY_ANSWER_TOOL",
-    "SAVE_WHY_QUESTION_TOOL",
+    "ASK_WHY_QUESTION_TOOL",
     "SEARCH_WHO_PUBLICATIONS_TOOL",
     "SET_ROOT_CAUSE_TOOL",
     "ToolCallExecution",

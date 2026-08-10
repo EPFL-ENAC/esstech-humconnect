@@ -6,8 +6,8 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.sql import operators
 
-from api.config import config
 from api.models.root_cause_analysis import (
+    MAX_WHYS,
     RootCauseAnalysis,
     RootCauseAnalysisStep,
 )
@@ -19,7 +19,7 @@ from api.services.chat_room.tools.root_cause_analysis import (
     GET_ANALYSIS_TOOL,
     LIST_ANALYSES_TOOL,
     SAVE_WHY_ANSWER_TOOL,
-    SAVE_WHY_QUESTION_TOOL,
+    ASK_WHY_QUESTION_TOOL,
     SET_ROOT_CAUSE_TOOL,
     InvalidAnalysisOrderError,
     RootCauseAnalysisService,
@@ -228,7 +228,7 @@ def test_state_at_max_levels_requires_root_cause():
         _step("problem_statement", position=1),
         *(
             step
-            for i in range(1, config.MAX_WHYS + 1)
+            for i in range(1, MAX_WHYS + 1)
             for step in (
                 _step("question", level=i, position=2 * i),
                 _step("answer", level=i, position=2 * i + 1),
@@ -236,7 +236,7 @@ def test_state_at_max_levels_requires_root_cause():
         ),
     ]
     state = compute_analysis_state(steps, status="in_progress")
-    assert state.current_level == config.MAX_WHYS
+    assert state.current_level == MAX_WHYS
     assert state.next_expected == "root_cause"
     assert state.can_ask_next_why is False
     assert state.can_set_root_cause is True
@@ -376,7 +376,7 @@ def test_service_enforces_max_five_levels():
     service = _service()
     analysis, _ = _create(service)
 
-    for i in range(1, config.MAX_WHYS + 1):
+    for i in range(1, MAX_WHYS + 1):
         _run(
             service.save_why_question(
                 analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question=f"q{i}"
@@ -401,7 +401,7 @@ def test_service_enforces_max_five_levels():
         )
     )
     assert analysis.status == "completed"
-    assert sum(1 for s in steps if s.step_type == "question") == config.MAX_WHYS
+    assert sum(1 for s in steps if s.step_type == "question") == MAX_WHYS
     assert steps[-1].step_type == "root_cause"
     assert steps[-1].level is None
 
@@ -621,12 +621,12 @@ def test_tools_drive_full_five_whys_flow(monkeypatch):
     analysis_id = created["analysis"]["analysis_id"]
 
     def ask(args):
-        return _tool_json(SAVE_WHY_QUESTION_TOOL.execute(args, rca_tool_context()))
+        return _tool_json(ASK_WHY_QUESTION_TOOL.execute(args, rca_tool_context()))
 
     def answer(args):
         return _tool_json(SAVE_WHY_ANSWER_TOOL.execute(args, rca_tool_context()))
 
-    for i in range(1, config.MAX_WHYS + 1):
+    for i in range(1, MAX_WHYS + 1):
         q = ask({"analysis_id": analysis_id, "question": f"q{i}"})
         assert q["analysis"]["current_level"] == i
         assert q["analysis"]["next_expected"] == "answer"
@@ -638,7 +638,7 @@ def test_tools_drive_full_five_whys_flow(monkeypatch):
 
         a = answer({"analysis_id": analysis_id, "answer": f"a{i}"})
         assert a["analysis"]["current_level"] == i
-        expected_next = "root_cause" if i == config.MAX_WHYS else "question_or_root_cause"
+        expected_next = "root_cause" if i == MAX_WHYS else "question_or_root_cause"
         assert a["analysis"]["next_expected"] == expected_next
         assert a["analysis"]["questions_and_answers"][-1] == {
             "level": i,
@@ -655,7 +655,7 @@ def test_tools_drive_full_five_whys_flow(monkeypatch):
     assert analysis["status"] == "completed"
     assert analysis["next_expected"] == "none"
     assert analysis["root_cause"] == "fix it"
-    assert len(analysis["questions_and_answers"]) == config.MAX_WHYS
+    assert len(analysis["questions_and_answers"]) == MAX_WHYS
 
 
 def test_save_why_answer_tool_rejects_when_no_pending_question(monkeypatch):
@@ -682,7 +682,7 @@ def test_get_analysis_tool_reflects_current_state(monkeypatch):
         CREATE_ANALYSIS_TOOL.execute({"problem_statement": "p"}, rca_tool_context())
     )["analysis"]["analysis_id"]
     _run(
-        SAVE_WHY_QUESTION_TOOL.execute(
+        ASK_WHY_QUESTION_TOOL.execute(
             {"analysis_id": analysis_id, "question": "q1"}, rca_tool_context()
         )
     )
@@ -719,7 +719,7 @@ def test_get_analysis_tool_only_returns_analyses_for_current_chat(monkeypatch):
     # writes from a different chat are rejected too
     with pytest.raises(ValueError, match="Analysis not found"):
         _run(
-            SAVE_WHY_QUESTION_TOOL.execute(
+            ASK_WHY_QUESTION_TOOL.execute(
                 {"analysis_id": analysis_id, "question": "q1"}, other_chat_ctx
             )
         )
