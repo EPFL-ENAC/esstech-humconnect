@@ -64,7 +64,7 @@ const props = defineProps<{
 
 const toolColor = '#087e8b';
 const { t } = useI18n();
-const { formatDate } = useLocalizedFormatters();
+const { formatDate, formatNumber } = useLocalizedFormatters();
 const result = computed(() => (props.payload.status === 'finished' ? props.payload.answer : null));
 const mode = computed<'visual-and-raw' | 'raw-only'>(() =>
     props.payload.status === 'running' || result.value ? 'visual-and-raw' : 'raw-only',
@@ -74,14 +74,18 @@ const visualizationQuery = computed(() => ({
     value: result.value?.query ?? props.payload.arguments.query,
     icon: 'search',
 }));
-const visualizationResultsSummary = computed(() =>
-    result.value
-        ? t('chat.activities.whoPublications.resultSummary', {
-              total: result.value.total,
-              shown: result.value.results.length,
-          })
-        : undefined,
-);
+const visualizationResultsSummary = computed(() => {
+    if (!result.value) {
+        return undefined;
+    }
+
+    const total = result.value.total;
+    const shown = result.value.results.length;
+    return t('chat.activities.whoPublications.resultSummary', {
+        total: publicationCountLabel(total),
+        shown: shownPublicationCountLabel(shown),
+    });
+});
 const visualizationEmptyState = computed(() =>
     result.value && !result.value.results.length
         ? {
@@ -99,11 +103,19 @@ const summary = computed(() => {
 
     if (result.value) {
         const count = result.value.results.length;
-        return t('chat.activities.whoPublications.result', count);
+        return publicationCountLabel(count);
     }
 
     return t(`chat.activities.status.${props.payload.status}`);
 });
+
+function publicationCountLabel(count: number): string {
+    return t('chat.activities.whoPublications.result', { count: formatNumber(count) }, count);
+}
+
+function shownPublicationCountLabel(count: number): string {
+    return t('chat.activities.whoPublications.shownResult', { count: formatNumber(count) }, count);
+}
 
 function formatList(values: string[]): string {
     return values.length ? values.join(' · ') : t('chat.activities.whoPublications.notAvailable');

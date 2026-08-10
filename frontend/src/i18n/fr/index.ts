@@ -28,6 +28,15 @@ export default {
         loading: 'Chargement des événements enregistrés...',
         empty: 'Aucun événement enregistré pour le moment.',
         filteredEmpty: 'Aucun événement enregistré ne correspond aux filtres appliqués.',
+        sort: {
+            label: 'Trier les événements',
+            options: {
+                event_date_asc: "Date de l'événement (croissante)",
+                event_date_desc: "Date de l'événement (décroissante)",
+                added_date_asc: "Date d'ajout (croissante)",
+                added_date_desc: "Date d'ajout (décroissante)",
+            },
+        },
         filters: {
             title: 'Filtrer les événements',
             keyword: 'Le mot-clé contient',
@@ -44,14 +53,9 @@ export default {
             empty: 'Aucun événement associé à un pays dans les résultats actuels.',
             loadError: "La carte des pays n'a pas pu être affichée.",
             legend: 'Événements',
-            eventCountOne: '{count} événement',
-            eventCountOther: '{count} événements',
-            countryCountOne: '{count} pays',
-            countryCountOther: '{count} pays',
+            eventCount: '{count} événement | {count} événements',
+            countryCount: '{count} pays | {count} pays',
             summary: '{events} dans {countries}',
-            unplacedEventOne: "{count} événement n'a pas pu être placé à partir de son code pays.",
-            unplacedEventOther:
-                "{count} événements n'ont pas pu être placés à partir de leur code pays.",
             ariaLabel: 'Carte mondiale des événements enregistrés par pays. {summary}.',
         },
         fields: {
@@ -256,7 +260,8 @@ export default {
             whoPublications: {
                 searching: 'Recherche de publications de l’OMS pour « {query} »',
                 result: '{count} publication trouvée | {count} publications trouvées',
-                resultSummary: '{total} publications trouvées, {shown} affichées',
+                shownResult: '{count} affichée | {count} affichées',
+                resultSummary: '{total}, {shown}',
                 searchDetails: 'Détails de la recherche',
                 query: 'Requête',
                 limit: 'Limite',
@@ -354,6 +359,7 @@ export default {
         createChat: 'Impossible de créer la discussion.',
         loadChats: 'Impossible de charger les discussions.',
         loadProfile: 'Impossible de charger le profil.',
+        loadRecordedEventMap: 'Impossible de charger le nombre d’événements par pays.',
         loadRecordedEvents: 'Impossible de charger les événements enregistrés.',
         saveProfile: "Impossible d'enregistrer le profil.",
     },

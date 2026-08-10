@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -30,6 +31,7 @@ from api.models.chat import (
 from api.models.recorded_event import (
     EVENT_CONTINENTS,
     EVENT_TAGS,
+    UNKNOWN_COUNTRY_CODE,
     EventLocation,
     RecordedEvent,
     RecordedEventResponse,
@@ -63,8 +65,8 @@ from api.services.chat_room.chat_assistant import (
     AssistantStreamPayloadUpdate,
 )
 from api.services.chat_room.tools import (
-    ASK_MEDITRON_TOOL,
     ASK_LEGITRON_TOOL,
+    ASK_MEDITRON_TOOL,
     GET_HUMANITARIAN_CONTEXT_TOOL,
     GET_NATURAL_EVENTS_CONTEXT_TOOL,
     RECALL_EVENTS_TOOL,
@@ -77,8 +79,8 @@ from api.services.chat_room.tools import events as events_tool_module
 from api.services.chat_room.tools import (
     humanitarian_context as humanitarian_context_tool_module,
 )
-from api.services.chat_room.tools import meditron as meditron_tool_module
 from api.services.chat_room.tools import legitron as legitron_tool_module
+from api.services.chat_room.tools import meditron as meditron_tool_module
 from api.services.chat_room.tools import natural_events as natural_events_tool_module
 from api.services.reliefweb import client as reliefweb_client_module
 from api.utils.datetime_utils import utc_now
@@ -96,11 +98,17 @@ class FakeResult:
     def first(self):
         return self._rows[0] if self._rows else None
 
+    def one(self):
+        if len(self._rows) != 1:
+            raise AssertionError(f"Expected exactly one row, got {len(self._rows)}")
+        return self._rows[0]
+
 
 class FakeAsyncSession:
     commit_count = 0
     instances = []
     last_query = None
+    queries = []
     rows = {
         ChatSession: {},
         Message: {},
@@ -125,12 +133,51 @@ class FakeAsyncSession:
 
     async def exec(self, query):
         self.__class__.last_query = query
+        self.__class__.queries.append(query)
         query_text = str(query)
         if "chatsession" in query_text:
             return FakeResult(list(self.rows[ChatSession].values()))
         if "recordedevent" in query_text:
             events = list(self.rows[RecordedEvent].values())
-            events.sort(key=lambda event: event.created_at, reverse=True)
+            if "count(recordedevent.id)" in query_text.lower():
+                if "group by" not in query_text.lower():
+                    return FakeResult([len(events)])
+                counts = {}
+                for event in events:
+                    country_code = event.location_country_code or UNKNOWN_COUNTRY_CODE
+                    counts[country_code] = counts.get(country_code, 0) + 1
+                return FakeResult(list(counts.items()))
+            query_text_lower = query_text.lower()
+            if "order by recordedevent.event_datetime" in query_text_lower:
+                descending = "event_datetime desc" in query_text_lower
+                dated_events = [
+                    event for event in events if event.event_datetime is not None
+                ]
+                undated_events = [
+                    event for event in events if event.event_datetime is None
+                ]
+                dated_events.sort(
+                    key=lambda event: (
+                        event.event_datetime,
+                        event.created_at,
+                        event.id,
+                    ),
+                    reverse=descending,
+                )
+                undated_events.sort(
+                    key=lambda event: (event.created_at, event.id),
+                    reverse=descending,
+                )
+                events = dated_events + undated_events
+            else:
+                descending = "recordedevent.created_at desc" in query_text_lower
+                events.sort(
+                    key=lambda event: (event.created_at, event.id),
+                    reverse=descending,
+                )
+            offset = getattr(getattr(query, "_offset_clause", None), "value", 0)
+            limit = getattr(getattr(query, "_limit_clause", None), "value", None)
+            events = events[offset : offset + limit if limit is not None else None]
             return FakeResult(events)
 
         messages = list(self.rows[Message].values())
@@ -164,6 +211,7 @@ class FakeAsyncSession:
         cls.commit_count = 0
         cls.instances = []
         cls.last_query = None
+        cls.queries = []
         cls.rows = {
             ChatSession: {},
             Message: {},
@@ -460,8 +508,8 @@ def configure_recorded_event_service(
 
     def service_factory():
         return recorded_events_module.RecordedEventService(
-            session_factory=FakeAsyncSession,
-            engine_factory=lambda: object(),
+            session_factory=cast(Any, FakeAsyncSession),
+            engine_factory=cast(Any, lambda: object()),
             now_factory=lambda: fixed_now,
         )
 

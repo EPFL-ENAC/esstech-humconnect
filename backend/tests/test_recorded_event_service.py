@@ -1,4 +1,182 @@
+from typing import Any, cast
+
 from tests.chat_room_helpers import *  # noqa: F403
+
+
+def dashboard_filters():
+    return recorded_events_module.ListRecordedEventsFilters(
+        keyword=" medical ",
+        tags=["supply_shortage", "equipment_issue"],
+        affected_profession_categories=["medical_clinical", "community_health"],
+        response_profession_categories=[
+            "logistics_supply",
+            "biomedical_equipment",
+        ],
+    )
+
+
+def assert_dashboard_filter_query(query_text):
+    assert "CAST(recordedevent.keywords AS TEXT)" in query_text
+    assert "lower(recordedevent.event_name)" not in query_text
+    assert query_text.count("recordedevent.tags @>") == 2
+    assert query_text.count("recordedevent.affected_profession_categories @>") == 2
+    assert query_text.count("recordedevent.response_profession_categories @>") == 2
+    assert " AS JSONB)" not in query_text
+    assert query_text.count(" OR ") == 3
+    assert query_text.count(" AND ") >= 3
+
+
+@pytest.mark.parametrize(
+    ("sort", "expected_order_by", "expected_event_names"),
+    [
+        (
+            "event_date_asc",
+            "ORDER BY recordedevent.event_datetime ASC NULLS LAST, "
+            "recordedevent.created_at ASC, recordedevent.id ASC",
+            ["Earlier event", "Later event", "Undated event"],
+        ),
+        (
+            "event_date_desc",
+            "ORDER BY recordedevent.event_datetime DESC NULLS LAST, "
+            "recordedevent.created_at DESC, recordedevent.id DESC",
+            ["Later event", "Earlier event", "Undated event"],
+        ),
+        (
+            "added_date_asc",
+            "ORDER BY recordedevent.created_at ASC, recordedevent.id ASC",
+            ["Later event", "Earlier event", "Undated event"],
+        ),
+        (
+            "added_date_desc",
+            "ORDER BY recordedevent.created_at DESC, recordedevent.id DESC",
+            ["Undated event", "Earlier event", "Later event"],
+        ),
+    ],
+)
+def test_recorded_event_service_applies_stable_sort_before_pagination(
+    sort,
+    expected_order_by,
+    expected_event_names,
+):
+    FakeAsyncSession.reset()
+    earlier_event = make_recorded_event(
+        event_name="Earlier event",
+        event_datetime=datetime(2026, 6, 25, 12, 0, tzinfo=UTC),
+        created_at=datetime(2026, 6, 30, 12, 0, tzinfo=UTC),
+    )
+    later_event = make_recorded_event(
+        event_name="Later event",
+        event_datetime=datetime(2026, 6, 27, 12, 0, tzinfo=UTC),
+        created_at=datetime(2026, 6, 28, 12, 0, tzinfo=UTC),
+    )
+    undated_event = make_recorded_event(
+        event_name="Undated event",
+        event_datetime=None,
+        created_at=datetime(2026, 7, 1, 12, 0, tzinfo=UTC),
+    )
+    for event in [earlier_event, later_event, undated_event]:
+        FakeAsyncSession.rows[RecordedEvent][event.id] = event
+    service = recorded_events_module.RecordedEventService(
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
+    )
+
+    events, total_count = asyncio.run(
+        service.list_events(
+            filters=recorded_events_module.ListRecordedEventsFilters(),
+            sort=sort,
+            page=1,
+            page_size=3,
+        )
+    )
+
+    assert [event.event_name for event in events] == expected_event_names
+    assert total_count == 3
+    query_text = str(FakeAsyncSession.last_query)
+    assert expected_order_by in query_text
+    assert " LIMIT " in query_text
+    assert " OFFSET " in query_text
+    assert "WHERE" not in query_text
+    assert "count(recordedevent.id)" in str(FakeAsyncSession.queries[0]).lower()
+
+
+def test_recorded_event_service_applies_dashboard_filters_to_list_query():
+    FakeAsyncSession.reset()
+    filters = dashboard_filters()
+    service = recorded_events_module.RecordedEventService(
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
+    )
+
+    asyncio.run(
+        service.list_events(
+            filters=filters,
+            sort="event_date_desc",
+            page=2,
+            page_size=20,
+        )
+    )
+
+    assert filters.keyword == "medical"
+    query_text = str(FakeAsyncSession.last_query)
+    assert_dashboard_filter_query(query_text)
+    assert "ORDER BY recordedevent.event_datetime DESC NULLS LAST" in query_text
+    assert " LIMIT " in query_text
+    assert " OFFSET " in query_text
+    assert_dashboard_filter_query(str(FakeAsyncSession.queries[0]))
+
+
+def test_recorded_event_service_counts_events_by_country():
+    FakeAsyncSession.reset()
+    swiss_event = make_recorded_event(
+        event_location={
+            "raw_text": "Geneva, Switzerland",
+            "continent": "europe",
+            "country_code": "CH",
+            "region": "Geneva",
+            "city": "Geneva",
+            "address": None,
+            "place_name": None,
+            "detail": None,
+            "coordinates": None,
+        }
+    )
+    other_swiss_event = make_recorded_event(event_name="Another Swiss event")
+    other_swiss_event.location_country_code = "CH"
+    unknown_event = make_recorded_event(event_name="Unplaced event")
+    for event in [swiss_event, other_swiss_event, unknown_event]:
+        FakeAsyncSession.rows[RecordedEvent][event.id] = event
+    service = recorded_events_module.RecordedEventService(
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
+    )
+
+    counts = asyncio.run(
+        service.count_events_by_country(
+            filters=recorded_events_module.ListRecordedEventsFilters()
+        )
+    )
+
+    assert counts == {"CH": 2, "UNKNOWN": 1}
+    query_text = str(FakeAsyncSession.last_query)
+    assert "coalesce(recordedevent.location_country_code" in query_text
+    assert "count(recordedevent.id)" in query_text
+    assert "GROUP BY coalesce(recordedevent.location_country_code" in query_text
+
+
+def test_recorded_event_service_applies_dashboard_filters_to_country_count_query():
+    FakeAsyncSession.reset()
+    filters = dashboard_filters()
+    service = recorded_events_module.RecordedEventService(
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
+    )
+
+    counts = asyncio.run(service.count_events_by_country(filters=filters))
+
+    assert counts == {}
+    assert filters.keyword == "medical"
+    assert_dashboard_filter_query(str(FakeAsyncSession.last_query))
 
 
 def test_recorded_event_service_persists_event_with_initiator_metadata():
@@ -7,8 +185,8 @@ def test_recorded_event_service_persists_event_with_initiator_metadata():
         structured_record_event_arguments()
     )
     service = recorded_events_module.RecordedEventService(
-        session_factory=FakeAsyncSession,
-        engine_factory=lambda: object(),
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
         now_factory=lambda: datetime(2026, 6, 29, 12, 0, tzinfo=UTC),
     )
 
@@ -88,8 +266,8 @@ def test_recorded_event_service_builds_user_scoped_filtered_recall_query():
         }
     )
     service = recorded_events_module.RecordedEventService(
-        session_factory=FakeAsyncSession,
-        engine_factory=lambda: object(),
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
     )
 
     async def run():
@@ -144,8 +322,8 @@ def test_recorded_event_service_combines_exact_tag_filters(
         }
     )
     service = recorded_events_module.RecordedEventService(
-        session_factory=FakeAsyncSession,
-        engine_factory=lambda: object(),
+        session_factory=cast(Any, FakeAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
     )
 
     async def run():

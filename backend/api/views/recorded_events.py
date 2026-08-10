@@ -2,23 +2,27 @@ from typing import Annotated
 
 from enacit4r_auth.services.auth import User
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import Text, cast, or_
-from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
 
 from api.auth import require_admin
-from api.db import get_session
 from api.models.recorded_event import (
+    DEFAULT_RECORDED_EVENT_LIST_SORT,
     EventTag,
     ListRecordedEventsFilters,
     ListRecordedEventsResponse,
-    RecordedEvent,
+    RecordedEventCountryCount,
+    RecordedEventCountsByCountryResponse,
+    RecordedEventListSort,
     RecordedEventResponse,
 )
 from api.models.user_profile import ProfessionCategory
+from api.services.recorded_events import RecordedEventService
 from api.utils.pydantic_types import NonEmptyString
 
 router = APIRouter(prefix="/recorded-events", tags=["Recorded events"])
+
+
+def get_recorded_event_service() -> RecordedEventService:
+    return RecordedEventService()
 
 
 def get_recorded_event_filters(
@@ -44,45 +48,44 @@ def get_recorded_event_filters(
 @router.get("", response_model=ListRecordedEventsResponse)
 async def list_recorded_events(
     filters: Annotated[ListRecordedEventsFilters, Depends(get_recorded_event_filters)],
+    service: Annotated[
+        RecordedEventService,
+        Depends(get_recorded_event_service),
+    ],
+    sort: Annotated[RecordedEventListSort, Query()] = DEFAULT_RECORDED_EVENT_LIST_SORT,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     user: User = Depends(require_admin()),
-    session: AsyncSQLModelSession = Depends(get_session),
 ) -> ListRecordedEventsResponse:
-    query = select(RecordedEvent).order_by(col(RecordedEvent.created_at).desc())
-
-    if filters.keyword is not None:
-        query = query.where(
-            cast(RecordedEvent.keywords, Text).ilike(f"%{filters.keyword}%")
-        )
-
-    if filters.tags:
-        tags_jsonb = col(RecordedEvent.tags)
-        query = query.where(or_(*(tags_jsonb.contains([tag]) for tag in filters.tags)))
-
-    if filters.affected_profession_categories:
-        affected_jsonb = col(RecordedEvent.affected_profession_categories)
-        query = query.where(
-            or_(
-                *(
-                    affected_jsonb.contains([category])
-                    for category in filters.affected_profession_categories
-                )
-            )
-        )
-
-    if filters.response_profession_categories:
-        response_jsonb = col(RecordedEvent.response_profession_categories)
-        query = query.where(
-            or_(
-                *(
-                    response_jsonb.contains([category])
-                    for category in filters.response_profession_categories
-                )
-            )
-        )
-
-    result = await session.exec(query)
-    return ListRecordedEventsResponse(
-        events=[
-            RecordedEventResponse.from_recorded_event(event) for event in result.all()
-        ]
+    events, total_count = await service.list_events(
+        filters=filters,
+        sort=sort,
+        page=page,
+        page_size=page_size,
     )
+    return ListRecordedEventsResponse(
+        events=[RecordedEventResponse.from_recorded_event(event) for event in events],
+        page=page,
+        page_size=page_size,
+        total_count=total_count,
+        total_pages=(total_count + page_size - 1) // page_size,
+    )
+
+
+@router.get(
+    "/count-by-country",
+    response_model=RecordedEventCountsByCountryResponse,
+)
+async def count_recorded_events_by_country(
+    filters: Annotated[ListRecordedEventsFilters, Depends(get_recorded_event_filters)],
+    service: Annotated[
+        RecordedEventService,
+        Depends(get_recorded_event_service),
+    ],
+    user: User = Depends(require_admin()),
+) -> RecordedEventCountsByCountryResponse:
+    counts = await service.count_events_by_country(filters=filters)
+    return {
+        country_code: RecordedEventCountryCount(event_count=event_count)
+        for country_code, event_count in counts.items()
+    }

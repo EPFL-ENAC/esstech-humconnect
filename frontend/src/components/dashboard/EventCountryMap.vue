@@ -5,15 +5,15 @@
                 <h2>{{ t('dashboard.map.title') }}</h2>
                 <p>{{ t('dashboard.map.subtitle') }}</p>
             </div>
-            <div v-if="!loading" class="map-summary">{{ summary }}</div>
+            <div v-if="!dashboardData.mapLoading" class="map-summary">{{ summary }}</div>
         </q-card-section>
 
         <div class="map-frame">
             <div ref="mapContainer" class="map-canvas" role="region" :aria-label="mapAriaLabel" />
-            <div v-if="mapError" class="map-state map-error-state">
-                {{ t('dashboard.map.loadError') }}
+            <div v-if="dashboardData.mapError || renderError" class="map-state map-error-state">
+                {{ dashboardData.mapError || t('dashboard.map.loadError') }}
             </div>
-            <div v-else-if="loading || !mapIsReady" class="map-state">
+            <div v-else-if="dashboardData.mapLoading || !mapIsReady" class="map-state">
                 <q-spinner color="primary" size="32px" />
                 <span>{{ t('dashboard.map.loading') }}</span>
             </div>
@@ -28,9 +28,6 @@
                 <span>0</span>
                 <div class="legend-scale" />
                 <span>{{ formatNumber(countryStats.maxCount) }}</span>
-            </div>
-            <div v-if="countryStats.unplacedEventCount > 0" class="unplaced-events">
-                {{ unplacedEventLabel }}
             </div>
         </q-card-section>
     </q-card>
@@ -50,7 +47,8 @@ import maplibregl, {
 } from 'maplibre-gl';
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
 import countryBoundariesJson from 'src/assets/country-boundaries.json';
-import type { RecordedEvent } from 'src/utils/model';
+import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
+import { useDashboardData } from 'src/queries/dashboard';
 import { createLightMapStyle } from 'src/utils/mapStyle';
 
 interface CountryBoundaryProperties {
@@ -62,60 +60,42 @@ interface CountryMapProperties extends CountryBoundaryProperties {
 }
 
 interface CountryStats {
-    counts: Map<string, number>;
+    countryCount: number;
     mappedEventCount: number;
     maxCount: number;
-    unplacedEventCount: number;
 }
-
-const props = defineProps<{
-    events: readonly RecordedEvent[];
-    loading: boolean;
-}>();
 
 const countryBoundaries = countryBoundariesJson as unknown as FeatureCollection<
     Geometry,
     CountryBoundaryProperties
 >;
-const boundaryCountryCodes = new Set(
-    countryBoundaries.features.map((feature) => feature.properties.country_code),
-);
 
 const countrySourceId = 'event-country-source';
 const countryFillLayerId = 'event-country-fill';
 const countryLineLayerId = 'event-country-line';
 const mapContainer = ref<HTMLElement | null>(null);
-const mapError = ref(false);
+const renderError = ref(false);
 const mapIsReady = ref(false);
 const { locale, t } = useI18n();
+const { formatNumber } = useLocalizedFormatters();
+const dashboardData = useDashboardData();
 let map: MapLibreMap | null = null;
 let popup: Popup | null = null;
 
 const countryStats = computed<CountryStats>(() => {
-    const counts = new Map<string, number>();
-    let unplacedEventCount = 0;
-
-    for (const event of props.events) {
-        const countryCode = event.event_location.country_code?.trim().toUpperCase();
-        if (!countryCode || !boundaryCountryCodes.has(countryCode)) {
-            unplacedEventCount += 1;
-            continue;
-        }
-        counts.set(countryCode, (counts.get(countryCode) ?? 0) + 1);
-    }
-
-    const values = [...counts.values()];
+    const values = countryBoundaries.features
+        .map((feature) => dashboardData.mapData[feature.properties.country_code]?.event_count ?? 0)
+        .filter((count) => count > 0);
     return {
-        counts,
+        countryCount: values.length,
         mappedEventCount: values.reduce((total, count) => total + count, 0),
         maxCount: values.length > 0 ? Math.max(...values) : 0,
-        unplacedEventCount,
     };
 });
 
 const summary = computed(() =>
     t('dashboard.map.summary', {
-        countries: countryCountLabel(countryStats.value.counts.size),
+        countries: countryCountLabel(countryStats.value.countryCount),
         events: eventCountLabel(countryStats.value.mappedEventCount),
     }),
 );
@@ -126,27 +106,12 @@ const mapAriaLabel = computed(() =>
     }),
 );
 
-const unplacedEventLabel = computed(() => {
-    const count = countryStats.value.unplacedEventCount;
-    return t(count === 1 ? 'dashboard.map.unplacedEventOne' : 'dashboard.map.unplacedEventOther', {
-        count: formatNumber(count),
-    });
-});
-
-function formatNumber(value: number) {
-    return new Intl.NumberFormat(locale.value).format(value);
-}
-
 function eventCountLabel(count: number) {
-    return t(count === 1 ? 'dashboard.map.eventCountOne' : 'dashboard.map.eventCountOther', {
-        count: formatNumber(count),
-    });
+    return t('dashboard.map.eventCount', { count: formatNumber(count) }, count);
 }
 
 function countryCountLabel(count: number) {
-    return t(count === 1 ? 'dashboard.map.countryCountOne' : 'dashboard.map.countryCountOther', {
-        count: formatNumber(count),
-    });
+    return t('dashboard.map.countryCount', { count: formatNumber(count) }, count);
 }
 
 function countryName(countryCode: string) {
@@ -168,7 +133,7 @@ function createCountryData(): FeatureCollection<Geometry, CountryMapProperties> 
                 properties: {
                     country_code: feature.properties.country_code,
                     event_count:
-                        countryStats.value.counts.get(feature.properties.country_code) ?? 0,
+                        dashboardData.mapData[feature.properties.country_code]?.event_count ?? 0,
                 },
             }),
         ),
@@ -304,7 +269,7 @@ function createMap() {
                 );
                 mapIsReady.value = true;
             } catch {
-                mapError.value = true;
+                renderError.value = true;
             }
         });
 
@@ -318,7 +283,7 @@ function createMap() {
             'bottom-right',
         );
     } catch {
-        mapError.value = true;
+        renderError.value = true;
     }
 }
 
@@ -334,9 +299,7 @@ onBeforeUnmount(() => {
     map = null;
 });
 
-watch(countryStats, () => {
-    syncCountryData();
-});
+watch(() => dashboardData.mapData, syncCountryData);
 </script>
 
 <style scoped lang="scss">
@@ -428,12 +391,6 @@ p {
     height: 10px;
 }
 
-.unplaced-events {
-    color: #667085;
-    font-size: 12px;
-    text-align: right;
-}
-
 :deep(.country-popup-content) {
     display: grid;
     gap: 2px;
@@ -466,8 +423,7 @@ p {
         height: 300px;
     }
 
-    .map-summary,
-    .unplaced-events {
+    .map-summary {
         text-align: left;
     }
 
