@@ -285,6 +285,7 @@ START_5_WHYS_ANALYSIS_TOOL_DESCRIPTION = (
     "to the user, or use a tool call to get an answer. The question can be open-ended or multiple-choice, "
     "but it must be a SINGLE question. "
     "It must not be the same as the problem statement or any previous question. "
+    "Use the ask_question tool to ask the user the clarifying question and collect their answer. "
     "Save both the clarifying 'why' question and its answer together using the "
     "save_why_step tool. Loop with save_why_step until the root cause is clear, "
     "and finish by calling the set_root_cause tool (allowed before reaching 5 levels). "

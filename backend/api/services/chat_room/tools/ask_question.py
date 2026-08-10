@@ -34,8 +34,9 @@ ASK_QUESTION_TOOL = HumConnectTool.from_sync_handler(
     description=(
         "Ask the user a question and pause the conversation until they answer. "
         "Provide a clear question and, when helpful, a list of possible answers "
-        "to let the user pick from. Pass an empty possible_answers list when the "
-        "user should answer freely. Calling this tool ends the current response: "
+        'to let the user pick from. Don\'t include an "Other (please specify)" option, '
+        "as this tool will already do it automatically. Pass an empty possible_answers list when "
+        "the user should answer freely. Calling this tool ends the current response: "
         "do not call any other tool in the same turn and do not generate "
         "additional text after it. The user's answer arrives as the next chat "
         "message."

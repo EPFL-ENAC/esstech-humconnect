@@ -387,8 +387,12 @@ class ChatMessageResponse(BaseModel):
                 continue
             input_item = self._tool_call_input_item(payload)
             output_item = self._tool_call_output_item(payload)
-            if input_item is not None:
-                call_items.append((chunk.index, input_item))
+            # Skip the output too when the function call cannot be
+            # reconstructed (e.g. malformed arguments): the Responses API
+            # rejects a function_call_output without a matching function_call.
+            if input_item is None:
+                continue
+            call_items.append((chunk.index, input_item))
             if output_item is not None:
                 tool_output_items.append(output_item)
 

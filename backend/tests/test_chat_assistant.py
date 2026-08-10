@@ -112,9 +112,7 @@ def test_humconnect_chat_assistant_includes_finished_tool_calls_in_history():
             chat_id=chat_id,
             role=MESSAGE_ROLE_ASSISTANT,
             chunks=[
-                ChatMessageChunk.create(
-                    0, CHUNK_TYPE_TOOL_CALL, payload=ask_payload
-                )
+                ChatMessageChunk.create(0, CHUNK_TYPE_TOOL_CALL, payload=ask_payload)
             ],
             status=MESSAGE_STATUS_COMPLETE,
             created_at=utc_now(),
@@ -164,9 +162,7 @@ def test_humconnect_chat_assistant_orders_text_before_tool_calls_and_outputs():
         chat_id=chat_id,
         role=MESSAGE_ROLE_ASSISTANT,
         chunks=[
-            ChatMessageChunk.create(
-                0, CHUNK_TYPE_MESSAGE_CONTENT, "Let me check."
-            ),
+            ChatMessageChunk.create(0, CHUNK_TYPE_MESSAGE_CONTENT, "Let me check."),
             ChatMessageChunk.create(
                 1,
                 CHUNK_TYPE_TOOL_CALL,
@@ -231,6 +227,45 @@ def test_humconnect_chat_assistant_omits_running_tool_calls_from_history():
     model_input = HumConnectAssistant.chat_history_to_model_input([assistant_message])
 
     assert model_input == []
+
+
+def test_humconnect_chat_assistant_omits_orphaned_tool_output_for_malformed_arguments():
+    # A tool call whose arguments could not be parsed (arguments=None) cannot
+    # be reconstructed as a function_call item. Its function_call_output must
+    # also be dropped, otherwise the Responses API rejects the history on the
+    # next turn because the output has no matching function_call.
+    chat_id = uuid4()
+    assistant_message = ChatMessageResponse(
+        id=uuid4(),
+        chat_id=chat_id,
+        role=MESSAGE_ROLE_ASSISTANT,
+        chunks=[
+            ChatMessageChunk.create(0, CHUNK_TYPE_MESSAGE_CONTENT, "Recovered"),
+            ChatMessageChunk.create(
+                1,
+                CHUNK_TYPE_TOOL_CALL,
+                payload=ToolCallPayload.from_failed(
+                    tool_name="dummy_tool",
+                    tool_label="Dummy tool",
+                    call_id="call_malformed",
+                    arguments=None,
+                    error="Expecting property name",
+                ),
+            ),
+        ],
+        status=MESSAGE_STATUS_COMPLETE,
+        created_at=utc_now(),
+        updated_at=utc_now(),
+    )
+
+    model_input = HumConnectAssistant.chat_history_to_model_input([assistant_message])
+
+    assert model_input == [
+        {
+            "role": MESSAGE_ROLE_ASSISTANT,
+            "content": "Recovered",
+        },
+    ]
 
 
 def test_user_profile_prompt_context_formats_prompt_safe_fields():
