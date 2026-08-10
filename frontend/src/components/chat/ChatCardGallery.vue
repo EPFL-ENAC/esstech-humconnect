@@ -6,23 +6,25 @@
 
 <style scoped lang="scss">
 .chat-card-gallery {
-    display: flex;
+    display: grid;
     gap: 10px;
-    margin: 0 -2px;
+    grid-auto-columns: min(40ch, 82%);
+    grid-auto-flow: column;
     overflow-x: auto;
-    padding: 2px 2px 10px;
+    padding: 4px 4px 10px;
+    scroll-padding-inline: 4px;
     scroll-snap-type: x proximity;
     scrollbar-width: thin;
 }
 
 .chat-card-gallery :slotted(*) {
-    flex: 0 0 min(250px, 82%);
     scroll-snap-align: start;
+    scroll-margin-inline: 4px;
 }
 
 @media (max-width: 520px) {
-    .chat-card-gallery :slotted(*) {
-        flex-basis: 86%;
+    .chat-card-gallery {
+        grid-auto-columns: 86%;
     }
 }
 </style>

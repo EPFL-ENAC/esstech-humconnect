@@ -3,58 +3,26 @@
         :title="payload.tool_label"
         :summary="summary"
         icon="manage_search"
-        color="#444CE7"
+        :color="toolColor"
         :mode="mode"
         :status="payload.status"
         default-opened
     >
         <template #visualization>
-            <div v-if="payload.status === 'running'" class="events-loading">
-                <q-spinner-dots size="22px" />
-            </div>
-            <div v-else-if="events" class="events-result">
-                <section class="recall-filters">
-                    <h4>{{ t('chat.activities.events.filters') }}</h4>
-                    <div class="filter-pills">
-                        <q-chip v-if="payload.arguments.keyword" dense outline>
-                            <span>{{ t('chat.activities.events.keyword') }}:</span>
-                            {{ payload.arguments.keyword }}
-                        </q-chip>
-                        <q-chip v-if="payload.arguments.date_start" dense outline>
-                            <span>{{ t('chat.activities.events.dateStart') }}:</span>
-                            {{ formatFilterDate(payload.arguments.date_start) }}
-                        </q-chip>
-                        <q-chip v-if="payload.arguments.date_end" dense outline>
-                            <span>{{ t('chat.activities.events.dateEnd') }}:</span>
-                            {{ formatFilterDate(payload.arguments.date_end) }}
-                        </q-chip>
-                        <q-chip v-if="tags.length" dense outline>
-                            <span>{{ t('chat.activities.events.tags') }}:</span>
-                            {{ tagsLabel }}
-                        </q-chip>
-                        <q-chip dense outline>
-                            <span>{{ t('chat.activities.events.tagMatch') }}:</span>
-                            {{
-                                t(
-                                    `chat.activities.events.tagMatches.${payload.arguments.tag_match}`,
-                                )
-                            }}
-                        </q-chip>
-                        <q-chip dense outline>
-                            <span>{{ t('chat.activities.events.limit') }}:</span>
-                            {{ payload.arguments.limit }}
-                        </q-chip>
-                    </div>
-                </section>
-
-                <ChatCardGallery v-if="events.length">
-                    <RecordedEventCard v-for="event in events" :key="event.id" :event="event" />
-                </ChatCardGallery>
-                <div v-else class="empty-events">
-                    <q-icon name="event_busy" size="22px" />
-                    <span>{{ t('chat.activities.events.noResults') }}</span>
-                </div>
-            </div>
+            <ToolCallVisualizationSkeleton
+                :loading="payload.status === 'running'"
+                :accent-color="toolColor"
+                :query="visualizationQuery"
+                :filters="visualizationFilters"
+                :results-summary="visualizationResultsSummary"
+                :empty-state="visualizationEmptyState"
+            >
+                <template #results>
+                    <ChatCardGallery v-if="events?.length">
+                        <RecordedEventCard v-for="event in events" :key="event.id" :event="event" />
+                    </ChatCardGallery>
+                </template>
+            </ToolCallVisualizationSkeleton>
         </template>
 
         <template #raw>
@@ -70,13 +38,17 @@ import ChatActivityBlock from './ChatActivityBlock.vue';
 import ChatCardGallery from './ChatCardGallery.vue';
 import RecordedEventCard from './RecordedEventCard.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
+import ToolCallVisualizationSkeleton from './ToolCallVisualizationSkeleton.vue';
+import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
 import type { RecallEventsToolCallPayload } from './toolCallSchemas';
 
 const props = defineProps<{
     payload: RecallEventsToolCallPayload;
 }>();
 
-const { locale, t } = useI18n();
+const toolColor = '#444ce7';
+const { t } = useI18n();
+const { formatDate } = useLocalizedFormatters();
 const events = computed(() =>
     props.payload.status === 'finished' ? (props.payload.answer?.events ?? null) : null,
 );
@@ -84,6 +56,69 @@ const tags = computed(() => props.payload.arguments.tags);
 const tagsLabel = computed(() => tags.value.map((tag) => t(`dashboard.tags.${tag}`)).join(', '));
 const mode = computed(resolveMode);
 const summary = computed(resolveSummary);
+const visualizationQuery = computed(() =>
+    props.payload.arguments.keyword
+        ? {
+              label: t('chat.activities.events.keyword'),
+              value: props.payload.arguments.keyword,
+              icon: 'search',
+          }
+        : null,
+);
+const visualizationFilters = computed(() => {
+    const filters: Array<{ icon: string; label: string; value: string }> = [];
+    if (props.payload.arguments.date_start) {
+        filters.push({
+            icon: 'date_range',
+            label: t('chat.activities.events.dateStart'),
+            value: formatDate(
+                props.payload.arguments.date_start,
+                t('chat.activities.events.unknownDate'),
+            ),
+        });
+    }
+    if (props.payload.arguments.date_end) {
+        filters.push({
+            icon: 'event',
+            label: t('chat.activities.events.dateEnd'),
+            value: formatDate(
+                props.payload.arguments.date_end,
+                t('chat.activities.events.unknownDate'),
+            ),
+        });
+    }
+    if (tags.value.length) {
+        filters.push(
+            {
+                icon: 'sell',
+                label: t('chat.activities.events.tags'),
+                value: tagsLabel.value,
+            },
+            {
+                icon: 'rule',
+                label: t('chat.activities.events.tagMatch'),
+                value: t(`chat.activities.events.tagMatches.${props.payload.arguments.tag_match}`),
+            },
+        );
+    }
+    filters.push({
+        icon: 'filter_list',
+        label: t('chat.activities.events.limit'),
+        value: String(props.payload.arguments.limit),
+    });
+    return filters;
+});
+const visualizationResultsSummary = computed(() =>
+    events.value ? String(events.value.length) : undefined,
+);
+const visualizationEmptyState = computed(() =>
+    events.value && !events.value.length
+        ? {
+              icon: 'event_busy',
+              message: t('chat.activities.events.noResults'),
+          }
+        : null,
+);
 
 function resolveMode(): 'visual-and-raw' | 'raw-only' {
     if (props.payload.status === 'running' || events.value) {
@@ -103,79 +138,6 @@ function resolveSummary(): string {
     }
 
     const count = events.value.length;
-    if (count === 1) {
-        return t('chat.activities.events.result', { count });
-    }
-
-    return t('chat.activities.events.results', { count });
-}
-
-function formatFilterDate(value: string): string {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-
-    return new Intl.DateTimeFormat(locale.value, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-    }).format(date);
+    return t('chat.activities.events.result', count);
 }
 </script>
-
-<style scoped lang="scss">
-.events-loading {
-    align-items: center;
-    color: #667085;
-    display: flex;
-    min-height: 48px;
-}
-
-.recall-filters {
-    margin-bottom: 12px;
-}
-
-.recall-filters h4 {
-    color: #344054;
-    font-size: 12px;
-    font-weight: 650;
-    margin: 0 0 6px;
-}
-
-.filter-pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-}
-
-.filter-pills :deep(.q-chip) {
-    color: #475467;
-    font-size: 10px;
-    margin: 0;
-    max-width: 100%;
-}
-
-.filter-pills :deep(.q-chip__content) {
-    overflow-wrap: anywhere;
-    white-space: normal;
-}
-
-.filter-pills span {
-    color: #667085;
-    font-weight: 650;
-    margin-right: 3px;
-}
-
-.empty-events {
-    align-items: center;
-    background: #f8fafc;
-    border: 1px dashed #d0d5dd;
-    border-radius: 8px;
-    color: #667085;
-    display: flex;
-    gap: 8px;
-    justify-content: center;
-    min-height: 72px;
-    padding: 12px;
-}
-</style>
