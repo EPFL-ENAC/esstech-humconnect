@@ -1,4 +1,18 @@
 <template>
+    <div class="event-list-toolbar">
+        <q-select
+            v-model="sort"
+            class="event-list-sort"
+            outlined
+            dense
+            emit-value
+            map-options
+            :disable="loading"
+            :label="t('dashboard.sort.label')"
+            :options="sortOptions"
+        />
+    </div>
+
     <q-banner v-if="error" class="bg-red-1 text-red-9 q-mb-md" rounded>
         {{ error }}
     </q-banner>
@@ -223,12 +237,15 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
 import type { EventCoordinates, EventLocation, RecordedEvent } from 'src/utils/model';
+import { recordedEventListSorts, type RecordedEventListSort } from 'src/utils/recordedEventsApi';
 import { prettyPrintJson } from 'src/utils/text';
 
 const page = defineModel<number>('page', { required: true });
+const sort = defineModel<RecordedEventListSort>('sort', { required: true });
 
 defineProps<{
     data: readonly RecordedEvent[];
@@ -240,6 +257,12 @@ defineProps<{
 
 const { t } = useI18n();
 const { formatDate, formatNumber } = useLocalizedFormatters();
+const sortOptions = computed(() =>
+    recordedEventListSorts.map((value) => ({
+        label: t(`dashboard.sort.options.${value}`),
+        value,
+    })),
+);
 
 function formatSeverity(value: number | null) {
     if (value === null) {
@@ -290,6 +313,16 @@ function formatJson(value: unknown) {
 <style scoped lang="scss">
 .event-list {
     background: white;
+}
+
+.event-list-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+}
+
+.event-list-sort {
+    width: 260px;
 }
 
 .event-list-pagination {

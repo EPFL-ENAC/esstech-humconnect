@@ -28,6 +28,15 @@ export default {
         loading: 'Loading recorded events...',
         empty: 'No recorded events yet.',
         filteredEmpty: 'No recorded events match the applied filters.',
+        sort: {
+            label: 'Sort events',
+            options: {
+                event_date_asc: 'Event date (ascending)',
+                event_date_desc: 'Event date (descending)',
+                added_date_asc: 'Event added date (ascending)',
+                added_date_desc: 'Event added date (descending)',
+            },
+        },
         filters: {
             title: 'Filter events',
             keyword: 'Keyword contains',

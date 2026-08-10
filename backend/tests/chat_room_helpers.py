@@ -147,7 +147,34 @@ class FakeAsyncSession:
                     country_code = event.location_country_code or UNKNOWN_COUNTRY_CODE
                     counts[country_code] = counts.get(country_code, 0) + 1
                 return FakeResult(list(counts.items()))
-            events.sort(key=lambda event: (event.created_at, event.id), reverse=True)
+            query_text_lower = query_text.lower()
+            if "order by recordedevent.event_datetime" in query_text_lower:
+                descending = "event_datetime desc" in query_text_lower
+                dated_events = [
+                    event for event in events if event.event_datetime is not None
+                ]
+                undated_events = [
+                    event for event in events if event.event_datetime is None
+                ]
+                dated_events.sort(
+                    key=lambda event: (
+                        event.event_datetime,
+                        event.created_at,
+                        event.id,
+                    ),
+                    reverse=descending,
+                )
+                undated_events.sort(
+                    key=lambda event: (event.created_at, event.id),
+                    reverse=descending,
+                )
+                events = dated_events + undated_events
+            else:
+                descending = "recordedevent.created_at desc" in query_text_lower
+                events.sort(
+                    key=lambda event: (event.created_at, event.id),
+                    reverse=descending,
+                )
             offset = getattr(getattr(query, "_offset_clause", None), "value", 0)
             limit = getattr(getattr(query, "_limit_clause", None), "value", None)
             events = events[offset : offset + limit if limit is not None else None]

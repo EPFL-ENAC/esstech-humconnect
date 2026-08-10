@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import Text, cast, func, or_
@@ -14,6 +14,7 @@ from api.models.recorded_event import (
     UNKNOWN_COUNTRY_CODE,
     ListRecordedEventsFilters,
     RecordedEvent,
+    RecordedEventListSort,
 )
 from api.utils.datetime_utils import utc_now
 
@@ -40,6 +41,7 @@ class RecordedEventService:
         self,
         *,
         filters: ListRecordedEventsFilters,
+        sort: RecordedEventListSort,
         page: int,
         page_size: int,
     ) -> tuple[list[RecordedEvent], int]:
@@ -48,10 +50,7 @@ class RecordedEventService:
         events_query = (
             select(RecordedEvent)
             .where(*filter_clauses)
-            .order_by(
-                col(RecordedEvent.created_at).desc(),
-                col(RecordedEvent.id).desc(),
-            )
+            .order_by(*_sort_clauses(sort))
             .limit(page_size)
             .offset((page - 1) * page_size)
         )
@@ -287,3 +286,27 @@ def _filter_clauses(
         )
 
     return tuple(clauses)
+
+
+def _sort_clauses(
+    sort: RecordedEventListSort,
+) -> tuple[ColumnElement[Any], ...]:
+    event_datetime = col(RecordedEvent.event_datetime)
+    created_at = col(RecordedEvent.created_at)
+    event_id = col(RecordedEvent.id)
+
+    if sort == "event_date_asc":
+        return (
+            event_datetime.asc().nulls_last(),
+            created_at.asc(),
+            event_id.asc(),
+        )
+    if sort == "event_date_desc":
+        return (
+            event_datetime.desc().nulls_last(),
+            created_at.desc(),
+            event_id.desc(),
+        )
+    if sort == "added_date_asc":
+        return created_at.asc(), event_id.asc()
+    return created_at.desc(), event_id.desc()

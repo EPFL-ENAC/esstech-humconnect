@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 from fastapi import FastAPI
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.dialects.postgresql import JSONB
 
 os.environ.setdefault("DB_USER", "test")
@@ -15,7 +15,11 @@ os.environ.setdefault("MEDITRON_MCP_API_KEY", "test")
 os.environ.setdefault("KEYCLOAK_API_ID", "test")
 os.environ.setdefault("KEYCLOAK_API_SECRET", "test")
 
-from api.models.recorded_event import ListRecordedEventsFilters, RecordedEvent
+from api.models.recorded_event import (
+    ListRecordedEventsFilters,
+    RecordedEvent,
+    RecordedEventListSort,
+)
 from api.services.recorded_events import RecordedEventService
 from api.views.recorded_events import (
     count_recorded_events_by_country,
@@ -31,12 +35,14 @@ class FakeRecordedEventService(RecordedEventService):
         self.total_count = len(self.events) if total_count is None else total_count
         self.counts = counts or {}
         self.list_filters = None
+        self.list_sort = None
         self.list_page = None
         self.list_page_size = None
         self.count_filters = None
 
-    async def list_events(self, *, filters, page, page_size):
+    async def list_events(self, *, filters, sort, page, page_size):
         self.list_filters = filters
+        self.list_sort = sort
         self.list_page = page
         self.list_page_size = page_size
         return self.events, self.total_count
@@ -114,6 +120,7 @@ def test_list_recorded_events_serializes_events_and_pagination_metadata():
         list_recorded_events(
             filters=filters,
             service=service,
+            sort="added_date_asc",
             page=2,
             page_size=20,
         )
@@ -128,6 +135,7 @@ def test_list_recorded_events_serializes_events_and_pagination_metadata():
     assert response.total_count == 47
     assert response.total_pages == 3
     assert service.list_filters is filters
+    assert service.list_sort == "added_date_asc"
     assert service.list_page == 2
     assert service.list_page_size == 20
 
@@ -164,6 +172,19 @@ def test_list_recorded_events_serializes_nested_location():
         "detail": None,
         "coordinates": None,
     }
+
+
+def test_list_recorded_events_defaults_to_descending_event_date_sort():
+    service = FakeRecordedEventService()
+
+    asyncio.run(
+        list_recorded_events(
+            filters=ListRecordedEventsFilters(),
+            service=service,
+        )
+    )
+
+    assert service.list_sort == "event_date_desc"
 
 
 def test_list_recorded_events_serializes_optional_event_end_date():
@@ -222,6 +243,29 @@ def test_recorded_event_filters_are_exposed_as_repeated_query_parameters():
         "default": 20,
         "title": "Page Size",
     }
+    assert list_parameters["sort"]["schema"] == {
+        "enum": [
+            "event_date_asc",
+            "event_date_desc",
+            "added_date_asc",
+            "added_date_desc",
+        ],
+        "type": "string",
+        "default": "event_date_desc",
+        "title": "Sort",
+    }
+    count_parameters = {
+        parameter["name"]
+        for parameter in app.openapi()["paths"]["/recorded-events/count-by-country"][
+            "get"
+        ]["parameters"]
+    }
+    assert "sort" not in count_parameters
+
+
+def test_recorded_event_list_sort_rejects_unknown_values():
+    with pytest.raises(ValidationError):
+        TypeAdapter(RecordedEventListSort).validate_python("unknown_sort")
 
 
 def test_list_recorded_events_empty_page_has_zero_total_pages():

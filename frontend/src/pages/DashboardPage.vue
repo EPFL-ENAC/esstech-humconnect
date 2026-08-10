@@ -95,6 +95,7 @@
 
             <RecordedEventList
                 v-model:page="listPage"
+                v-model:sort="listSort"
                 :data="dashboardStore.currentPageData"
                 :loading="dashboardStore.eventListLoading"
                 :error="dashboardStore.eventListError"
@@ -139,6 +140,12 @@ const listPage = computed({
     get: () => dashboardStore.currentPage,
     set: (page: number) => {
         void dashboardStore.setCurrentListPage(page);
+    },
+});
+const listSort = computed({
+    get: () => dashboardStore.eventListSort,
+    set: (sort) => {
+        void dashboardStore.setEventListSort(sort);
     },
 });
 

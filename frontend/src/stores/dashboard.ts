@@ -2,9 +2,11 @@ import { computed, reactive, ref } from 'vue';
 import { defineStore } from 'pinia';
 import { getI18nT } from 'src/utils/i18n';
 import {
+    DEFAULT_RECORDED_EVENT_LIST_SORT,
     getRecordedEventCountsByCountry,
     listRecordedEvents,
     type RecordedEventFilters,
+    type RecordedEventListSort,
 } from 'src/utils/recordedEventsApi';
 import type { RecordedEvent, RecordedEventCountsByCountry } from 'src/utils/model';
 
@@ -33,9 +35,11 @@ export const useDashboardStore = defineStore('dashboard', () => {
     );
     const eventListTotalPages = ref(0);
     const eventListTotalCount = ref(0);
+    const eventListSort = ref<RecordedEventListSort>(DEFAULT_RECORDED_EVENT_LIST_SORT);
 
     let currentFilters: RecordedEventFilters = {};
     let filtersVersion = 0;
+    let eventListVersion = 0;
     let eventListRequestId = 0;
 
     async function loadMap(filters: RecordedEventFilters, version: number) {
@@ -59,17 +63,26 @@ export const useDashboardStore = defineStore('dashboard', () => {
         }
     }
 
-    async function loadEventListPage(filters: RecordedEventFilters, page: number, version: number) {
+    async function loadEventListPage(
+        filters: RecordedEventFilters,
+        sort: RecordedEventListSort,
+        page: number,
+        version: number,
+    ) {
         const requestId = ++eventListRequestId;
         eventListLoading.value = true;
         eventListError.value = '';
 
         try {
-            const response = await listRecordedEvents(filters, {
-                page,
-                pageSize: EVENT_LIST_PAGE_SIZE,
-            });
-            if (version !== filtersVersion) {
+            const response = await listRecordedEvents(
+                filters,
+                {
+                    page,
+                    pageSize: EVENT_LIST_PAGE_SIZE,
+                },
+                sort,
+            );
+            if (version !== eventListVersion) {
                 return;
             }
 
@@ -80,29 +93,35 @@ export const useDashboardStore = defineStore('dashboard', () => {
                 currentPage.value = page;
             }
         } catch (err) {
-            if (version === filtersVersion && requestId === eventListRequestId) {
+            if (version === eventListVersion && requestId === eventListRequestId) {
                 eventListError.value =
                     err instanceof Error ? err.message : t('errors.loadRecordedEvents');
             }
         } finally {
-            if (version === filtersVersion && requestId === eventListRequestId) {
+            if (version === eventListVersion && requestId === eventListRequestId) {
                 eventListLoading.value = false;
             }
         }
     }
 
-    async function updateFilters(filters: RecordedEventFilters = {}) {
-        const version = ++filtersVersion;
-        currentFilters = copyFilters(filters);
+    function invalidateEventList() {
+        const version = ++eventListVersion;
         eventListRequestId += 1;
         eventListData.clear();
         currentPage.value = 1;
         eventListTotalPages.value = 0;
         eventListTotalCount.value = 0;
+        return version;
+    }
+
+    async function updateFilters(filters: RecordedEventFilters = {}) {
+        const mapVersion = ++filtersVersion;
+        currentFilters = copyFilters(filters);
+        const listVersion = invalidateEventList();
 
         await Promise.all([
-            loadMap(currentFilters, version),
-            loadEventListPage(currentFilters, 1, version),
+            loadMap(currentFilters, mapVersion),
+            loadEventListPage(currentFilters, eventListSort.value, 1, listVersion),
         ]);
     }
 
@@ -120,7 +139,17 @@ export const useDashboardStore = defineStore('dashboard', () => {
             return;
         }
 
-        await loadEventListPage(currentFilters, page, filtersVersion);
+        await loadEventListPage(currentFilters, eventListSort.value, page, eventListVersion);
+    }
+
+    async function setEventListSort(sort: RecordedEventListSort) {
+        if (sort === eventListSort.value) {
+            return;
+        }
+
+        eventListSort.value = sort;
+        const version = invalidateEventList();
+        await loadEventListPage(currentFilters, sort, 1, version);
     }
 
     return {
@@ -133,7 +162,9 @@ export const useDashboardStore = defineStore('dashboard', () => {
         currentPageData,
         eventListTotalPages,
         eventListTotalCount,
+        eventListSort,
         updateFilters,
         setCurrentListPage,
+        setEventListSort,
     };
 });

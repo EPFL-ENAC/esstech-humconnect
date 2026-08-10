@@ -53,6 +53,13 @@ EventContinent = Literal[
 ]
 CountryCode = Annotated[str, StringConstraints(pattern=r"^[A-Z]{2}$")]
 UNKNOWN_COUNTRY_CODE = "UNKNOWN"
+RecordedEventListSort = Literal[
+    "event_date_asc",
+    "event_date_desc",
+    "added_date_asc",
+    "added_date_desc",
+]
+DEFAULT_RECORDED_EVENT_LIST_SORT: RecordedEventListSort = "event_date_desc"
 
 
 EVENT_TAGS: tuple[EventTag, ...] = (

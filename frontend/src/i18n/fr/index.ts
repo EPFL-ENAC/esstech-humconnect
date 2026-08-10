@@ -28,6 +28,15 @@ export default {
         loading: 'Chargement des événements enregistrés...',
         empty: 'Aucun événement enregistré pour le moment.',
         filteredEmpty: 'Aucun événement enregistré ne correspond aux filtres appliqués.',
+        sort: {
+            label: 'Trier les événements',
+            options: {
+                event_date_asc: "Date de l'événement (croissante)",
+                event_date_desc: "Date de l'événement (décroissante)",
+                added_date_asc: "Date d'ajout (croissante)",
+                added_date_desc: "Date d'ajout (décroissante)",
+            },
+        },
         filters: {
             title: 'Filtrer les événements',
             keyword: 'Le mot-clé contient',

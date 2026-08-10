@@ -5,11 +5,13 @@ from fastapi import APIRouter, Depends, Query
 
 from api.auth import require_admin
 from api.models.recorded_event import (
+    DEFAULT_RECORDED_EVENT_LIST_SORT,
     EventTag,
     ListRecordedEventsFilters,
     ListRecordedEventsResponse,
     RecordedEventCountryCount,
     RecordedEventCountsByCountryResponse,
+    RecordedEventListSort,
     RecordedEventResponse,
 )
 from api.models.user_profile import ProfessionCategory
@@ -50,12 +52,14 @@ async def list_recorded_events(
         RecordedEventService,
         Depends(get_recorded_event_service),
     ],
+    sort: Annotated[RecordedEventListSort, Query()] = DEFAULT_RECORDED_EVENT_LIST_SORT,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     user: User = Depends(require_admin()),
 ) -> ListRecordedEventsResponse:
     events, total_count = await service.list_events(
         filters=filters,
+        sort=sort,
         page=page,
         page_size=page_size,
     )
