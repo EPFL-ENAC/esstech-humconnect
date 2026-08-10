@@ -17,6 +17,20 @@ def use_ready_default_tool_set(monkeypatch):
     return tool_set
 
 
+@pytest.fixture
+def use_dummy_tool(monkeypatch):
+    from api.services.chat_room.default_tool_set import DEFAULT_LOCAL_TOOLS
+    from api.services.chat_room.tools import DUMMY_TOOL, ToolSet
+
+    tool_set = ToolSet([*DEFAULT_LOCAL_TOOLS, DUMMY_TOOL])
+    monkeypatch.setattr(
+        humconnect_assistant_module,
+        "HUMCONNECT_TOOL_SET",
+        tool_set,
+    )
+    return tool_set
+
+
 def test_humconnect_assistants_share_default_tool_set(use_ready_default_tool_set):
     first = HumConnectAssistant()
     second = HumConnectAssistant()
@@ -193,7 +207,6 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
     ]
     assert fake_client.responses.create_kwargs["stream"] is True
     assert [tool["name"] for tool in fake_client.responses.create_kwargs["tools"]] == [
-        "dummy_tool",
         "ask_meditron",
         "ask_legitron",
         "record_event",
@@ -202,9 +215,8 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
         "get_humanitarian_context",
         "search_who_publications",
         "get_who_publication_content",
-        "create_analysis",
-        "save_why_question",
-        "save_why_answer",
+        "start_5_whys_analysis",
+        "save_why_step",
         "get_analysis",
         "set_root_cause",
         "list_analyses",
@@ -316,7 +328,10 @@ def test_tool_call_input_item_preserves_function_call_optional_fields():
     }
 
 
-def test_humconnect_chat_assistant_executes_dummy_tool_calls(monkeypatch):
+def test_humconnect_chat_assistant_executes_dummy_tool_calls(
+    monkeypatch,
+    use_dummy_tool,
+):
     fake_client = install_fake_openai_client(
         monkeypatch,
         [
@@ -553,7 +568,10 @@ def test_humconnect_chat_assistant_executes_record_event_tool_calls(monkeypatch)
     }
 
 
-def test_humconnect_chat_assistant_reports_invalid_tool_arguments(monkeypatch):
+def test_humconnect_chat_assistant_reports_invalid_tool_arguments(
+    monkeypatch,
+    use_dummy_tool,
+):
     fake_client = install_fake_openai_client(
         monkeypatch,
         [
@@ -607,7 +625,10 @@ def test_humconnect_chat_assistant_reports_invalid_tool_arguments(monkeypatch):
     assert "dummy_tool requires a non-empty string message" in output
 
 
-def test_humconnect_chat_assistant_reports_malformed_tool_arguments(monkeypatch):
+def test_humconnect_chat_assistant_reports_malformed_tool_arguments(
+    monkeypatch,
+    use_dummy_tool,
+):
     fake_client = install_fake_openai_client(
         monkeypatch,
         [

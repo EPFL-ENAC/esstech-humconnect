@@ -15,12 +15,11 @@ from api.services import root_cause_analysis as rca_service_module
 from api.services.chat_room.tools import root_cause_analysis as rca_tool_module
 from api.services.chat_room.tools.base import ToolExecutionContext
 from api.services.chat_room.tools.root_cause_analysis import (
-    CREATE_ANALYSIS_TOOL,
     GET_ANALYSIS_TOOL,
     LIST_ANALYSES_TOOL,
-    SAVE_WHY_ANSWER_TOOL,
-    ASK_WHY_QUESTION_TOOL,
+    SAVE_WHY_STEP_TOOL,
     SET_ROOT_CAUSE_TOOL,
+    START_5_WHYS_ANALYSIS_TOOL,
     InvalidAnalysisOrderError,
     RootCauseAnalysisService,
     compute_analysis_state,
@@ -168,6 +167,17 @@ def _create(service) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
     )
 
 
+def _save_why_step(service, analysis_id, *, question, answer):
+    return _run(
+        service.save_why_step(
+            analysis_id=analysis_id,
+            chat_id=RCA_CHAT_ID,
+            question=question,
+            answer=answer,
+        )
+    )
+
+
 def _run(coro):
     return asyncio.run(coro)
 
@@ -188,30 +198,17 @@ def _step(step_type, level=None, position=0):
     )
 
 
-def test_state_right_after_problem_statement_expects_first_question():
+def test_state_right_after_problem_statement_expects_first_why_step():
     steps = [_step("problem_statement", position=1)]
     state = compute_analysis_state(steps, status="in_progress")
     assert state.current_level == 0
-    assert state.next_expected == "question"
-    assert state.can_ask_next_why is True
+    assert state.next_expected == "why_step"
+    assert state.can_save_why_step is True
     assert state.can_set_root_cause is False
     assert state.is_completed is False
 
 
-def test_state_with_pending_question_expects_answer():
-    steps = [
-        _step("problem_statement", position=1),
-        _step("question", level=1, position=2),
-    ]
-    state = compute_analysis_state(steps, status="in_progress")
-    assert state.current_level == 1
-    assert state.has_pending_question is True
-    assert state.next_expected == "answer"
-    assert state.can_ask_next_why is False
-    assert state.can_set_root_cause is False
-
-
-def test_state_after_completed_pair_allows_question_or_root_cause():
+def test_state_after_completed_pair_allows_why_step_or_root_cause():
     steps = [
         _step("problem_statement", position=1),
         _step("question", level=1, position=2),
@@ -219,8 +216,8 @@ def test_state_after_completed_pair_allows_question_or_root_cause():
     ]
     state = compute_analysis_state(steps, status="in_progress")
     assert state.current_level == 1
-    assert state.next_expected == "question_or_root_cause"
-    assert state.can_ask_next_why is True
+    assert state.next_expected == "why_step_or_root_cause"
+    assert state.can_save_why_step is True
     assert state.can_set_root_cause is True
 
 
@@ -239,7 +236,7 @@ def test_state_at_max_levels_requires_root_cause():
     state = compute_analysis_state(steps, status="in_progress")
     assert state.current_level == MAX_WHYS
     assert state.next_expected == "root_cause"
-    assert state.can_ask_next_why is False
+    assert state.can_save_why_step is False
     assert state.can_set_root_cause is True
 
 
@@ -253,7 +250,7 @@ def test_state_completed_blocks_all_writes():
     state = compute_analysis_state(steps, status="completed")
     assert state.is_completed is True
     assert state.next_expected == "none"
-    assert state.can_ask_next_why is False
+    assert state.can_save_why_step is False
     assert state.can_set_root_cause is False
 
 
@@ -286,64 +283,47 @@ def test_create_analysis_persists_analysis_and_problem_statement_step():
     assert steps == [problem_step]
 
 
-def test_ask_why_question_assigns_next_level_and_position():
+def test_save_why_step_persists_question_and_answer_at_same_level():
     FakeRcaAsyncSession.reset()
     service = _service()
     analysis, _ = _create(service)
 
-    analysis, steps = _run(
-        service.ask_why_question(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="Why latency?"
-        )
+    analysis, steps = _save_why_step(
+        service,
+        analysis.analysis_id,
+        question="Why latency?",
+        answer="DB pool exhausted",
     )
 
-    question_step = steps[-1]
-    assert question_step.step_type == "question"
-    assert question_step.level == 1
-    assert question_step.position == 2
-    assert question_step.content == "Why latency?"
+    assert steps[-2].step_type == "question"
+    assert steps[-2].level == 1
+    assert steps[-2].position == 2
+    assert steps[-2].content == "Why latency?"
+
+    assert steps[-1].step_type == "answer"
+    assert steps[-1].level == 1
+    assert steps[-1].position == 3
+    assert steps[-1].content == "DB pool exhausted"
+
     assert analysis.updated_at == datetime(2026, 7, 21, 12, 0, tzinfo=UTC)
-
-
-def test_save_why_answer_matches_pending_question_level():
-    FakeRcaAsyncSession.reset()
-    service = _service()
-    analysis, _ = _create(service)
-    _run(
-        service.ask_why_question(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="Why latency?"
-        )
-    )
-
-    analysis, steps = _run(
-        service.save_why_answer(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, answer="DB pool exhausted"
-        )
-    )
-
-    answer_step = steps[-1]
-    assert answer_step.step_type == "answer"
-    assert answer_step.level == 1
-    assert answer_step.position == 3
-    assert answer_step.content == "DB pool exhausted"
 
 
 @pytest.mark.parametrize(
     ("method", "kwargs", "label"),
     [
         (
-            "save_why_answer",
-            {"answer": "premature"},
-            "answer before any question",
+            "save_why_step",
+            {"question": "premature", "answer": "premature"},
+            "why step before problem statement is allowed",
         ),
         (
             "set_root_cause",
             {"root_cause": "premature"},
-            "root cause before any question",
+            "root cause before any why step",
         ),
     ],
 )
-def test_service_rejects_out_of_order_writes_before_first_question(
+def test_service_rejects_out_of_order_writes_before_first_why_step(
     method, kwargs, label
 ):
     FakeRcaAsyncSession.reset()
@@ -351,27 +331,19 @@ def test_service_rejects_out_of_order_writes_before_first_question(
     analysis, _ = _create(service)
 
     call = getattr(service, method)
-    with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
+    if method == "save_why_step":
+        # saving a why step is valid right after creation, so this branch
+        # exercises the successful first-step path instead of an error.
         _run(call(analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, **kwargs))
+        steps = _run(
+            service.get_analysis(analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID)
+        )[1]
+        assert steps[-2].step_type == "question"
+        assert steps[-1].step_type == "answer"
+    else:
+        with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
+            _run(call(analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, **kwargs))
     assert label
-
-
-def test_service_rejects_consecutive_question_while_answer_pending():
-    FakeRcaAsyncSession.reset()
-    service = _service()
-    analysis, _ = _create(service)
-    _run(
-        service.ask_why_question(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q1"
-        )
-    )
-
-    with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
-        _run(
-            service.ask_why_question(
-                analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q1b"
-            )
-        )
 
 
 def test_service_enforces_max_five_levels():
@@ -380,27 +352,26 @@ def test_service_enforces_max_five_levels():
     analysis, _ = _create(service)
 
     for i in range(1, MAX_WHYS + 1):
-        _run(
-            service.ask_why_question(
-                analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question=f"q{i}"
-            )
-        )
-        _run(
-            service.save_why_answer(
-                analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, answer=f"a{i}"
-            )
+        _save_why_step(
+            service,
+            analysis.analysis_id,
+            question=f"q{i}",
+            answer=f"a{i}",
         )
 
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
-        _run(
-            service.ask_why_question(
-                analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q6"
-            )
+        _save_why_step(
+            service,
+            analysis.analysis_id,
+            question="q6",
+            answer="a6",
         )
 
     analysis, steps = _run(
         service.set_root_cause(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, root_cause="fix timeout"
+            analysis_id=analysis.analysis_id,
+            chat_id=RCA_CHAT_ID,
+            root_cause="fix timeout",
         )
     )
     assert analysis.status == "completed"
@@ -413,32 +384,28 @@ def test_service_rejects_writes_after_completion():
     FakeRcaAsyncSession.reset()
     service = _service()
     analysis, _ = _create(service)
-    _run(
-        service.ask_why_question(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q1"
-        )
-    )
-    _run(
-        service.save_why_answer(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, answer="a1"
-        )
-    )
+    _save_why_step(service, analysis.analysis_id, question="q1", answer="a1")
     _run(
         service.set_root_cause(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, root_cause="done"
+            analysis_id=analysis.analysis_id,
+            chat_id=RCA_CHAT_ID,
+            root_cause="done",
         )
     )
 
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
-        _run(
-            service.ask_why_question(
-                analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="late"
-            )
+        _save_why_step(
+            service,
+            analysis.analysis_id,
+            question="late",
+            answer="late",
         )
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
         _run(
             service.set_root_cause(
-                analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, root_cause="again"
+                analysis_id=analysis.analysis_id,
+                chat_id=RCA_CHAT_ID,
+                root_cause="again",
             )
         )
 
@@ -447,20 +414,13 @@ def test_service_allows_early_root_cause_after_one_pair():
     FakeRcaAsyncSession.reset()
     service = _service()
     analysis, _ = _create(service)
-    _run(
-        service.ask_why_question(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q1"
-        )
-    )
-    _run(
-        service.save_why_answer(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, answer="a1"
-        )
-    )
+    _save_why_step(service, analysis.analysis_id, question="q1", answer="a1")
 
     analysis, steps = _run(
         service.set_root_cause(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, root_cause="quick fix"
+            analysis_id=analysis.analysis_id,
+            chat_id=RCA_CHAT_ID,
+            root_cause="quick fix",
         )
     )
     assert analysis.status == "completed"
@@ -471,31 +431,19 @@ def test_service_get_analysis_returns_steps_ordered_by_position():
     FakeRcaAsyncSession.reset()
     service = _service()
     analysis, _ = _create(service)
-    _run(
-        service.ask_why_question(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q1"
-        )
-    )
-    _run(
-        service.save_why_answer(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, answer="a1"
-        )
-    )
-    _run(
-        service.ask_why_question(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q2"
-        )
-    )
+    _save_why_step(service, analysis.analysis_id, question="q1", answer="a1")
+    _save_why_step(service, analysis.analysis_id, question="q2", answer="a2")
 
     analysis, steps = _run(
         service.get_analysis(analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID)
     )
-    assert [s.position for s in steps] == [1, 2, 3, 4]
+    assert [s.position for s in steps] == [1, 2, 3, 4, 5]
     assert [s.step_type for s in steps] == [
         "problem_statement",
         "question",
         "answer",
         "question",
+        "answer",
     ]
 
 
@@ -514,8 +462,11 @@ def test_service_rejects_access_from_other_chat_and_unknown_id():
     # writes are also rejected for a different chat
     with pytest.raises(ValueError, match="Analysis not found"):
         _run(
-            service.ask_why_question(
-                analysis_id=analysis.analysis_id, chat_id=other_chat, question="q"
+            service.save_why_step(
+                analysis_id=analysis.analysis_id,
+                chat_id=other_chat,
+                question="q",
+                answer="a",
             )
         )
 
@@ -574,11 +525,7 @@ def test_service_steps_query_scopes_by_analysis_id():
     FakeRcaAsyncSession.reset()
     service = _service()
     analysis, _ = _create(service)
-    _run(
-        service.ask_why_question(
-            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q1"
-        )
-    )
+    _save_why_step(service, analysis.analysis_id, question="q1", answer="a1")
 
     _run(service.get_analysis(analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID))
     query_text = str(FakeRcaAsyncSession.last_query)
@@ -595,20 +542,20 @@ def _tool_json(coro):
     return json.loads(asyncio.run(coro))
 
 
-def test_create_analysis_tool_returns_snapshot_expecting_first_question(monkeypatch):
+def test_create_analysis_tool_returns_snapshot_expecting_first_why_step(monkeypatch):
     FakeRcaAsyncSession.reset()
     configure_rca_service(monkeypatch)
 
     output = _tool_json(
-        CREATE_ANALYSIS_TOOL.execute(
+        START_5_WHYS_ANALYSIS_TOOL.execute(
             {"problem_statement": "API latency spiked 3x"}, rca_tool_context()
         )
     )
     analysis = output["analysis"]
     assert analysis["status"] == "in_progress"
     assert analysis["current_level"] == 0
-    assert analysis["next_expected"] == "question"
-    assert analysis["can_ask_next_why"] is True
+    assert analysis["next_expected"] == "why_step"
+    assert analysis["can_save_why_step"] is True
     assert analysis["can_set_root_cause"] is False
     assert analysis["questions_and_answers"] == []
     assert analysis["root_cause"] is None
@@ -621,31 +568,25 @@ def test_tools_drive_full_five_whys_flow(monkeypatch):
     configure_rca_service(monkeypatch)
 
     created = _tool_json(
-        CREATE_ANALYSIS_TOOL.execute({"problem_statement": "p"}, rca_tool_context())
+        START_5_WHYS_ANALYSIS_TOOL.execute(
+            {"problem_statement": "p"}, rca_tool_context()
+        )
     )
     analysis_id = created["analysis"]["analysis_id"]
 
-    def ask(args):
-        return _tool_json(ASK_WHY_QUESTION_TOOL.execute(args, rca_tool_context()))
-
-    def answer(args):
-        return _tool_json(SAVE_WHY_ANSWER_TOOL.execute(args, rca_tool_context()))
+    def save_step(args):
+        return _tool_json(SAVE_WHY_STEP_TOOL.execute(args, rca_tool_context()))
 
     for i in range(1, MAX_WHYS + 1):
-        q = ask({"analysis_id": analysis_id, "question": f"q{i}"})
-        assert q["analysis"]["current_level"] == i
-        assert q["analysis"]["next_expected"] == "answer"
-        assert q["analysis"]["questions_and_answers"][-1] == {
-            "level": i,
-            "question": f"q{i}",
-            "answer": None,
-        }
-
-        a = answer({"analysis_id": analysis_id, "answer": f"a{i}"})
-        assert a["analysis"]["current_level"] == i
-        expected_next = "root_cause" if i == MAX_WHYS else "question_or_root_cause"
-        assert a["analysis"]["next_expected"] == expected_next
-        assert a["analysis"]["questions_and_answers"][-1] == {
+        step = save_step(
+            {"analysis_id": analysis_id, "question": f"q{i}", "answer": f"a{i}"}
+        )
+        assert step["analysis"]["current_level"] == i
+        expected_next = (
+            "root_cause" if i == MAX_WHYS else "why_step_or_root_cause"
+        )
+        assert step["analysis"]["next_expected"] == expected_next
+        assert step["analysis"]["questions_and_answers"][-1] == {
             "level": i,
             "question": f"q{i}",
             "answer": f"a{i}",
@@ -663,32 +604,41 @@ def test_tools_drive_full_five_whys_flow(monkeypatch):
     assert len(analysis["questions_and_answers"]) == MAX_WHYS
 
 
-def test_save_why_answer_tool_rejects_when_no_pending_question(monkeypatch):
+def test_save_why_step_tool_rejects_missing_or_empty_fields(monkeypatch):
     FakeRcaAsyncSession.reset()
     configure_rca_service(monkeypatch)
     created = _tool_json(
-        CREATE_ANALYSIS_TOOL.execute({"problem_statement": "p"}, rca_tool_context())
+        START_5_WHYS_ANALYSIS_TOOL.execute(
+            {"problem_statement": "p"}, rca_tool_context()
+        )
     )
     analysis_id = created["analysis"]["analysis_id"]
 
-    with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
-        _run(
-            SAVE_WHY_ANSWER_TOOL.execute(
-                {"analysis_id": analysis_id, "answer": "premature"},
-                rca_tool_context(),
+    for arguments in [
+        {"analysis_id": analysis_id, "question": "q1"},
+        {"analysis_id": analysis_id, "answer": "a1"},
+        {"analysis_id": analysis_id, "question": "  ", "answer": "a1"},
+        {"analysis_id": analysis_id, "question": "q1", "answer": "  "},
+        {"analysis_id": analysis_id, "question": "q1", "answer": "a1", "extra": "x"},
+    ]:
+        with pytest.raises(ValueError, match="invalid input data"):
+            _run(
+                SAVE_WHY_STEP_TOOL.execute(arguments, rca_tool_context())
             )
-        )
 
 
 def test_get_analysis_tool_reflects_current_state(monkeypatch):
     FakeRcaAsyncSession.reset()
     configure_rca_service(monkeypatch)
     analysis_id = _tool_json(
-        CREATE_ANALYSIS_TOOL.execute({"problem_statement": "p"}, rca_tool_context())
+        START_5_WHYS_ANALYSIS_TOOL.execute(
+            {"problem_statement": "p"}, rca_tool_context()
+        )
     )["analysis"]["analysis_id"]
     _run(
-        ASK_WHY_QUESTION_TOOL.execute(
-            {"analysis_id": analysis_id, "question": "q1"}, rca_tool_context()
+        SAVE_WHY_STEP_TOOL.execute(
+            {"analysis_id": analysis_id, "question": "q1", "answer": "a1"},
+            rca_tool_context(),
         )
     )
 
@@ -697,9 +647,9 @@ def test_get_analysis_tool_reflects_current_state(monkeypatch):
     )
     analysis = output["analysis"]
     assert analysis["current_level"] == 1
-    assert analysis["next_expected"] == "answer"
+    assert analysis["next_expected"] == "why_step_or_root_cause"
     assert analysis["questions_and_answers"] == [
-        {"level": 1, "question": "q1", "answer": None}
+        {"level": 1, "question": "q1", "answer": "a1"}
     ]
 
 
@@ -707,7 +657,9 @@ def test_get_analysis_tool_only_returns_analyses_for_current_chat(monkeypatch):
     FakeRcaAsyncSession.reset()
     configure_rca_service(monkeypatch)
     analysis_id = _tool_json(
-        CREATE_ANALYSIS_TOOL.execute({"problem_statement": "p"}, rca_tool_context())
+        START_5_WHYS_ANALYSIS_TOOL.execute(
+            {"problem_statement": "p"}, rca_tool_context()
+        )
     )["analysis"]["analysis_id"]
 
     # fetching from a different chat must not expose the analysis
@@ -724,8 +676,9 @@ def test_get_analysis_tool_only_returns_analyses_for_current_chat(monkeypatch):
     # writes from a different chat are rejected too
     with pytest.raises(ValueError, match="Analysis not found"):
         _run(
-            ASK_WHY_QUESTION_TOOL.execute(
-                {"analysis_id": analysis_id, "question": "q1"}, other_chat_ctx
+            SAVE_WHY_STEP_TOOL.execute(
+                {"analysis_id": analysis_id, "question": "q1", "answer": "a1"},
+                other_chat_ctx,
             )
         )
 
@@ -734,10 +687,12 @@ def test_list_analyses_tool_returns_summaries(monkeypatch):
     FakeRcaAsyncSession.reset()
     configure_rca_service(monkeypatch)
     first = _tool_json(
-        CREATE_ANALYSIS_TOOL.execute({"problem_statement": "first"}, rca_tool_context())
+        START_5_WHYS_ANALYSIS_TOOL.execute(
+            {"problem_statement": "first"}, rca_tool_context()
+        )
     )["analysis"]["analysis_id"]
     second = _tool_json(
-        CREATE_ANALYSIS_TOOL.execute(
+        START_5_WHYS_ANALYSIS_TOOL.execute(
             {"problem_statement": "second"}, rca_tool_context()
         )
     )["analysis"]["analysis_id"]
@@ -773,7 +728,9 @@ def test_tools_reject_unknown_analysis_id(monkeypatch):
     FakeRcaAsyncSession.reset()
     configure_rca_service(monkeypatch)
     _tool_json(
-        CREATE_ANALYSIS_TOOL.execute({"problem_statement": "p"}, rca_tool_context())
+        START_5_WHYS_ANALYSIS_TOOL.execute(
+            {"problem_statement": "p"}, rca_tool_context()
+        )
     )
     with pytest.raises(ValueError, match="Analysis not found"):
         _run(
@@ -791,7 +748,7 @@ def test_tools_reject_unknown_analysis_id(monkeypatch):
 )
 def test_create_analysis_tool_rejects_invalid_input(arguments):
     with pytest.raises(ValueError, match="invalid input data"):
-        _run(CREATE_ANALYSIS_TOOL.execute(arguments, rca_tool_context()))
+        _run(START_5_WHYS_ANALYSIS_TOOL.execute(arguments, rca_tool_context()))
 
 
 def test_tool_definitions_are_unique_and_named():
@@ -802,9 +759,8 @@ def test_tool_definitions_are_unique_and_named():
     names = [tool.name for tool in ROOT_CAUSE_ANALYSIS_TOOLS]
     assert len(names) == len(set(names))
     assert set(names) == {
-        "create_analysis",
-        "ask_why_question",
-        "save_why_answer",
+        "start_5_whys_analysis",
+        "save_why_step",
         "get_analysis",
         "set_root_cause",
         "list_analyses",
@@ -819,9 +775,8 @@ def test_rca_tools_are_registered_in_default_tool_set():
 
     names = {tool.name for tool in DEFAULT_LOCAL_TOOLS}
     assert {
-        "create_analysis",
-        "ask_why_question",
-        "save_why_answer",
+        "start_5_whys_analysis",
+        "save_why_step",
         "get_analysis",
         "set_root_cause",
         "list_analyses",

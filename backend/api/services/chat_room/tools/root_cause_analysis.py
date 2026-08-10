@@ -1,18 +1,18 @@
 """5 Whys root cause analysis tools.
 
 Provides an LLM agent with tools to run a structured 5 Whys root cause
-analysis (RCA): record a problem statement, then alternate between saving
-"why" questions and their answers, and finally record the root cause.
+analysis (RCA): record a problem statement, save complete why question/answer
+pairs, and finally record the root cause.
 
-The level of each question/answer is never passed as input. It is derived
-from the analysis state, and the tools enforce the required sequence:
+The level of each why step is never passed as input. It is derived from the
+analysis state, and the tools enforce the required sequence:
 
-    create(problem) -> Q1 -> A1 -> Q2 -> A2 -> ... -> Q5 -> A5 -> root_cause
-                                                      ^
-                              (root cause allowed after any completed A_n, n>=1)
+    create(problem) -> (Q1, A1) -> (Q2, A2) -> ... -> (Q5, A5) -> root_cause
+                              ^
+              (root cause allowed after any completed question/answer pair)
 
 Out-of-order calls are rejected with a descriptive error so the agent can
-self-correct. At most MAX_WHYS question/answer levels are allowed.
+self-correct. At most MAX_WHYS why levels are allowed.
 
 Each analysis owns an ordered list of analysis steps (problem statement,
 questions, answers, root cause); see `api.models.root_cause_analysis`.
@@ -65,16 +65,16 @@ class RootCauseAnalysisSnapshot(RootCauseAnalysisBaseModel):
         le=MAX_WHYS,
         description=(
             "Level of the most recent question/answer pair, or 0 if no "
-            "question has been asked yet."
+            "why step has been saved yet."
         ),
     )
     next_expected: NextExpected = Field(
         description=(
-            "The single valid next action: question, answer, "
-            "question_or_root_cause, root_cause, or none."
+            "The single valid next action: why_step, why_step_or_root_cause, "
+            "root_cause, or none."
         ),
     )
-    can_ask_next_why: bool
+    can_save_why_step: bool
     can_set_root_cause: bool
     questions_and_answers: list[WhyQuestionAnswer] = []
     root_cause: str | None = None
@@ -129,7 +129,7 @@ def build_snapshot(
         status=analysis.status,
         current_level=state.current_level,
         next_expected=state.next_expected,
-        can_ask_next_why=state.can_ask_next_why,
+        can_save_why_step=state.can_save_why_step,
         can_set_root_cause=state.can_set_root_cause,
         questions_and_answers=questions_and_answers,
         root_cause=root_cause_step.content if root_cause_step else None,
@@ -147,26 +147,17 @@ class CreateAnalysisInput(RootCauseAnalysisBaseModel):
     )
 
 
-class AskWhyQuestionInput(RootCauseAnalysisBaseModel):
+class SaveWhyStepInput(RootCauseAnalysisBaseModel):
     analysis_id: NonEmptyString = Field(
         description="Short mnemonic identifier of the analysis session (e.g. 'rca-1'). Unique within the current chat."
     )
     question: NonEmptyString = Field(
-        description=(
-            "The 'why' question for the next level. It must ask a SINGLE clarifying question "
-            "to understand why the previous answer occurred, or why the problem "
-            "statement occurred (for level 1). It must not ask multiple questions in one call: each question must be asked in a separate call. It must not be the same as the problem statement or any previous question."
-        )
-    )
-
-
-class SaveWhyAnswerInput(RootCauseAnalysisBaseModel):
-    analysis_id: NonEmptyString = Field(
-        description="Short mnemonic identifier of the analysis session (e.g. 'rca-1'). Unique within the current chat."
+        description=("The 'why' question for current level.")
     )
     answer: NonEmptyString = Field(
         description=(
-            "The cause identified at the current level, stated by the user or another tool call."
+            "The cause identified at the current level, stated by the user or another tool call. "
+            "Provide the answer that corresponds to the question in the same call."
         )
     )
 
@@ -211,37 +202,23 @@ async def _create_analysis(
     )
     snapshot = build_snapshot(analysis, steps)
     return snapshot.to_tool_response(
-        f"Created analysis {snapshot.analysis_id}; ask the first 'why' (level 1)."
+        f"Created analysis {snapshot.analysis_id}; save the first why step (level 1)."
     )
 
 
-async def _ask_why_question(
-    tool_input: AskWhyQuestionInput,
+async def _save_why_step(
+    tool_input: SaveWhyStepInput,
     tool_context: ToolExecutionContext,
 ) -> str:
-    analysis, steps = await RootCauseAnalysisService().ask_why_question(
+    analysis, steps = await RootCauseAnalysisService().save_why_step(
         analysis_id=tool_input.analysis_id,
         chat_id=tool_context.chat_id,
         question=tool_input.question,
-    )
-    snapshot = build_snapshot(analysis, steps)
-    return snapshot.to_tool_response(
-        f"Saved why question for level {snapshot.current_level}."
-    )
-
-
-async def _save_why_answer(
-    tool_input: SaveWhyAnswerInput,
-    tool_context: ToolExecutionContext,
-) -> str:
-    analysis, steps = await RootCauseAnalysisService().save_why_answer(
-        analysis_id=tool_input.analysis_id,
-        chat_id=tool_context.chat_id,
         answer=tool_input.answer,
     )
     snapshot = build_snapshot(analysis, steps)
     return snapshot.to_tool_response(
-        f"Saved why answer for level {snapshot.current_level}."
+        f"Saved why step for level {snapshot.current_level}."
     )
 
 
@@ -299,28 +276,27 @@ async def _list_analyses(
     )
 
 
-CREATE_ANALYSIS_TOOL_DESCRIPTION = (
+START_5_WHYS_ANALYSIS_TOOL_DESCRIPTION = (
     "Use this tool to start a 5 Whys root cause analysis by recording the problem statement. "
     "Returns a short mnemonic analysis_id (e.g. 'rca-1') that is unique within the current chat. "
     "Keep this analysis_id internal and don't disclose it to the user. "
-    "Ask a root-cause clarifying question to the user using the ask_why_question tool."
-    "After receiving the answer, save it with the save_why_answer tool. "
-    "Loop between ask_why_question and save_why_answer until the root cause is clear, "
+    "For each level, Formulate a SINGLE clarifying question to understand why the problem statement "
+    "occurred (for level 1), or why the previous answer occurred, and either ask this question "
+    "to the user, or use a tool call to get an answer. The question can be open-ended or multiple-choice, "
+    "but it must be a SINGLE question. "
+    "It must not be the same as the problem statement or any previous question. "
+    "Save both the clarifying 'why' question and its answer together using the "
+    "save_why_step tool. Loop with save_why_step until the root cause is clear, "
     "and finish by calling the set_root_cause tool (allowed before reaching 5 levels). "
     "Use get_analysis to check the current state of an analysis. "
-    "Don't call create_analysis again if the analysis is already in progress. "
+    "Don't call start_5_whys_analysis again if the analysis is already in progress. "
 )
 
-ASK_WHY_QUESTION_TOOL_DESCRIPTION = (
-    "Ask a 'why' question to the user. "
-    "Ask why the previous answer or the problem statement occurred, with a SINGLE question. "
-    "Multiple questions should be asked in separate calls, after saving the answer to the previous question. "
-    "The question can be asked to the user or to another tool. "
-)
-
-SAVE_WHY_ANSWER_TOOL_DESCRIPTION = (
-    "Save the answer to the current 'why' question. "
-    "An answer can come from the user or from another tool call. "
+SAVE_WHY_STEP_TOOL_DESCRIPTION = (
+    "Save one complete 'why' level by recording both the question and its answer. "
+    "Each why level must be saved in a separate call. "
+    "The question must come from you. The answer can come from the user or from another tool call. "
+    "No need to disclose to the user that you are saving the why step. "
 )
 
 GET_ANALYSIS_TOOL_DESCRIPTION = (
@@ -339,31 +315,22 @@ LIST_ANALYSES_TOOL_DESCRIPTION = (
 )
 
 
-CREATE_ANALYSIS_TOOL = HumConnectTool.from_async_with_context_handler(
-    name="create_analysis",
-    label="Create root cause analysis",
+START_5_WHYS_ANALYSIS_TOOL = HumConnectTool.from_async_with_context_handler(
+    name="start_5_whys_analysis",
+    label="Start 5 Whys analysis",
     input_model=CreateAnalysisInput,
-    description=CREATE_ANALYSIS_TOOL_DESCRIPTION,
-    invalid_input_message="create_analysis received invalid input data",
+    description=START_5_WHYS_ANALYSIS_TOOL_DESCRIPTION,
+    invalid_input_message="start_5_whys_analysis received invalid input data",
     handler=_create_analysis,
 )
 
-ASK_WHY_QUESTION_TOOL = HumConnectTool.from_async_with_context_handler(
-    name="ask_why_question",
-    label="Save why question",
-    input_model=AskWhyQuestionInput,
-    description=ASK_WHY_QUESTION_TOOL_DESCRIPTION,
-    invalid_input_message="ask_why_question received invalid input data",
-    handler=_ask_why_question,
-)
-
-SAVE_WHY_ANSWER_TOOL = HumConnectTool.from_async_with_context_handler(
-    name="save_why_answer",
-    label="Save why answer",
-    input_model=SaveWhyAnswerInput,
-    description=SAVE_WHY_ANSWER_TOOL_DESCRIPTION,
-    invalid_input_message="save_why_answer received invalid input data",
-    handler=_save_why_answer,
+SAVE_WHY_STEP_TOOL = HumConnectTool.from_async_with_context_handler(
+    name="save_why_step",
+    label="Save why step",
+    input_model=SaveWhyStepInput,
+    description=SAVE_WHY_STEP_TOOL_DESCRIPTION,
+    invalid_input_message="save_why_step received invalid input data",
+    handler=_save_why_step,
 )
 
 GET_ANALYSIS_TOOL = HumConnectTool.from_async_with_context_handler(
@@ -394,21 +361,19 @@ LIST_ANALYSES_TOOL = HumConnectTool.from_async_with_context_handler(
 )
 
 ROOT_CAUSE_ANALYSIS_TOOLS: tuple[HumConnectTool, ...] = (
-    CREATE_ANALYSIS_TOOL,
-    ASK_WHY_QUESTION_TOOL,
-    SAVE_WHY_ANSWER_TOOL,
+    START_5_WHYS_ANALYSIS_TOOL,
+    SAVE_WHY_STEP_TOOL,
     GET_ANALYSIS_TOOL,
     SET_ROOT_CAUSE_TOOL,
     LIST_ANALYSES_TOOL,
 )
 
 __all__ = [
-    "InvalidAnalysisOrderError",
-    "CREATE_ANALYSIS_TOOL",
-    "ASK_WHY_QUESTION_TOOL",
-    "SAVE_WHY_ANSWER_TOOL",
     "GET_ANALYSIS_TOOL",
-    "SET_ROOT_CAUSE_TOOL",
     "LIST_ANALYSES_TOOL",
     "ROOT_CAUSE_ANALYSIS_TOOLS",
+    "SAVE_WHY_STEP_TOOL",
+    "SET_ROOT_CAUSE_TOOL",
+    "START_5_WHYS_ANALYSIS_TOOL",
+    "InvalidAnalysisOrderError",
 ]

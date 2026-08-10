@@ -36,7 +36,8 @@ ModelInputMessage = EasyInputMessageParam
 MAX_TOOL_CALL_ROUNDS = 5
 BASE_INSTRUCTIONS = (
     "When the user states a problem, run a 5 Whys root cause analysis by calling "
-    "the create_analysis tool. "
+    "the start_5_whys_analysis tool. Save each why level by calling save_why_step "
+    "with both the question and its answer. "
     "Don't hesitate to record events when they could be useful for later queries. "
     "Events are used in a global context to help with emergencies, health hazard, etc. "
     "In the case that you don't have all the information needed to create an event, "

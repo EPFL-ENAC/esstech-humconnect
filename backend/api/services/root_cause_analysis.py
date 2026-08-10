@@ -18,9 +18,8 @@ from api.models.root_cause_analysis import (
 from api.utils.datetime_utils import utc_now
 
 NextExpected = Literal[
-    "question",
-    "answer",
-    "question_or_root_cause",
+    "why_step",
+    "why_step_or_root_cause",
     "root_cause",
     "none",
 ]
@@ -31,9 +30,8 @@ class AnalysisState:
     """Derived, read-only view of where an analysis is in the 5 Whys sequence."""
 
     current_level: int
-    has_pending_question: bool
     next_expected: NextExpected
-    can_ask_next_why: bool
+    can_save_why_step: bool
     can_set_root_cause: bool
     is_completed: bool
 
@@ -51,8 +49,10 @@ def compute_analysis_state(
 
     The required sequence is:
 
-        problem_statement -> Q1 -> A1 -> ... -> Q5 -> A5 -> root_cause
+        problem_statement -> (Q1, A1) -> ... -> (Q5, A5) -> root_cause
 
+    Each ``save_why_step`` call persists both the question and its answer at
+    the same level, so there is no persistent "pending question" state.
     A root cause may be recorded after any completed question/answer pair.
     """
     question_steps = [s for s in steps if s.step_type == "question"]
@@ -60,33 +60,28 @@ def compute_analysis_state(
     has_root_cause = any(s.step_type == "root_cause" for s in steps)
     is_completed = status == "completed" or has_root_cause
 
-    current_level = (question_steps[-1].level or 0) if question_steps else 0
     answered_levels = {a.level for a in answer_steps if a.level is not None}
-    has_pending_question = bool(question_steps) and (
-        question_steps[-1].level not in answered_levels
-    )
+    complete_pairs = [
+        q for q in question_steps if q.level is not None and q.level in answered_levels
+    ]
+    current_level = (complete_pairs[-1].level or 0) if complete_pairs else 0
 
     if is_completed:
         next_expected: NextExpected = "none"
-    elif not question_steps:
-        next_expected = "question"
-    elif has_pending_question:
-        next_expected = "answer"
+    elif current_level == 0:
+        next_expected = "why_step"
     elif current_level >= MAX_WHYS:
         next_expected = "root_cause"
     else:
-        next_expected = "question_or_root_cause"
+        next_expected = "why_step_or_root_cause"
 
-    can_ask_next_why = next_expected in ("question", "question_or_root_cause")
-    can_set_root_cause = (
-        not is_completed and bool(question_steps) and not has_pending_question
-    )
+    can_save_why_step = next_expected in ("why_step", "why_step_or_root_cause")
+    can_set_root_cause = not is_completed and current_level > 0
 
     return AnalysisState(
         current_level=current_level,
-        has_pending_question=has_pending_question,
         next_expected=next_expected,
-        can_ask_next_why=can_ask_next_why,
+        can_save_why_step=can_save_why_step,
         can_set_root_cause=can_set_root_cause,
         is_completed=is_completed,
     )
@@ -100,7 +95,7 @@ def _order_error(
         f"invalid_order: {reason} "
         f"(current_level={state.current_level}, "
         f"next_expected={state.next_expected}, "
-        f"can_ask_next_why={state.can_ask_next_why}, "
+        f"can_save_why_step={state.can_save_why_step}, "
         f"can_set_root_cause={state.can_set_root_cause})"
     )
     return InvalidAnalysisOrderError(message)
@@ -155,25 +150,27 @@ class RootCauseAnalysisService:
 
         return analysis, [step]
 
-    async def ask_why_question(
+    async def save_why_step(
         self,
         *,
         analysis_id: str,
         chat_id: UUID,
         question: str,
+        answer: str,
     ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
+        """Persist one complete why question/answer pair as two steps."""
         async with self._session_factory(
             self._engine_factory(),
             expire_on_commit=False,
         ) as session:
             analysis, steps = await self._load(session, analysis_id, chat_id)
             state = compute_analysis_state(steps, status=analysis.status)
-            if not state.can_ask_next_why:
-                reason = self._question_rejection_reason(state)
+            if not state.can_save_why_step:
+                reason = self._why_step_rejection_reason(state)
                 raise _order_error(reason, state)
 
             new_level = state.current_level + 1
-            step = RootCauseAnalysisStep(
+            question_step = RootCauseAnalysisStep(
                 chat_id=analysis.chat_id,
                 analysis_id=analysis.analysis_id,
                 step_type="question",
@@ -181,49 +178,23 @@ class RootCauseAnalysisService:
                 position=len(steps) + 1,
                 content=question,
             )
-            analysis.updated_at = self._now_factory()
-            session.add(step)
-            session.add(analysis)
-            await session.commit()
-            await session.refresh(step)
-            await session.refresh(analysis)
-            steps.append(step)
-
-        return analysis, steps
-
-    async def save_why_answer(
-        self,
-        *,
-        analysis_id: str,
-        chat_id: UUID,
-        answer: str,
-    ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
-        async with self._session_factory(
-            self._engine_factory(),
-            expire_on_commit=False,
-        ) as session:
-            analysis, steps = await self._load(session, analysis_id, chat_id)
-            state = compute_analysis_state(steps, status=analysis.status)
-            if state.next_expected != "answer":
-                reason = self._answer_rejection_reason(state)
-                raise _order_error(reason, state)
-
-            pending_level = state.current_level
-            step = RootCauseAnalysisStep(
+            answer_step = RootCauseAnalysisStep(
                 chat_id=analysis.chat_id,
                 analysis_id=analysis.analysis_id,
                 step_type="answer",
-                level=pending_level,
-                position=len(steps) + 1,
+                level=new_level,
+                position=len(steps) + 2,
                 content=answer,
             )
             analysis.updated_at = self._now_factory()
-            session.add(step)
+            session.add(question_step)
+            session.add(answer_step)
             session.add(analysis)
             await session.commit()
-            await session.refresh(step)
+            await session.refresh(question_step)
+            await session.refresh(answer_step)
             await session.refresh(analysis)
-            steps.append(step)
+            steps.extend([question_step, answer_step])
 
         return analysis, steps
 
@@ -354,27 +325,12 @@ class RootCauseAnalysisService:
         return f"{prefix}-{n}"
 
     @staticmethod
-    def _question_rejection_reason(state: AnalysisState) -> str:
+    def _why_step_rejection_reason(state: AnalysisState) -> str:
         if state.is_completed:
             return "Analysis is already completed."
-        if state.has_pending_question:
-            return (
-                f"Expected an answer for level {state.current_level}, "
-                "not a new question."
-            )
         if state.current_level >= MAX_WHYS:
             return f"Maximum of {MAX_WHYS} why levels reached; call set_root_cause."
-        return "A new question cannot be saved right now."
-
-    @staticmethod
-    def _answer_rejection_reason(state: AnalysisState) -> str:
-        if state.is_completed:
-            return "Analysis is already completed."
-        if not state.has_pending_question and state.current_level == 0:
-            return "No pending question to answer. Call ask_why_question first."
-        if state.current_level >= MAX_WHYS and not state.has_pending_question:
-            return f"Maximum of {MAX_WHYS} why levels reached; call set_root_cause."
-        return "No pending question to answer. Call ask_why_question next."
+        return "A new why step cannot be saved right now."
 
     @staticmethod
     def _root_cause_rejection_reason(state: AnalysisState) -> str:
@@ -384,10 +340,5 @@ class RootCauseAnalysisService:
             return (
                 "Cannot set root cause before completing at least one "
                 "question/answer pair."
-            )
-        if state.has_pending_question:
-            return (
-                f"Cannot set root cause while the level {state.current_level} "
-                "question is unanswered."
             )
         return "Cannot set root cause right now."
