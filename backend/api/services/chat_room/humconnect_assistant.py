@@ -38,6 +38,8 @@ BASE_INSTRUCTIONS = (
     "When the user states a problem, run a 5 Whys root cause analysis by calling "
     "the start_5_whys_analysis tool. Save each why level by calling save_why_step "
     "with both the question and its answer. "
+    "Use the ask_question tool when you need to ask a single question to the user, "
+    "for example during a 5 Whys analysis, or when you need to clarify something. "
     "Don't hesitate to record events when they could be useful for later queries. "
     "Events are used in a global context to help with emergencies, health hazard, etc. "
     "In the case that you don't have all the information needed to create an event, "
@@ -65,7 +67,13 @@ BASE_INSTRUCTIONS = (
     "document content tool when the search results require deeper evidence. "
     "If you need to ask Meditron, a medical LLM trained on a curated medical "
     "corpus, make sure you gather all the relevant information from the user or "
-    "the other tools to get better context."
+    "the other tools to get better context. "
+    "When you need a specific piece of information from the user before you can "
+    "proceed, use the ask_question tool with a clear question and, when helpful, "
+    "a list of possible answers to let the user pick from. Calling ask_question "
+    "ends your current response, so never combine it with other tools or "
+    "additional text in the same turn; the user's answer arrives as the next "
+    "chat message."
 )
 
 
@@ -197,6 +205,7 @@ class HumConnectAssistant(ChatAssistant):
             tool_call_rounds += 1
 
             tool_input_items: list[ResponseInputItemParam] = []
+            terminal_tool_called = False
             for function_call in function_calls:
                 tool_label = self._tool_set.label_for(function_call)
                 tool_arguments = parse_tool_call_arguments(function_call.arguments)
@@ -245,5 +254,10 @@ class HumConnectAssistant(ChatAssistant):
 
                 tool_input_items.append(tool_execution.function_call_input_item)
                 tool_input_items.append(tool_execution.function_call_output_input_item)
+                if tool_execution.terminal:
+                    terminal_tool_called = True
+
+            if terminal_tool_called:
+                return
 
             model_input = [*model_input, *tool_input_items]

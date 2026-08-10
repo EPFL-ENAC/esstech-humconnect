@@ -33,7 +33,7 @@
                 </div>
             </div>
 
-            <form class="composer" @submit.prevent="sendMessage">
+            <form v-if="!activeQuestion" class="composer" @submit.prevent="sendMessage">
                 <q-input
                     v-model="draft"
                     outlined
@@ -47,15 +47,24 @@
                     <q-tooltip>{{ t('chat.send') }}</q-tooltip>
                 </q-btn>
             </form>
+            <AskQuestionComposer
+                v-else
+                :question="activeQuestion.question"
+                :possible-answers="activeQuestion.possibleAnswers"
+                :submit="submitMessage"
+                :disabled="!canSend"
+            />
         </section>
     </q-page>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, provide, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useChat } from 'src/composables/useChat';
+import AskQuestionComposer from 'src/components/chat/AskQuestionComposer.vue';
+import { askQuestionToolCallPayloadSchema } from 'src/components/chat/toolCallSchemas';
 import ChatMessageBubble from 'src/components/chat/ChatMessageBubble.vue';
 
 const route = useRoute();
@@ -80,6 +89,35 @@ const connectionLabel = computed(() =>
 );
 const canSend = computed(() => connected.value);
 const canSubmit = computed(() => canSend.value && draft.value.trim().length > 0);
+
+const activeQuestion = computed<{
+    callId: string;
+    question: string;
+    possibleAnswers: string[];
+} | null>(() => {
+    const lastMessage = messages.value[messages.value.length - 1];
+    if (!lastMessage || lastMessage.role !== 'assistant' || lastMessage.status !== 'complete') {
+        return null;
+    }
+
+    for (const chunk of lastMessage.chunks) {
+        if (chunk.type !== 'tool_call' || !chunk.payload) {
+            continue;
+        }
+        const parsed = askQuestionToolCallPayloadSchema.safeParse(chunk.payload);
+        if (parsed.success && parsed.data.status === 'finished') {
+            return {
+                callId: parsed.data.call_id,
+                question: parsed.data.arguments.question,
+                possibleAnswers: parsed.data.arguments.possible_answers,
+            };
+        }
+    }
+    return null;
+});
+
+const activeQuestionCallId = computed(() => activeQuestion.value?.callId ?? null);
+provide('activeQuestionCallId', activeQuestionCallId);
 
 async function sendMessage() {
     const content = draft.value.trim();
