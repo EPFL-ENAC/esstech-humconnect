@@ -157,7 +157,6 @@ const { t } = useI18n();
 }
 
 .filter-chip {
-    font-size: 0.4rem;
     color: var(--visualization-accent);
     border-color: var(--visualization-accent);
 }

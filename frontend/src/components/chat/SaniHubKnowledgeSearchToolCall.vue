@@ -65,6 +65,33 @@ const props = defineProps<{
     payload: SaniHubKnowledgeSearchToolCallPayload;
 }>();
 
+type SaniHubTopic = SaniHubKnowledgeSearchToolCallPayload['arguments']['topics'][number];
+
+const sanihubTopicTranslationKeys: Record<SaniHubTopic, string> = {
+    Preparedness: 'preparedness',
+    'Needs Assessment': 'needsAssessment',
+    'Strategic Planning': 'strategicPlanning',
+    'Resource Mobilisation': 'resourceMobilisation',
+    'Implementation Monitoring': 'implementationMonitoring',
+    'Review Evaluation': 'reviewEvaluation',
+    'Sanitation Technologies': 'sanitationTechnologies',
+    'Technology Selection': 'technologySelection',
+    'Faecal Sludge': 'faecalSludge',
+    'Sanitation Software': 'sanitationSoftware',
+    'Wider Systems': 'widerSystems',
+    'Cross-Cutting Issues': 'crossCuttingIssues',
+    'Coordination Sectors': 'coordinationSectors',
+    Accountability: 'accountability',
+    'Capacity Development': 'capacityDevelopment',
+    'Research Innovation': 'researchInnovation',
+    'Knowledge Management': 'knowledgeManagement',
+    'Case Studies': 'caseStudies',
+    'Challenging Contexts': 'challengingContexts',
+    'Disaster Scenarios': 'disasterScenarios',
+    'Climate Challenges': 'climateChallenges',
+    'Ground Conditions': 'groundConditions',
+};
+
 const toolColor = '#147d64';
 const { t } = useI18n();
 const result = computed(() => (props.payload.status === 'finished' ? props.payload.answer : null));
@@ -89,7 +116,7 @@ const visualizationFilters = computed(() => {
         filters.push({
             icon: 'sell',
             label: t('chat.activities.sanihub.topics'),
-            value: props.payload.arguments.topics.join(' · '),
+            value: props.payload.arguments.topics.map(localizedTopic).join(' · '),
         });
     }
 
@@ -138,6 +165,10 @@ function localizedResultCount(count: number): string {
     return t(count === 1 ? 'chat.activities.sanihub.result' : 'chat.activities.sanihub.results', {
         count,
     });
+}
+
+function localizedTopic(topic: SaniHubTopic): string {
+    return t(`chat.activities.sanihub.topicLabels.${sanihubTopicTranslationKeys[topic]}`);
 }
 
 function resultExtraInfo(item: SaniHubKnowledgeResult) {

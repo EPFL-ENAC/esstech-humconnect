@@ -73,7 +73,10 @@ const visualizationQuery = computed(() => ({
 }));
 const visualizationResultsSummary = computed(() =>
     result.value
-        ? `${result.value.total} publications found, limited to ${result.value.results.length}`
+        ? t('chat.activities.whoPublications.resultSummary', {
+              total: result.value.total,
+              shown: result.value.results.length,
+          })
         : undefined,
 );
 const visualizationEmptyState = computed(() =>

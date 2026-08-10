@@ -75,22 +75,16 @@ const TOOL_CALL_REGISTRY: Record<string, ToolCallRegistration> = {
 export function resolveToolCall(payload: ToolCallPayload | null): ResolvedToolCall {
     const basePayload = baseToolCallPayloadSchema.safeParse(payload);
     if (!basePayload.success) {
-        console.log('Failed to parse base tool call payload:', basePayload.error);
         return { component: GenericToolCall, payload: null };
     }
 
     const registration = TOOL_CALL_REGISTRY[basePayload.data.tool_name];
-    console.log('Resolved tool call:', {
-        tool_name: basePayload.data.tool_name,
-        registration: registration ? 'found' : 'not found',
-    });
     if (!registration) {
         return { component: GenericToolCall, payload: basePayload.data };
     }
 
     const parsedPayload = registration.inputSchema.safeParse(payload);
     if (!parsedPayload.success) {
-        console.log(parsedPayload.error);
         return { component: GenericToolCall, payload: basePayload.data };
     }
 

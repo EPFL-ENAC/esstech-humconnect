@@ -108,7 +108,11 @@ const naturalEventsMapLabel = computed(() => {
 });
 const visualizationResultsSummary = computed(() =>
     result.value
-        ? `NASA EONET: ${result.value.summary.counts.nasa_eonet}, USGS: ${result.value.summary.counts.usgs_earthquakes}, Total: ${result.value.events.length}`
+        ? t('chat.activities.naturalEvents.resultSummary', {
+              nasa: result.value.summary.counts.nasa_eonet,
+              usgs: result.value.summary.counts.usgs_earthquakes,
+              total: result.value.events.length,
+          })
         : undefined,
 );
 const visualizationEmptyState = computed(() =>
