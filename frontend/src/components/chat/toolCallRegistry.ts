@@ -3,23 +3,33 @@ import type { z } from 'zod';
 import type { ToolCallPayload } from 'src/utils/model';
 import ExpertAnswerToolCall from './ExpertAnswerToolCall.vue';
 import GenericToolCall from './GenericToolCall.vue';
+import GetAnalysisToolCall from './GetAnalysisToolCall.vue';
 import HumanitarianContextToolCall from './HumanitarianContextToolCall.vue';
+import ListAnalysesToolCall from './ListAnalysesToolCall.vue';
 import NaturalEventsToolCall from './NaturalEventsToolCall.vue';
 import RecallEventsToolCall from './RecallEventsToolCall.vue';
 import RecordEventToolCall from './RecordEventToolCall.vue';
+import SaveWhyStepToolCall from './SaveWhyStepToolCall.vue';
 import SaniHubDocumentContentToolCall from './SaniHubDocumentContentToolCall.vue';
 import SaniHubKnowledgeSearchToolCall from './SaniHubKnowledgeSearchToolCall.vue';
+import SetRootCauseToolCall from './SetRootCauseToolCall.vue';
+import Start5WhysAnalysisToolCall from './Start5WhysAnalysisToolCall.vue';
 import WhoPublicationContentToolCall from './WhoPublicationContentToolCall.vue';
 import WhoPublicationSearchToolCall from './WhoPublicationSearchToolCall.vue';
 import {
     baseToolCallPayloadSchema,
     expertAnswerToolCallPayloadSchema,
+    getAnalysisToolCallPayloadSchema,
     humanitarianContextToolCallPayloadSchema,
+    listAnalysesToolCallPayloadSchema,
     naturalEventsToolCallPayloadSchema,
     recallEventsToolCallPayloadSchema,
     recordEventToolCallPayloadSchema,
+    saveWhyStepToolCallPayloadSchema,
     sanihubDocumentContentToolCallPayloadSchema,
     sanihubKnowledgeSearchToolCallPayloadSchema,
+    setRootCauseToolCallPayloadSchema,
+    start5WhysAnalysisToolCallPayloadSchema,
     whoPublicationContentToolCallPayloadSchema,
     whoPublicationSearchToolCallPayloadSchema,
 } from './toolCallSchemas';
@@ -60,8 +70,16 @@ const TOOL_CALL_REGISTRY: Record<string, ToolCallRegistration> = {
         WhoPublicationContentToolCall,
         whoPublicationContentToolCallPayloadSchema,
     ),
+    get_analysis: defineToolCall(GetAnalysisToolCall, getAnalysisToolCallPayloadSchema),
+    list_analyses: defineToolCall(ListAnalysesToolCall, listAnalysesToolCallPayloadSchema),
     record_event: defineToolCall(RecordEventToolCall, recordEventToolCallPayloadSchema),
     recall_events: defineToolCall(RecallEventsToolCall, recallEventsToolCallPayloadSchema),
+    save_why_step: defineToolCall(SaveWhyStepToolCall, saveWhyStepToolCallPayloadSchema),
+    set_root_cause: defineToolCall(SetRootCauseToolCall, setRootCauseToolCallPayloadSchema),
+    start_5_whys_analysis: defineToolCall(
+        Start5WhysAnalysisToolCall,
+        start5WhysAnalysisToolCallPayloadSchema,
+    ),
     sanihub_knowledgeSearch: defineToolCall(
         SaniHubKnowledgeSearchToolCall,
         sanihubKnowledgeSearchToolCallPayloadSchema,
