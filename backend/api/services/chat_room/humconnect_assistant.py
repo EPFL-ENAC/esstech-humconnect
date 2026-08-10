@@ -33,7 +33,7 @@ from api.services.chat_room.tools import ToolSet, parse_tool_call_arguments
 from api.services.chat_room.tools.base import ToolExecutionContext
 
 ModelInputMessage = EasyInputMessageParam
-MAX_TOOL_CALL_ROUNDS = 5
+MAX_TOOL_CALL_ROUNDS = 10
 BASE_INSTRUCTIONS = (
     "When the user states a problem, run a 5 Whys root cause analysis by calling "
     "the start_5_whys_analysis tool. Save each why level by calling save_why_step "
