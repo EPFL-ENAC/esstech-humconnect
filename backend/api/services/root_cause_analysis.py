@@ -128,24 +128,25 @@ class RootCauseAnalysisService:
         user_id: UUID,
         source_message_id: UUID,
     ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
-        analysis = RootCauseAnalysis(
-            chat_id=chat_id,
-            initiated_by_user_id=user_id,
-            source_message_id=source_message_id,
-            status="in_progress",
-        )
-        step = RootCauseAnalysisStep(
-            analysis_id=analysis.id,
-            step_type="problem_statement",
-            level=None,
-            position=1,
-            content=problem_statement,
-        )
-
         async with self._session_factory(
             self._engine_factory(),
             expire_on_commit=False,
         ) as session:
+            analysis = RootCauseAnalysis(
+                analysis_id=await self._generate_analysis_id(session, chat_id),
+                chat_id=chat_id,
+                initiated_by_user_id=user_id,
+                source_message_id=source_message_id,
+                status="in_progress",
+            )
+            step = RootCauseAnalysisStep(
+                chat_id=analysis.chat_id,
+                analysis_id=analysis.analysis_id,
+                step_type="problem_statement",
+                level=None,
+                position=1,
+                content=problem_statement,
+            )
             session.add(analysis)
             session.add(step)
             await session.commit()
@@ -157,7 +158,7 @@ class RootCauseAnalysisService:
     async def ask_why_question(
         self,
         *,
-        analysis_id: UUID,
+        analysis_id: str,
         chat_id: UUID,
         question: str,
     ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
@@ -173,7 +174,8 @@ class RootCauseAnalysisService:
 
             new_level = state.current_level + 1
             step = RootCauseAnalysisStep(
-                analysis_id=analysis.id,
+                chat_id=analysis.chat_id,
+                analysis_id=analysis.analysis_id,
                 step_type="question",
                 level=new_level,
                 position=len(steps) + 1,
@@ -192,7 +194,7 @@ class RootCauseAnalysisService:
     async def save_why_answer(
         self,
         *,
-        analysis_id: UUID,
+        analysis_id: str,
         chat_id: UUID,
         answer: str,
     ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
@@ -208,7 +210,8 @@ class RootCauseAnalysisService:
 
             pending_level = state.current_level
             step = RootCauseAnalysisStep(
-                analysis_id=analysis.id,
+                chat_id=analysis.chat_id,
+                analysis_id=analysis.analysis_id,
                 step_type="answer",
                 level=pending_level,
                 position=len(steps) + 1,
@@ -227,7 +230,7 @@ class RootCauseAnalysisService:
     async def set_root_cause(
         self,
         *,
-        analysis_id: UUID,
+        analysis_id: str,
         chat_id: UUID,
         root_cause: str,
     ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
@@ -242,7 +245,8 @@ class RootCauseAnalysisService:
                 raise _order_error(reason, state)
 
             step = RootCauseAnalysisStep(
-                analysis_id=analysis.id,
+                chat_id=analysis.chat_id,
+                analysis_id=analysis.analysis_id,
                 step_type="root_cause",
                 level=None,
                 position=len(steps) + 1,
@@ -262,7 +266,7 @@ class RootCauseAnalysisService:
     async def get_analysis(
         self,
         *,
-        analysis_id: UUID,
+        analysis_id: str,
         chat_id: UUID,
     ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
         async with self._session_factory(
@@ -292,34 +296,62 @@ class RootCauseAnalysisService:
             result = await session.exec(query)
             analyses = list(result.all())
             return [
-                (analysis, await self._load_steps(session, analysis.id))
+                (
+                    analysis,
+                    await self._load_steps(
+                        session, analysis.chat_id, analysis.analysis_id
+                    ),
+                )
                 for analysis in analyses
             ]
 
     async def _load(
         self,
         session: AsyncSQLModelSession,
-        analysis_id: UUID,
+        analysis_id: str,
         chat_id: UUID,
     ) -> tuple[RootCauseAnalysis, list[RootCauseAnalysisStep]]:
-        analysis = await session.get(RootCauseAnalysis, analysis_id)
-        if analysis is None or analysis.chat_id != chat_id:
+        query = (
+            select(RootCauseAnalysis)
+            .where(RootCauseAnalysis.chat_id == chat_id)
+            .where(RootCauseAnalysis.analysis_id == analysis_id)
+        )
+        result = await session.exec(query)
+        analysis = result.first()
+        if analysis is None:
             raise ValueError(f"Analysis not found: {analysis_id}")
-        steps = await self._load_steps(session, analysis_id)
+        steps = await self._load_steps(session, analysis.chat_id, analysis.analysis_id)
         return analysis, steps
 
     async def _load_steps(
         self,
         session: AsyncSQLModelSession,
-        analysis_id: UUID,
+        chat_id: UUID,
+        analysis_id: str,
     ) -> list[RootCauseAnalysisStep]:
         query = (
             select(RootCauseAnalysisStep)
+            .where(RootCauseAnalysisStep.chat_id == chat_id)
             .where(RootCauseAnalysisStep.analysis_id == analysis_id)
             .order_by(col(RootCauseAnalysisStep.position))
         )
         result = await session.exec(query)
         return list(result.all())
+
+    @staticmethod
+    async def _generate_analysis_id(
+        session: AsyncSQLModelSession,
+        chat_id: UUID,
+    ) -> str:
+        """Return a short mnemonic identifier unique within the chat."""
+        query = select(RootCauseAnalysis).where(RootCauseAnalysis.chat_id == chat_id)
+        result = await session.exec(query)
+        existing = {analysis.analysis_id for analysis in result.all()}
+        n = 1
+        prefix = "rca"
+        while f"{prefix}-{n}" in existing:
+            n += 1
+        return f"{prefix}-{n}"
 
     @staticmethod
     def _question_rejection_reason(state: AnalysisState) -> str:

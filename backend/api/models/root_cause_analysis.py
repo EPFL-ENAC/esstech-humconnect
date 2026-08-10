@@ -3,7 +3,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Column, DateTime
+from sqlalchemy import Column, DateTime, ForeignKeyConstraint, UniqueConstraint
 from sqlmodel import Field, SQLModel
 from sqlmodel.sql.sqltypes import AutoString
 
@@ -38,8 +38,19 @@ class RootCauseAnalysis(SQLModel, table=True):
     """
 
     __tablename__ = "rootcauseanalysis"
+    __table_args__ = (
+        UniqueConstraint(
+            "chat_id",
+            "analysis_id",
+            name="uq_rootcauseanalysis_chat_analysis_id",
+        ),
+    )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
+    analysis_id: str = Field(
+        sa_column=Column(AutoString, nullable=False, index=True),
+        description="Short mnemonic identifier for the analysis, unique within a chat.",
+    )
     chat_id: UUID = Field(foreign_key="chatsession.id", index=True)
     initiated_by_user_id: UUID = Field(foreign_key="userprofile.id", index=True)
     source_message_id: UUID = Field(foreign_key="message.id", index=True)
@@ -65,12 +76,23 @@ class RootCauseAnalysisStep(SQLModel, table=True):
     steps, and null for problem_statement and root_cause steps. `position` is
     the 1-indexed insertion order within the analysis and is used to retrieve
     steps in the order they were recorded.
+
+    `chat_id` and `analysis_id` together form the chat-scoped mnemonic
+    reference to the parent `RootCauseAnalysis`.
     """
 
     __tablename__ = "rootcauseanalysisstep"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["chat_id", "analysis_id"],
+            ["rootcauseanalysis.chat_id", "rootcauseanalysis.analysis_id"],
+            name="fk_rootcauseanalysisstep_analysis",
+        ),
+    )
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    analysis_id: UUID = Field(foreign_key="rootcauseanalysis.id", index=True)
+    chat_id: UUID = Field(index=True)
+    analysis_id: str = Field(index=True)
     step_type: RootCauseAnalysisStepType = Field(
         sa_column=Column(AutoString, nullable=False, index=True)
     )
@@ -86,8 +108,7 @@ class RootCauseAnalysisStep(SQLModel, table=True):
 class RootCauseAnalysisStepResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
-    analysis_id: UUID
+    analysis_id: str
     step_type: RootCauseAnalysisStepType
     level: int | None
     position: int
@@ -100,7 +121,7 @@ class RootCauseAnalysisResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
+    analysis_id: str
     chat_id: UUID
     initiated_by_user_id: UUID
     source_message_id: UUID
@@ -115,14 +136,25 @@ class RootCauseAnalysisResponse(BaseModel):
         analysis: "RootCauseAnalysis",
         steps: list["RootCauseAnalysisStep"],
     ) -> "RootCauseAnalysisResponse":
+        ordered_steps = sorted(steps, key=lambda s: s.position)
         return cls.model_validate(
             {
-                "id": analysis.id,
+                "analysis_id": analysis.analysis_id,
                 "chat_id": analysis.chat_id,
                 "initiated_by_user_id": analysis.initiated_by_user_id,
                 "source_message_id": analysis.source_message_id,
                 "status": analysis.status,
-                "steps": sorted(steps, key=lambda s: s.position),
+                "steps": [
+                    {
+                        "analysis_id": analysis.analysis_id,
+                        "step_type": step.step_type,
+                        "level": step.level,
+                        "position": step.position,
+                        "content": step.content,
+                        "created_at": step.created_at,
+                    }
+                    for step in ordered_steps
+                ],
                 "created_at": analysis.created_at,
                 "updated_at": analysis.updated_at,
             }

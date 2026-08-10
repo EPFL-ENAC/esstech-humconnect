@@ -179,7 +179,8 @@ def _run(coro):
 
 def _step(step_type, level=None, position=0):
     return RootCauseAnalysisStep(
-        analysis_id=uuid4(),
+        chat_id=RCA_CHAT_ID,
+        analysis_id="rca-1",
         step_type=step_type,
         level=level,
         position=position,
@@ -279,18 +280,20 @@ def test_create_analysis_persists_analysis_and_problem_statement_step():
     assert problem_step.level is None
     assert problem_step.position == 1
     assert problem_step.content == "API latency spiked 3x"
-    assert problem_step.analysis_id == analysis.id
+    assert problem_step.chat_id == analysis.chat_id
+    assert problem_step.analysis_id == analysis.analysis_id
+    assert analysis.analysis_id == "rca-1"
     assert steps == [problem_step]
 
 
-def test_save_why_question_assigns_next_level_and_position():
+def test_ask_why_question_assigns_next_level_and_position():
     FakeRcaAsyncSession.reset()
     service = _service()
     analysis, _ = _create(service)
 
     analysis, steps = _run(
-        service.save_why_question(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="Why latency?"
+        service.ask_why_question(
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="Why latency?"
         )
     )
 
@@ -307,14 +310,14 @@ def test_save_why_answer_matches_pending_question_level():
     service = _service()
     analysis, _ = _create(service)
     _run(
-        service.save_why_question(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="Why latency?"
+        service.ask_why_question(
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="Why latency?"
         )
     )
 
     analysis, steps = _run(
         service.save_why_answer(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, answer="DB pool exhausted"
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, answer="DB pool exhausted"
         )
     )
 
@@ -349,7 +352,7 @@ def test_service_rejects_out_of_order_writes_before_first_question(
 
     call = getattr(service, method)
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
-        _run(call(analysis_id=analysis.id, chat_id=RCA_CHAT_ID, **kwargs))
+        _run(call(analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, **kwargs))
     assert label
 
 
@@ -358,15 +361,15 @@ def test_service_rejects_consecutive_question_while_answer_pending():
     service = _service()
     analysis, _ = _create(service)
     _run(
-        service.save_why_question(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q1"
+        service.ask_why_question(
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q1"
         )
     )
 
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
         _run(
-            service.save_why_question(
-                analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q1b"
+            service.ask_why_question(
+                analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q1b"
             )
         )
 
@@ -378,26 +381,26 @@ def test_service_enforces_max_five_levels():
 
     for i in range(1, MAX_WHYS + 1):
         _run(
-            service.save_why_question(
-                analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question=f"q{i}"
+            service.ask_why_question(
+                analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question=f"q{i}"
             )
         )
         _run(
             service.save_why_answer(
-                analysis_id=analysis.id, chat_id=RCA_CHAT_ID, answer=f"a{i}"
+                analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, answer=f"a{i}"
             )
         )
 
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
         _run(
-            service.save_why_question(
-                analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q6"
+            service.ask_why_question(
+                analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q6"
             )
         )
 
     analysis, steps = _run(
         service.set_root_cause(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, root_cause="fix timeout"
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, root_cause="fix timeout"
         )
     )
     assert analysis.status == "completed"
@@ -411,31 +414,31 @@ def test_service_rejects_writes_after_completion():
     service = _service()
     analysis, _ = _create(service)
     _run(
-        service.save_why_question(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q1"
+        service.ask_why_question(
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q1"
         )
     )
     _run(
         service.save_why_answer(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, answer="a1"
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, answer="a1"
         )
     )
     _run(
         service.set_root_cause(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, root_cause="done"
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, root_cause="done"
         )
     )
 
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
         _run(
-            service.save_why_question(
-                analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="late"
+            service.ask_why_question(
+                analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="late"
             )
         )
     with pytest.raises(InvalidAnalysisOrderError, match="invalid_order"):
         _run(
             service.set_root_cause(
-                analysis_id=analysis.id, chat_id=RCA_CHAT_ID, root_cause="again"
+                analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, root_cause="again"
             )
         )
 
@@ -445,19 +448,19 @@ def test_service_allows_early_root_cause_after_one_pair():
     service = _service()
     analysis, _ = _create(service)
     _run(
-        service.save_why_question(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q1"
+        service.ask_why_question(
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q1"
         )
     )
     _run(
         service.save_why_answer(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, answer="a1"
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, answer="a1"
         )
     )
 
     analysis, steps = _run(
         service.set_root_cause(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, root_cause="quick fix"
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, root_cause="quick fix"
         )
     )
     assert analysis.status == "completed"
@@ -469,23 +472,23 @@ def test_service_get_analysis_returns_steps_ordered_by_position():
     service = _service()
     analysis, _ = _create(service)
     _run(
-        service.save_why_question(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q1"
+        service.ask_why_question(
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q1"
         )
     )
     _run(
         service.save_why_answer(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, answer="a1"
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, answer="a1"
         )
     )
     _run(
-        service.save_why_question(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q2"
+        service.ask_why_question(
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q2"
         )
     )
 
     analysis, steps = _run(
-        service.get_analysis(analysis_id=analysis.id, chat_id=RCA_CHAT_ID)
+        service.get_analysis(analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID)
     )
     assert [s.position for s in steps] == [1, 2, 3, 4]
     assert [s.step_type for s in steps] == [
@@ -504,15 +507,15 @@ def test_service_rejects_access_from_other_chat_and_unknown_id():
 
     # analysis from a different chat is not accessible
     with pytest.raises(ValueError, match="Analysis not found"):
-        _run(service.get_analysis(analysis_id=analysis.id, chat_id=other_chat))
+        _run(service.get_analysis(analysis_id=analysis.analysis_id, chat_id=other_chat))
     # unknown analysis id is not accessible even from the owning chat
     with pytest.raises(ValueError, match="Analysis not found"):
-        _run(service.get_analysis(analysis_id=uuid4(), chat_id=RCA_CHAT_ID))
+        _run(service.get_analysis(analysis_id="unknown", chat_id=RCA_CHAT_ID))
     # writes are also rejected for a different chat
     with pytest.raises(ValueError, match="Analysis not found"):
         _run(
-            service.save_why_question(
-                analysis_id=analysis.id, chat_id=other_chat, question="q"
+            service.ask_why_question(
+                analysis_id=analysis.analysis_id, chat_id=other_chat, question="q"
             )
         )
 
@@ -545,6 +548,7 @@ def test_service_list_analyses_is_chat_scoped_filtered_and_ordered():
 
     pairs = _run(service.list_analyses(chat_id=RCA_CHAT_ID))
     assert [a.id for a, _ in pairs] == [second.id, first.id]
+    assert [a.analysis_id for a, _ in pairs] == ["rca-2", "rca-1"]
 
     in_progress = _run(
         service.list_analyses(chat_id=RCA_CHAT_ID, status="in_progress")
@@ -563,6 +567,7 @@ def test_service_list_analyses_is_chat_scoped_filtered_and_ordered():
     other_pairs = _run(service.list_analyses(chat_id=other_chat))
     assert len(other_pairs) == 1
     assert other_pairs[0][0].chat_id == other_chat
+    assert other_pairs[0][0].analysis_id == "rca-1"
 
 
 def test_service_steps_query_scopes_by_analysis_id():
@@ -570,12 +575,12 @@ def test_service_steps_query_scopes_by_analysis_id():
     service = _service()
     analysis, _ = _create(service)
     _run(
-        service.save_why_question(
-            analysis_id=analysis.id, chat_id=RCA_CHAT_ID, question="q1"
+        service.ask_why_question(
+            analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID, question="q1"
         )
     )
 
-    _run(service.get_analysis(analysis_id=analysis.id, chat_id=RCA_CHAT_ID))
+    _run(service.get_analysis(analysis_id=analysis.analysis_id, chat_id=RCA_CHAT_ID))
     query_text = str(FakeRcaAsyncSession.last_query)
     assert "rootcauseanalysisstep.analysis_id" in query_text
     assert "ORDER BY" in query_text
@@ -764,15 +769,15 @@ def test_set_root_cause_tool_requires_execution_context():
         )
 
 
-def test_tools_reject_invalid_analysis_id_format(monkeypatch):
+def test_tools_reject_unknown_analysis_id(monkeypatch):
     FakeRcaAsyncSession.reset()
     configure_rca_service(monkeypatch)
     _tool_json(
         CREATE_ANALYSIS_TOOL.execute({"problem_statement": "p"}, rca_tool_context())
     )
-    with pytest.raises(ValueError, match="Invalid analysis_id"):
+    with pytest.raises(ValueError, match="Analysis not found"):
         _run(
-            GET_ANALYSIS_TOOL.execute({"analysis_id": "not-a-uuid"}, rca_tool_context())
+            GET_ANALYSIS_TOOL.execute({"analysis_id": "unknown"}, rca_tool_context())
         )
 
 
@@ -798,7 +803,7 @@ def test_tool_definitions_are_unique_and_named():
     assert len(names) == len(set(names))
     assert set(names) == {
         "create_analysis",
-        "save_why_question",
+        "ask_why_question",
         "save_why_answer",
         "get_analysis",
         "set_root_cause",
@@ -815,7 +820,7 @@ def test_rca_tools_are_registered_in_default_tool_set():
     names = {tool.name for tool in DEFAULT_LOCAL_TOOLS}
     assert {
         "create_analysis",
-        "save_why_question",
+        "ask_why_question",
         "save_why_answer",
         "get_analysis",
         "set_root_cause",

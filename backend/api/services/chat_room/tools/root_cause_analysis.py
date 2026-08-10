@@ -20,7 +20,6 @@ questions, answers, root cause); see `api.models.root_cause_analysis`.
 
 import json
 from typing import Literal
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -123,7 +122,7 @@ def build_snapshot(
         )
 
     return RootCauseAnalysisSnapshot(
-        analysis_id=str(analysis.id),
+        analysis_id=analysis.analysis_id,
         problem_statement=(
             problem_statement_step.content if problem_statement_step else ""
         ),
@@ -149,7 +148,9 @@ class CreateAnalysisInput(RootCauseAnalysisBaseModel):
 
 
 class AskWhyQuestionInput(RootCauseAnalysisBaseModel):
-    analysis_id: NonEmptyString = Field(description="ID of the analysis session.")
+    analysis_id: NonEmptyString = Field(
+        description="Short mnemonic identifier of the analysis session (e.g. 'rca-1'). Unique within the current chat."
+    )
     question: NonEmptyString = Field(
         description=(
             "The 'why' question for the next level. It must ask a SINGLE clarifying question "
@@ -160,7 +161,9 @@ class AskWhyQuestionInput(RootCauseAnalysisBaseModel):
 
 
 class SaveWhyAnswerInput(RootCauseAnalysisBaseModel):
-    analysis_id: NonEmptyString = Field(description="ID of the analysis session.")
+    analysis_id: NonEmptyString = Field(
+        description="Short mnemonic identifier of the analysis session (e.g. 'rca-1'). Unique within the current chat."
+    )
     answer: NonEmptyString = Field(
         description=(
             "The cause identified at the current level, stated by the user or another tool call."
@@ -169,11 +172,15 @@ class SaveWhyAnswerInput(RootCauseAnalysisBaseModel):
 
 
 class GetAnalysisInput(RootCauseAnalysisBaseModel):
-    analysis_id: NonEmptyString = Field(description="ID of the analysis session.")
+    analysis_id: NonEmptyString = Field(
+        description="Short mnemonic identifier of the analysis session (e.g. 'rca-1'). Unique within the current chat."
+    )
 
 
 class SetRootCauseInput(RootCauseAnalysisBaseModel):
-    analysis_id: NonEmptyString = Field(description="ID of the analysis session.")
+    analysis_id: NonEmptyString = Field(
+        description="Short mnemonic identifier of the analysis session (e.g. 'rca-1'). Unique within the current chat."
+    )
     root_cause: NonEmptyString = Field(
         description=(
             "The final root cause statement. "
@@ -190,13 +197,6 @@ class ListAnalysesInput(RootCauseAnalysisBaseModel):
             "Optional filter: 'in_progress' or 'completed'. Omit to list all."
         ),
     )
-
-
-def _parse_analysis_id(raw: str) -> UUID:
-    try:
-        return UUID(raw)
-    except (ValueError, AttributeError, TypeError) as exc:
-        raise ValueError(f"Invalid analysis_id: {raw!r}") from exc
 
 
 async def _create_analysis(
@@ -220,7 +220,7 @@ async def _ask_why_question(
     tool_context: ToolExecutionContext,
 ) -> str:
     analysis, steps = await RootCauseAnalysisService().ask_why_question(
-        analysis_id=_parse_analysis_id(tool_input.analysis_id),
+        analysis_id=tool_input.analysis_id,
         chat_id=tool_context.chat_id,
         question=tool_input.question,
     )
@@ -235,7 +235,7 @@ async def _save_why_answer(
     tool_context: ToolExecutionContext,
 ) -> str:
     analysis, steps = await RootCauseAnalysisService().save_why_answer(
-        analysis_id=_parse_analysis_id(tool_input.analysis_id),
+        analysis_id=tool_input.analysis_id,
         chat_id=tool_context.chat_id,
         answer=tool_input.answer,
     )
@@ -250,7 +250,7 @@ async def _get_analysis(
     tool_context: ToolExecutionContext,
 ) -> str:
     analysis, steps = await RootCauseAnalysisService().get_analysis(
-        analysis_id=_parse_analysis_id(tool_input.analysis_id),
+        analysis_id=tool_input.analysis_id,
         chat_id=tool_context.chat_id,
     )
     snapshot = build_snapshot(analysis, steps)
@@ -264,7 +264,7 @@ async def _set_root_cause(
     tool_context: ToolExecutionContext,
 ) -> str:
     analysis, steps = await RootCauseAnalysisService().set_root_cause(
-        analysis_id=_parse_analysis_id(tool_input.analysis_id),
+        analysis_id=tool_input.analysis_id,
         chat_id=tool_context.chat_id,
         root_cause=tool_input.root_cause,
     )
@@ -285,7 +285,7 @@ async def _list_analyses(
     )
     summaries = [
         {
-            "analysis_id": str(analysis.id),
+            "analysis_id": analysis.analysis_id,
             "problem_statement": build_snapshot(analysis, steps).problem_statement,
             "status": analysis.status,
             "current_level": build_snapshot(analysis, steps).current_level,
@@ -301,13 +301,14 @@ async def _list_analyses(
 
 CREATE_ANALYSIS_TOOL_DESCRIPTION = (
     "Use this tool to start a 5 Whys root cause analysis by recording the problem statement. "
-    "Returns an analysis_id. "
+    "Returns a short mnemonic analysis_id (e.g. 'rca-1') that is unique within the current chat. "
+    "Keep this analysis_id internal and don't disclose it to the user. "
     "Ask a root-cause clarifying question to the user using the ask_why_question tool."
     "After receiving the answer, save it with the save_why_answer tool. "
     "Loop between ask_why_question and save_why_answer until the root cause is clear, "
     "and finish by calling the set_root_cause tool (allowed before reaching 5 levels). "
     "Use get_analysis to check the current state of an analysis. "
-    "Don't call create_analysis again if the analysis is already in progress."
+    "Don't call create_analysis again if the analysis is already in progress. "
 )
 
 ASK_WHY_QUESTION_TOOL_DESCRIPTION = (
