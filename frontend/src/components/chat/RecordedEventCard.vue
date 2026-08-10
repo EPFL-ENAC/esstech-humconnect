@@ -10,7 +10,7 @@
 
             <div v-if="event.tags.length" class="event-tags">
                 <q-chip v-for="tag in event.tags" :key="tag" dense outline>
-                    {{ eventTagLabel(tag) }}
+                    {{ formatTag(tag) }}
                 </q-chip>
             </div>
 
@@ -36,7 +36,8 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
-import type { EventTag, RecordedEvent } from 'src/utils/model';
+import { useRecordedEventFormatters } from 'src/composables/useRecordedEventFormatters';
+import type { RecordedEvent } from 'src/utils/model';
 import ToolCardItem from './ToolCardItem.vue';
 
 const props = defineProps<{
@@ -44,64 +45,25 @@ const props = defineProps<{
 }>();
 
 const { t } = useI18n();
-const { formatDate, formatNumber } = useLocalizedFormatters();
+const { formatDateRange } = useLocalizedFormatters();
+const { formatLocation, formatSeverity, formatTag } = useRecordedEventFormatters();
 const extraInfo = computed(() => [
-    { icon: 'calendar_today', value: formatEventDateRange() },
-    { icon: 'location_on', value: formatLocation() },
+    {
+        icon: 'calendar_today',
+        value: formatDateRange(
+            props.event.event_datetime,
+            props.event.event_end_datetime,
+            t('chat.activities.events.unknownDate'),
+        ),
+    },
+    {
+        icon: 'location_on',
+        value: formatLocation(
+            props.event.event_location,
+            t('chat.activities.events.unknownLocation'),
+        ),
+    },
 ]);
-
-function eventTagLabel(tag: EventTag): string {
-    return t(`dashboard.tags.${tag}`);
-}
-
-function formatEventDateRange(): string {
-    const unknownDate = t('chat.activities.events.unknownDate');
-    const start = formatDate(props.event.event_datetime, unknownDate);
-    if (!props.event.event_end_datetime) {
-        return start;
-    }
-
-    return `${start} – ${formatDate(props.event.event_end_datetime, unknownDate)}`;
-}
-
-function formatLocation(): string {
-    const location = props.event.event_location;
-    if (location.raw_text) {
-        return location.raw_text;
-    }
-
-    const parts = [
-        location.address,
-        location.place_name,
-        location.city,
-        location.region,
-        location.country_code,
-        formatContinent(location.continent),
-    ].filter((part): part is string => Boolean(part));
-
-    if (!parts.length) {
-        return t('chat.activities.events.unknownLocation');
-    }
-
-    return parts.join(', ');
-}
-
-function formatContinent(continent: RecordedEvent['event_location']['continent']): string | null {
-    if (!continent) {
-        return null;
-    }
-
-    return t(`dashboard.continents.${continent}`);
-}
-
-function formatSeverity(value: number | null): string {
-    if (value === null) {
-        return t('dashboard.severity.notRated');
-    }
-
-    const score = formatNumber(value, { maximumFractionDigits: 1 });
-    return `${score}/10`;
-}
 </script>
 
 <style scoped lang="scss">

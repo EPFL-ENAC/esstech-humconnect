@@ -5,16 +5,12 @@ const defaultDateOptions: Intl.DateTimeFormatOptions = {
     timeStyle: 'short',
 };
 
-interface LocalizedFormatters {
-    formatDate: (
-        value: string | null | undefined,
-        emptyValue: string,
-        options?: Intl.DateTimeFormatOptions,
-    ) => string;
-    formatNumber: (value: number, options?: Intl.NumberFormatOptions) => string;
+interface Coordinates {
+    latitude: number;
+    longitude: number;
 }
 
-export function useLocalizedFormatters(): LocalizedFormatters {
+export function useLocalizedFormatters() {
     const { locale } = useI18n();
 
     function formatDate(
@@ -38,5 +34,26 @@ export function useLocalizedFormatters(): LocalizedFormatters {
         return new Intl.NumberFormat(locale.value, options).format(value);
     }
 
-    return { formatDate, formatNumber };
+    function formatCoordinates(
+        coordinates: Coordinates,
+        options?: Intl.NumberFormatOptions,
+    ): string {
+        return `${formatNumber(coordinates.latitude, options)}, ${formatNumber(coordinates.longitude, options)}`;
+    }
+
+    function formatDateRange(
+        start: string | null | undefined,
+        end: string | null | undefined,
+        emptyValue: string,
+        options: Intl.DateTimeFormatOptions = defaultDateOptions,
+    ): string {
+        const formattedStart = formatDate(start, emptyValue, options);
+        if (!end) {
+            return formattedStart;
+        }
+
+        return `${formattedStart} – ${formatDate(end, emptyValue, options)}`;
+    }
+
+    return { formatCoordinates, formatDate, formatDateRange, formatNumber };
 }

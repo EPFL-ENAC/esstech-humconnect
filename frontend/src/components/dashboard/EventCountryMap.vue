@@ -5,15 +5,15 @@
                 <h2>{{ t('dashboard.map.title') }}</h2>
                 <p>{{ t('dashboard.map.subtitle') }}</p>
             </div>
-            <div v-if="!loading" class="map-summary">{{ summary }}</div>
+            <div v-if="!dashboardData.mapLoading" class="map-summary">{{ summary }}</div>
         </q-card-section>
 
         <div class="map-frame">
             <div ref="mapContainer" class="map-canvas" role="region" :aria-label="mapAriaLabel" />
-            <div v-if="error || renderError" class="map-state map-error-state">
-                {{ error || t('dashboard.map.loadError') }}
+            <div v-if="dashboardData.mapError || renderError" class="map-state map-error-state">
+                {{ dashboardData.mapError || t('dashboard.map.loadError') }}
             </div>
-            <div v-else-if="loading || !mapIsReady" class="map-state">
+            <div v-else-if="dashboardData.mapLoading || !mapIsReady" class="map-state">
                 <q-spinner color="primary" size="32px" />
                 <span>{{ t('dashboard.map.loading') }}</span>
             </div>
@@ -48,7 +48,7 @@ import maplibregl, {
 import type { Feature, FeatureCollection, Geometry } from 'geojson';
 import countryBoundariesJson from 'src/assets/country-boundaries.json';
 import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
-import type { RecordedEventCountsByCountry } from 'src/utils/model';
+import { useDashboardData } from 'src/queries/dashboard';
 import { createLightMapStyle } from 'src/utils/mapStyle';
 
 interface CountryBoundaryProperties {
@@ -65,12 +65,6 @@ interface CountryStats {
     maxCount: number;
 }
 
-const props = defineProps<{
-    data: Readonly<RecordedEventCountsByCountry>;
-    loading: boolean;
-    error: string;
-}>();
-
 const countryBoundaries = countryBoundariesJson as unknown as FeatureCollection<
     Geometry,
     CountryBoundaryProperties
@@ -84,12 +78,13 @@ const renderError = ref(false);
 const mapIsReady = ref(false);
 const { locale, t } = useI18n();
 const { formatNumber } = useLocalizedFormatters();
+const dashboardData = useDashboardData();
 let map: MapLibreMap | null = null;
 let popup: Popup | null = null;
 
 const countryStats = computed<CountryStats>(() => {
     const values = countryBoundaries.features
-        .map((feature) => props.data[feature.properties.country_code]?.event_count ?? 0)
+        .map((feature) => dashboardData.mapData[feature.properties.country_code]?.event_count ?? 0)
         .filter((count) => count > 0);
     return {
         countryCount: values.length,
@@ -112,15 +107,11 @@ const mapAriaLabel = computed(() =>
 );
 
 function eventCountLabel(count: number) {
-    return t(count === 1 ? 'dashboard.map.eventCountOne' : 'dashboard.map.eventCountOther', {
-        count: formatNumber(count),
-    });
+    return t('dashboard.map.eventCount', { count: formatNumber(count) }, count);
 }
 
 function countryCountLabel(count: number) {
-    return t(count === 1 ? 'dashboard.map.countryCountOne' : 'dashboard.map.countryCountOther', {
-        count: formatNumber(count),
-    });
+    return t('dashboard.map.countryCount', { count: formatNumber(count) }, count);
 }
 
 function countryName(countryCode: string) {
@@ -141,7 +132,8 @@ function createCountryData(): FeatureCollection<Geometry, CountryMapProperties> 
                 ...feature,
                 properties: {
                     country_code: feature.properties.country_code,
-                    event_count: props.data[feature.properties.country_code]?.event_count ?? 0,
+                    event_count:
+                        dashboardData.mapData[feature.properties.country_code]?.event_count ?? 0,
                 },
             }),
         ),
@@ -307,12 +299,7 @@ onBeforeUnmount(() => {
     map = null;
 });
 
-watch(
-    () => props.data,
-    () => {
-        syncCountryData();
-    },
-);
+watch(() => dashboardData.mapData, syncCountryData);
 </script>
 
 <style scoped lang="scss">

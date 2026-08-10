@@ -81,8 +81,9 @@ const props = defineProps<{
 }>();
 
 const toolColor = '#dc6803';
+const coordinateOptions: Intl.NumberFormatOptions = { maximumFractionDigits: 4 };
 const { t } = useI18n();
-const { formatDate, formatNumber } = useLocalizedFormatters();
+const { formatCoordinates, formatDate, formatNumber } = useLocalizedFormatters();
 const result = computed(() => (props.payload.status === 'finished' ? props.payload.answer : null));
 const mode = computed<'visual-and-raw' | 'raw-only'>(() =>
     props.payload.status === 'running' || result.value ? 'visual-and-raw' : 'raw-only',
@@ -91,7 +92,7 @@ const visualizationQuery = computed(() =>
     result.value
         ? {
               label: t('chat.activities.naturalEvents.searchArea'),
-              value: formatCoordinates(result.value.center.latitude, result.value.center.longitude),
+              value: formatCoordinates(result.value.center, coordinateOptions),
               icon: 'location_on',
           }
         : null,
@@ -105,7 +106,7 @@ const naturalEventsMapLabel = computed(() => {
     }
 
     return t('chat.activities.naturalEvents.mapLabel', {
-        coordinates: formatCoordinates(result.value.center.latitude, result.value.center.longitude),
+        coordinates: formatCoordinates(result.value.center, coordinateOptions),
         radius: formatDistance(result.value.center.radius_km),
     });
 });
@@ -147,11 +148,6 @@ function formatDistance(value: number): string {
     });
 }
 
-function formatCoordinates(latitude: number, longitude: number): string {
-    const options: Intl.NumberFormatOptions = { maximumFractionDigits: 4 };
-    return `${formatNumber(latitude, options)}, ${formatNumber(longitude, options)}`;
-}
-
 function formatProvider(provider: NaturalEvent['provider']): string {
     return provider === 'NASA EONET'
         ? t('chat.activities.naturalEvents.nasaEonet')
@@ -183,7 +179,7 @@ function eventExtraInfo(event: NaturalEvent) {
     }
     info.push({
         icon: 'location_on',
-        value: formatCoordinates(event.latitude, event.longitude),
+        value: formatCoordinates(event, coordinateOptions),
     });
     return info;
 }

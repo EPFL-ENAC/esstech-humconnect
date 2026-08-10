@@ -12,56 +12,56 @@
                     color="primary"
                     icon="refresh"
                     :label="t('dashboard.refresh')"
-                    :loading="loading"
-                    @click="loadEvents"
+                    :loading="dashboardData.loading"
+                    @click="dashboardData.refresh"
                 />
             </div>
 
             <q-card flat bordered class="filters-card">
                 <q-card-section>
                     <h2 class="filters-title">{{ t('dashboard.filters.title') }}</h2>
-                    <q-form class="filters-form" @submit.prevent="applyFilters">
+                    <q-form class="filters-form" @submit.prevent="dashboardData.applyFilters">
                         <div class="filters-grid">
                             <q-input
-                                v-model="draftFilters.keyword"
+                                v-model="dashboardData.draftFilters.keyword"
                                 outlined
                                 clearable
-                                :disable="loading"
+                                :disable="dashboardData.loading"
                                 :label="t('dashboard.filters.keyword')"
                             />
                             <q-select
-                                v-model="draftFilters.tags"
+                                v-model="dashboardData.draftFilters.tags"
                                 outlined
                                 multiple
                                 use-chips
                                 emit-value
                                 map-options
                                 clearable
-                                :disable="loading"
+                                :disable="dashboardData.loading"
                                 :label="t('dashboard.filters.tags')"
                                 :options="tagOptions"
                             />
                             <q-select
-                                v-model="draftFilters.affectedProfessionCategories"
+                                v-model="dashboardData.draftFilters.affectedProfessionCategories"
                                 outlined
                                 multiple
                                 use-chips
                                 emit-value
                                 map-options
                                 clearable
-                                :disable="loading"
+                                :disable="dashboardData.loading"
                                 :label="t('dashboard.filters.affectedProfessions')"
                                 :options="professionOptions"
                             />
                             <q-select
-                                v-model="draftFilters.responseProfessionCategories"
+                                v-model="dashboardData.draftFilters.responseProfessionCategories"
                                 outlined
                                 multiple
                                 use-chips
                                 emit-value
                                 map-options
                                 clearable
-                                :disable="loading"
+                                :disable="dashboardData.loading"
                                 :label="t('dashboard.filters.responseProfessions')"
                                 :options="professionOptions"
                             />
@@ -70,16 +70,16 @@
                             <q-btn
                                 flat
                                 color="primary"
-                                :disable="loading"
+                                :disable="dashboardData.loading"
                                 :label="t('dashboard.filters.clear')"
-                                @click="clearFilters"
+                                @click="dashboardData.clearFilters"
                             />
                             <q-btn
                                 color="primary"
                                 icon="filter_alt"
                                 type="submit"
-                                :disable="loading"
-                                :loading="loading"
+                                :disable="dashboardData.loading"
+                                :loading="dashboardData.loading"
                                 :label="t('dashboard.filters.apply')"
                             />
                         </div>
@@ -87,67 +87,23 @@
                 </q-card-section>
             </q-card>
 
-            <EventCountryMap
-                :data="dashboardStore.mapData"
-                :loading="dashboardStore.mapLoading"
-                :error="dashboardStore.mapError"
-            />
+            <EventCountryMap />
 
-            <RecordedEventList
-                v-model:page="listPage"
-                v-model:sort="listSort"
-                :data="dashboardStore.currentPageData"
-                :loading="dashboardStore.eventListLoading"
-                :error="dashboardStore.eventListError"
-                :filtered="hasAppliedFilters"
-                :page-count="dashboardStore.eventListTotalPages"
-            />
+            <RecordedEventList />
         </section>
     </q-page>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import EventCountryMap from 'src/components/dashboard/EventCountryMap.vue';
 import RecordedEventList from 'src/components/dashboard/RecordedEventList.vue';
-import { useDashboardStore } from 'src/stores/dashboard';
+import { useDashboardData } from 'src/queries/dashboard';
 import { eventTags, professionCategories } from 'src/utils/model';
-import type { EventTag, ProfessionCategory } from 'src/utils/model';
-
-interface DashboardFilters {
-    keyword: string | null;
-    tags: EventTag[];
-    affectedProfessionCategories: ProfessionCategory[];
-    responseProfessionCategories: ProfessionCategory[];
-}
-
-function emptyFilters(): DashboardFilters {
-    return {
-        keyword: '',
-        tags: [],
-        affectedProfessionCategories: [],
-        responseProfessionCategories: [],
-    };
-}
 
 const { t } = useI18n();
-const dashboardStore = useDashboardStore();
-const appliedFilters = ref<DashboardFilters>(emptyFilters());
-const draftFilters = ref<DashboardFilters>(emptyFilters());
-const loading = computed(() => dashboardStore.mapLoading || dashboardStore.eventListLoading);
-const listPage = computed({
-    get: () => dashboardStore.currentPage,
-    set: (page: number) => {
-        void dashboardStore.setCurrentListPage(page);
-    },
-});
-const listSort = computed({
-    get: () => dashboardStore.eventListSort,
-    set: (sort) => {
-        void dashboardStore.setEventListSort(sort);
-    },
-});
+const dashboardData = useDashboardData();
 
 const tagOptions = computed(() =>
     eventTags.map((tag) => ({
@@ -162,38 +118,6 @@ const professionOptions = computed(() =>
         value: category,
     })),
 );
-
-const hasAppliedFilters = computed(
-    () =>
-        Boolean(appliedFilters.value.keyword?.trim()) ||
-        appliedFilters.value.tags.length > 0 ||
-        appliedFilters.value.affectedProfessionCategories.length > 0 ||
-        appliedFilters.value.responseProfessionCategories.length > 0,
-);
-
-async function loadEvents() {
-    await dashboardStore.updateFilters(appliedFilters.value);
-}
-
-async function applyFilters() {
-    appliedFilters.value = {
-        keyword: draftFilters.value.keyword?.trim() || '',
-        tags: [...draftFilters.value.tags],
-        affectedProfessionCategories: [...draftFilters.value.affectedProfessionCategories],
-        responseProfessionCategories: [...draftFilters.value.responseProfessionCategories],
-    };
-    await loadEvents();
-}
-
-async function clearFilters() {
-    draftFilters.value = emptyFilters();
-    appliedFilters.value = emptyFilters();
-    await loadEvents();
-}
-
-onMounted(() => {
-    void loadEvents();
-});
 </script>
 
 <style scoped lang="scss">
