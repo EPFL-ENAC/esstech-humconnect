@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from tests.chat_room_helpers import *  # noqa: F403
@@ -85,6 +87,150 @@ def test_humconnect_chat_assistant_converts_complete_history_for_model():
             "content": "Hi",
         },
     ]
+
+
+def test_humconnect_chat_assistant_includes_finished_tool_calls_in_history():
+    chat_id = uuid4()
+    ask_payload = ToolCallPayload.from_finished(
+        tool_name="ask_question",
+        tool_label="Ask question",
+        call_id="call_ask_1",
+        arguments={
+            "question": "Which country are you in?",
+            "possible_answers": ["Haiti", "Sudan"],
+        },
+        answer="",
+    )
+    messages = [
+        ChatMessageResponse.from_db_model(
+            make_db_message(
+                chat_id, MESSAGE_ROLE_USER, "Help me", MESSAGE_STATUS_COMPLETE
+            )
+        ),
+        ChatMessageResponse(
+            id=uuid4(),
+            chat_id=chat_id,
+            role=MESSAGE_ROLE_ASSISTANT,
+            chunks=[
+                ChatMessageChunk.create(
+                    0, CHUNK_TYPE_TOOL_CALL, payload=ask_payload
+                )
+            ],
+            status=MESSAGE_STATUS_COMPLETE,
+            created_at=utc_now(),
+            updated_at=utc_now(),
+        ),
+        ChatMessageResponse.from_db_model(
+            make_db_message(
+                chat_id, MESSAGE_ROLE_USER, "Haiti", MESSAGE_STATUS_COMPLETE
+            )
+        ),
+    ]
+
+    model_input = HumConnectAssistant.chat_history_to_model_input(messages)
+
+    assert model_input == [
+        {
+            "role": MESSAGE_ROLE_USER,
+            "content": "Help me",
+        },
+        {
+            "type": "function_call",
+            "call_id": "call_ask_1",
+            "name": "ask_question",
+            "arguments": json.dumps(
+                {
+                    "question": "Which country are you in?",
+                    "possible_answers": ["Haiti", "Sudan"],
+                }
+            ),
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_ask_1",
+            "output": "",
+        },
+        {
+            "role": MESSAGE_ROLE_USER,
+            "content": "Haiti",
+        },
+    ]
+
+
+def test_humconnect_chat_assistant_orders_text_before_tool_calls_and_outputs():
+    chat_id = uuid4()
+    assistant_message = ChatMessageResponse(
+        id=uuid4(),
+        chat_id=chat_id,
+        role=MESSAGE_ROLE_ASSISTANT,
+        chunks=[
+            ChatMessageChunk.create(
+                0, CHUNK_TYPE_MESSAGE_CONTENT, "Let me check."
+            ),
+            ChatMessageChunk.create(
+                1,
+                CHUNK_TYPE_TOOL_CALL,
+                payload=ToolCallPayload.from_finished(
+                    tool_name="get_humanitarian_context",
+                    tool_label="Humanitarian context",
+                    call_id="call_ctx",
+                    arguments={"country": "Sudan"},
+                    answer="Sudan is experiencing a severe humanitarian crisis.",
+                ),
+            ),
+        ],
+        status=MESSAGE_STATUS_COMPLETE,
+        created_at=utc_now(),
+        updated_at=utc_now(),
+    )
+
+    model_input = HumConnectAssistant.chat_history_to_model_input([assistant_message])
+
+    assert model_input == [
+        {
+            "role": MESSAGE_ROLE_ASSISTANT,
+            "content": "Let me check.",
+        },
+        {
+            "type": "function_call",
+            "call_id": "call_ctx",
+            "name": "get_humanitarian_context",
+            "arguments": json.dumps({"country": "Sudan"}),
+        },
+        {
+            "type": "function_call_output",
+            "call_id": "call_ctx",
+            "output": "Sudan is experiencing a severe humanitarian crisis.",
+        },
+    ]
+
+
+def test_humconnect_chat_assistant_omits_running_tool_calls_from_history():
+    chat_id = uuid4()
+    assistant_message = ChatMessageResponse(
+        id=uuid4(),
+        chat_id=chat_id,
+        role=MESSAGE_ROLE_ASSISTANT,
+        chunks=[
+            ChatMessageChunk.create(
+                0,
+                CHUNK_TYPE_TOOL_CALL,
+                payload=ToolCallPayload.from_running(
+                    tool_name="ask_question",
+                    tool_label="Ask question",
+                    call_id="call_running",
+                    arguments={"question": "Where?", "possible_answers": []},
+                ),
+            )
+        ],
+        status=MESSAGE_STATUS_STREAMING,
+        created_at=utc_now(),
+        updated_at=utc_now(),
+    )
+
+    model_input = HumConnectAssistant.chat_history_to_model_input([assistant_message])
+
+    assert model_input == []
 
 
 def test_user_profile_prompt_context_formats_prompt_safe_fields():

@@ -1,8 +1,9 @@
+import json
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID, uuid4
 
-from openai.types.responses import EasyInputMessageParam
+from openai.types.responses import ResponseInputItemParam
 from pydantic import BaseModel
 from pydantic import Field as PydanticField
 from sqlalchemy import JSON, Column, DateTime
@@ -311,11 +312,90 @@ class ChatMessageResponse(BaseModel):
             if chunk.type == CHUNK_TYPE_MESSAGE_CONTENT
         )
 
-    def to_ai_model_input(self) -> EasyInputMessageParam:
-        return {
-            "role": self.role,
-            "content": self.content_for_model(),
-        }
+    def _tool_call_input_item(
+        self, payload: ToolCallPayload
+    ) -> ResponseInputItemParam | None:
+        if payload.arguments is None:
+            return None
+        return cast(
+            ResponseInputItemParam,
+            {
+                "type": "function_call",
+                "call_id": payload.call_id,
+                "name": payload.tool_name,
+                "arguments": json.dumps(payload.arguments),
+            },
+        )
+
+    def _tool_call_output_item(
+        self, payload: ToolCallPayload
+    ) -> ResponseInputItemParam | None:
+        if payload.status == "running":
+            return None
+        output = payload.error if payload.status == "failed" else (payload.answer or "")
+        return cast(
+            ResponseInputItemParam,
+            {
+                "type": "function_call_output",
+                "call_id": payload.call_id,
+                "output": output,
+            },
+        )
+
+    def to_model_input_items(self) -> list[ResponseInputItemParam]:
+        items: list[ResponseInputItemParam] = []
+        content = self.content_for_model()
+
+        if self.role == MESSAGE_ROLE_USER:
+            if content:
+                items.append(
+                    cast(
+                        ResponseInputItemParam,
+                        {"role": "user", "content": content},
+                    )
+                )
+            return items
+
+        # For assistant messages, preserve the relative order of text and tool
+        # calls by sorting all function_call items (including the optional text
+        # message) by chunk index. Function call outputs are appended afterwards,
+        # matching the Responses API convention of placing all outputs after the
+        # model-generated output items.
+        call_items: list[tuple[int, ResponseInputItemParam]] = []
+        first_content_index: int | None = None
+        for chunk in self.chunks:
+            if chunk.type == CHUNK_TYPE_MESSAGE_CONTENT and first_content_index is None:
+                first_content_index = chunk.index
+
+        if content and first_content_index is not None:
+            call_items.append(
+                (
+                    first_content_index,
+                    cast(
+                        ResponseInputItemParam,
+                        {"role": "assistant", "content": content},
+                    ),
+                )
+            )
+
+        tool_output_items: list[ResponseInputItemParam] = []
+        for chunk in sorted(self.chunks, key=lambda item: item.index):
+            if chunk.type != CHUNK_TYPE_TOOL_CALL or chunk.payload is None:
+                continue
+            payload = chunk.payload
+            if payload.status == "running":
+                continue
+            input_item = self._tool_call_input_item(payload)
+            output_item = self._tool_call_output_item(payload)
+            if input_item is not None:
+                call_items.append((chunk.index, input_item))
+            if output_item is not None:
+                tool_output_items.append(output_item)
+
+        call_items.sort(key=lambda item: item[0])
+        items.extend(item for _, item in call_items)
+        items.extend(tool_output_items)
+        return items
 
     def update_status(self, new_status: MessageStatus) -> None:
         self.status = new_status
