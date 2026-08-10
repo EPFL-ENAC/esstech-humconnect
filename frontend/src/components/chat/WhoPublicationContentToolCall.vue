@@ -3,7 +3,7 @@
         :title="payload.tool_label"
         :summary="summary"
         icon="menu_book"
-        color="#087e8b"
+        :color="toolColor"
         :mode="mode"
         :status="payload.status"
         default-opened
@@ -11,7 +11,7 @@
         <template #visualization>
             <ToolCallVisualizationSkeleton
                 :loading="payload.status === 'running'"
-                accent-color="#087e8b"
+                :accent-color="toolColor"
                 :query="visualizationQuery"
                 :warnings="result?.warnings"
                 :results-summary="result ? '1' : undefined"
@@ -20,7 +20,7 @@
                     <ChatCardGallery v-if="result">
                         <ToolCardItem
                             :href="result.source_url"
-                            color="#087e8b"
+                            :color="toolColor"
                             :eyebrow="t('chat.activities.whoPublicationContent.provider')"
                             :title="result.title"
                             :extra-info="publicationExtraInfo"
@@ -57,6 +57,7 @@ const props = defineProps<{
     payload: WhoPublicationContentToolCallPayload;
 }>();
 
+const toolColor = '#087e8b';
 const { t } = useI18n();
 const result = computed(() => (props.payload.status === 'finished' ? props.payload.answer : null));
 const mode = computed<'visual-and-raw' | 'raw-only'>(() =>
@@ -72,20 +73,10 @@ const truncatedCount = computed(
 );
 const documentCountLabel = computed(() => {
     const count = result.value?.documents.length ?? 0;
-    return t(
-        count === 1
-            ? 'chat.activities.whoPublicationContent.document'
-            : 'chat.activities.whoPublicationContent.documents',
-        { count },
-    );
+    return t('chat.activities.whoPublicationContent.document', count);
 });
 const truncatedCountLabel = computed(() =>
-    t(
-        truncatedCount.value === 1
-            ? 'chat.activities.whoPublicationContent.truncatedDocument'
-            : 'chat.activities.whoPublicationContent.truncatedDocuments',
-        { count: truncatedCount.value },
-    ),
+    t('chat.activities.whoPublicationContent.truncatedDocument', truncatedCount.value),
 );
 const publicationExtraInfo = computed(() => {
     const info = [{ icon: 'description', value: documentCountLabel.value }];
@@ -101,12 +92,7 @@ const summary = computed(() => {
 
     if (result.value) {
         const count = result.value.documents.length;
-        return t(
-            count === 1
-                ? 'chat.activities.whoPublicationContent.readyDocument'
-                : 'chat.activities.whoPublicationContent.readyDocuments',
-            { count },
-        );
+        return t('chat.activities.whoPublicationContent.readyDocument', count);
     }
 
     return t(`chat.activities.status.${props.payload.status}`);

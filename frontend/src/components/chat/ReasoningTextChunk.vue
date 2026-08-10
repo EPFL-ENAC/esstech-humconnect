@@ -24,11 +24,7 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const characterCount = computed(() => Array.from(props.chunk.content).length);
-const summary = computed(() =>
-    t(characterCount.value === 1 ? 'chat.activities.character' : 'chat.activities.characters', {
-        count: characterCount.value,
-    }),
-);
+const summary = computed(() => t('chat.activities.character', characterCount.value));
 </script>
 
 <style scoped lang="scss">

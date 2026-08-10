@@ -97,12 +97,7 @@ const summary = computed(() => {
 });
 
 function localizedPageCount(count: number): string {
-    return t(
-        count === 1 ? 'chat.activities.sanihub.pageResult' : 'chat.activities.sanihub.pageResults',
-        {
-            count,
-        },
-    );
+    return t('chat.activities.sanihub.pageResult', count);
 }
 </script>
 

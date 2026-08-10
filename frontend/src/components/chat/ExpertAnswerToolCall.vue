@@ -40,6 +40,7 @@ import ChatActivityBlock from './ChatActivityBlock.vue';
 import ChatMarkdownContent from './ChatMarkdownContent.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
 import ToolCallVisualizationSkeleton from './ToolCallVisualizationSkeleton.vue';
+import { truncateUnicode } from 'src/utils/text';
 import type { ExpertAnswerToolCallPayload } from './toolCallSchemas';
 
 interface ExpertPresentation {
@@ -137,20 +138,9 @@ function summarySuffix(): string {
     return localizedCharacterCount(props.payload.answer ?? '');
 }
 
-function truncateUnicode(value: string, maxLength: number): string {
-    const characters = Array.from(value);
-    if (characters.length <= maxLength) {
-        return value;
-    }
-
-    return `${characters.slice(0, maxLength - 1).join('')}…`;
-}
-
 function localizedCharacterCount(value: string): string {
     const count = Array.from(value).length;
-    return t(count === 1 ? 'chat.activities.character' : 'chat.activities.characters', {
-        count,
-    });
+    return t('chat.activities.character', count);
 }
 </script>
 

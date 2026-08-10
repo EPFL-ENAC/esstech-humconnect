@@ -35,6 +35,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
 import type { EventTag, RecordedEvent } from 'src/utils/model';
 import ToolCardItem from './ToolCardItem.vue';
 
@@ -42,7 +43,8 @@ const props = defineProps<{
     event: RecordedEvent;
 }>();
 
-const { locale, t } = useI18n();
+const { t } = useI18n();
+const { formatDate, formatNumber } = useLocalizedFormatters();
 const extraInfo = computed(() => [
     { icon: 'calendar_today', value: formatEventDateRange() },
     { icon: 'location_on', value: formatLocation() },
@@ -53,28 +55,13 @@ function eventTagLabel(tag: EventTag): string {
 }
 
 function formatEventDateRange(): string {
-    const start = formatDate(props.event.event_datetime);
+    const unknownDate = t('chat.activities.events.unknownDate');
+    const start = formatDate(props.event.event_datetime, unknownDate);
     if (!props.event.event_end_datetime) {
         return start;
     }
 
-    return `${start} – ${formatDate(props.event.event_end_datetime)}`;
-}
-
-function formatDate(value: string | null): string {
-    if (!value) {
-        return t('chat.activities.events.unknownDate');
-    }
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-
-    return new Intl.DateTimeFormat(locale.value, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-    }).format(date);
+    return `${start} – ${formatDate(props.event.event_end_datetime, unknownDate)}`;
 }
 
 function formatLocation(): string {
@@ -112,7 +99,7 @@ function formatSeverity(value: number | null): string {
         return t('dashboard.severity.notRated');
     }
 
-    const score = new Intl.NumberFormat(locale.value, { maximumFractionDigits: 1 }).format(value);
+    const score = formatNumber(value, { maximumFractionDigits: 1 });
     return `${score}/10`;
 }
 </script>

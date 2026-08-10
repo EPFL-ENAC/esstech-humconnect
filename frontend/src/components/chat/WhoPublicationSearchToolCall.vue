@@ -3,7 +3,7 @@
         :title="payload.tool_label"
         :summary="summary"
         icon="health_and_safety"
-        color="#087e8b"
+        :color="toolColor"
         :mode="mode"
         :status="payload.status"
         default-opened
@@ -11,7 +11,7 @@
         <template #visualization>
             <ToolCallVisualizationSkeleton
                 :loading="payload.status === 'running'"
-                accent-color="#087e8b"
+                :accent-color="toolColor"
                 :query="visualizationQuery"
                 :results-summary="visualizationResultsSummary"
                 :empty-state="visualizationEmptyState"
@@ -22,7 +22,7 @@
                             v-for="publication in result.results"
                             :key="publication.item_id"
                             :href="publication.source_url"
-                            color="#087e8b"
+                            :color="toolColor"
                             :eyebrow="t('chat.activities.whoPublications.provider')"
                             :title="publication.title"
                             :extra-info="publicationExtraInfo(publication)"
@@ -55,13 +55,16 @@ import ChatCardGallery from './ChatCardGallery.vue';
 import ToolCardItem from './ToolCardItem.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
 import ToolCallVisualizationSkeleton from './ToolCallVisualizationSkeleton.vue';
+import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
 import type { WhoPublication, WhoPublicationSearchToolCallPayload } from './toolCallSchemas';
 
 const props = defineProps<{
     payload: WhoPublicationSearchToolCallPayload;
 }>();
 
-const { locale, t } = useI18n();
+const toolColor = '#087e8b';
+const { t } = useI18n();
+const { formatDate } = useLocalizedFormatters();
 const result = computed(() => (props.payload.status === 'finished' ? props.payload.answer : null));
 const mode = computed<'visual-and-raw' | 'raw-only'>(() =>
     props.payload.status === 'running' || result.value ? 'visual-and-raw' : 'raw-only',
@@ -96,29 +99,11 @@ const summary = computed(() => {
 
     if (result.value) {
         const count = result.value.results.length;
-        return t(
-            count === 1
-                ? 'chat.activities.whoPublications.result'
-                : 'chat.activities.whoPublications.results',
-            { count },
-        );
+        return t('chat.activities.whoPublications.result', count);
     }
 
     return t(`chat.activities.status.${props.payload.status}`);
 });
-
-function formatDate(value: string | null): string {
-    if (!value) {
-        return t('chat.activities.whoPublications.unknownDate');
-    }
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-
-    return new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium' }).format(date);
-}
 
 function formatList(values: string[]): string {
     return values.length ? values.join(' · ') : t('chat.activities.whoPublications.notAvailable');
@@ -126,7 +111,14 @@ function formatList(values: string[]): string {
 
 function publicationExtraInfo(publication: WhoPublication) {
     return [
-        { icon: 'calendar_today', value: formatDate(publication.published_date) },
+        {
+            icon: 'calendar_today',
+            value: formatDate(
+                publication.published_date,
+                t('chat.activities.whoPublications.unknownDate'),
+                { dateStyle: 'medium' },
+            ),
+        },
         { icon: 'person', value: formatList(publication.authors) },
         { icon: 'description', value: formatList(publication.document_types) },
         { icon: 'translate', value: formatList(publication.languages) },

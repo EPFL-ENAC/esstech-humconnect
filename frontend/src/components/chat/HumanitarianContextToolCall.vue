@@ -3,7 +3,7 @@
         :title="payload.tool_label"
         :summary="summary"
         icon="public"
-        color="#1570ef"
+        :color="toolColor"
         :mode="mode"
         :status="payload.status"
         default-opened
@@ -11,7 +11,7 @@
         <template #visualization>
             <ToolCallVisualizationSkeleton
                 :loading="payload.status === 'running'"
-                accent-color="#1570ef"
+                :accent-color="toolColor"
                 :query="visualizationQuery"
                 :filters="visualizationFilters"
                 :warnings="result?.warnings"
@@ -24,7 +24,7 @@
                             v-for="item in result.items"
                             :key="`${item.type}-${item.id}`"
                             :href="item.source_url ?? undefined"
-                            color="#1570ef"
+                            :color="toolColor"
                             :eyebrow="formatItemType(item.type)"
                             :title="item.title"
                             :extra-info="itemExtraInfo(item)"
@@ -52,6 +52,7 @@ import ChatCardGallery from './ChatCardGallery.vue';
 import ToolCardItem from './ToolCardItem.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
 import ToolCallVisualizationSkeleton from './ToolCallVisualizationSkeleton.vue';
+import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
 import type {
     HumanitarianContextItem,
     HumanitarianContextToolCallPayload,
@@ -61,7 +62,9 @@ const props = defineProps<{
     payload: HumanitarianContextToolCallPayload;
 }>();
 
-const { locale, t } = useI18n();
+const toolColor = '#1570ef';
+const { t } = useI18n();
+const { formatDate } = useLocalizedFormatters();
 const result = computed(() => (props.payload.status === 'finished' ? props.payload.answer : null));
 const country = computed(() => props.payload.arguments.country_name);
 const mode = computed<'visual-and-raw' | 'raw-only'>(() =>
@@ -90,7 +93,7 @@ const visualizationFilters = computed(() => {
         {
             icon: 'calendar_today',
             label: t('chat.activities.humanitarian.createdFrom'),
-            value: formatDate(filters.created_from),
+            value: formatDate(filters.created_from, t('chat.activities.humanitarian.unknownDate')),
         },
         {
             icon: 'filter_list',
@@ -131,32 +134,11 @@ const summary = computed(() => {
 
     if (result.value) {
         const count = result.value.items.length;
-        return t(
-            count === 1
-                ? 'chat.activities.humanitarian.result'
-                : 'chat.activities.humanitarian.results',
-            { count },
-        );
+        return t('chat.activities.humanitarian.result', count);
     }
 
     return t(`chat.activities.status.${props.payload.status}`);
 });
-
-function formatDate(value: string | null): string {
-    if (!value) {
-        return t('chat.activities.humanitarian.unknownDate');
-    }
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-
-    return new Intl.DateTimeFormat(locale.value, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-    }).format(date);
-}
 
 function formatSort(sort: string[]): string {
     return sort.length === 1 && sort[0] === 'date.created:desc'
@@ -178,7 +160,10 @@ function formatSources(sources: string[], provider: string): string {
 
 function itemExtraInfo(item: HumanitarianContextItem) {
     return [
-        { icon: 'calendar_today', value: formatDate(item.time) },
+        {
+            icon: 'calendar_today',
+            value: formatDate(item.time, t('chat.activities.humanitarian.unknownDate')),
+        },
         { icon: 'source', value: formatSources(item.sources, item.provider) },
     ];
 }

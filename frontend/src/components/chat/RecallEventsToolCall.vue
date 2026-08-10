@@ -3,7 +3,7 @@
         :title="payload.tool_label"
         :summary="summary"
         icon="manage_search"
-        color="#444CE7"
+        :color="toolColor"
         :mode="mode"
         :status="payload.status"
         default-opened
@@ -11,7 +11,7 @@
         <template #visualization>
             <ToolCallVisualizationSkeleton
                 :loading="payload.status === 'running'"
-                accent-color="#444ce7"
+                :accent-color="toolColor"
                 :query="visualizationQuery"
                 :filters="visualizationFilters"
                 :results-summary="visualizationResultsSummary"
@@ -39,13 +39,16 @@ import ChatCardGallery from './ChatCardGallery.vue';
 import RecordedEventCard from './RecordedEventCard.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
 import ToolCallVisualizationSkeleton from './ToolCallVisualizationSkeleton.vue';
+import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
 import type { RecallEventsToolCallPayload } from './toolCallSchemas';
 
 const props = defineProps<{
     payload: RecallEventsToolCallPayload;
 }>();
 
-const { locale, t } = useI18n();
+const toolColor = '#444ce7';
+const { t } = useI18n();
+const { formatDate } = useLocalizedFormatters();
 const events = computed(() =>
     props.payload.status === 'finished' ? (props.payload.answer?.events ?? null) : null,
 );
@@ -68,14 +71,20 @@ const visualizationFilters = computed(() => {
         filters.push({
             icon: 'date_range',
             label: t('chat.activities.events.dateStart'),
-            value: formatFilterDate(props.payload.arguments.date_start),
+            value: formatDate(
+                props.payload.arguments.date_start,
+                t('chat.activities.events.unknownDate'),
+            ),
         });
     }
     if (props.payload.arguments.date_end) {
         filters.push({
             icon: 'event',
             label: t('chat.activities.events.dateEnd'),
-            value: formatFilterDate(props.payload.arguments.date_end),
+            value: formatDate(
+                props.payload.arguments.date_end,
+                t('chat.activities.events.unknownDate'),
+            ),
         });
     }
     if (tags.value.length) {
@@ -129,22 +138,6 @@ function resolveSummary(): string {
     }
 
     const count = events.value.length;
-    if (count === 1) {
-        return t('chat.activities.events.result', { count });
-    }
-
-    return t('chat.activities.events.results', { count });
-}
-
-function formatFilterDate(value: string): string {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-
-    return new Intl.DateTimeFormat(locale.value, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-    }).format(date);
+    return t('chat.activities.events.result', count);
 }
 </script>

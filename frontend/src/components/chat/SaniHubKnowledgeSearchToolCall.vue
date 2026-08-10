@@ -162,9 +162,7 @@ const summary = computed(() => {
 });
 
 function localizedResultCount(count: number): string {
-    return t(count === 1 ? 'chat.activities.sanihub.result' : 'chat.activities.sanihub.results', {
-        count,
-    });
+    return t('chat.activities.sanihub.result', count);
 }
 
 function localizedTopic(topic: SaniHubTopic): string {

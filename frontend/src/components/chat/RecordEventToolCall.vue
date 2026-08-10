@@ -3,7 +3,7 @@
         :title="payload.tool_label"
         :summary="summary"
         icon="event_available"
-        color="#039855"
+        :color="toolColor"
         :mode="mode"
         :status="payload.status"
         default-opened
@@ -11,7 +11,7 @@
         <template #visualization>
             <ToolCallVisualizationSkeleton
                 :loading="payload.status === 'running'"
-                accent-color="#039855"
+                :accent-color="toolColor"
                 :query="visualizationQuery"
                 :results-summary="event ? '1' : undefined"
             >
@@ -37,12 +37,14 @@ import ChatCardGallery from './ChatCardGallery.vue';
 import RecordedEventCard from './RecordedEventCard.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
 import ToolCallVisualizationSkeleton from './ToolCallVisualizationSkeleton.vue';
+import { truncateUnicode } from 'src/utils/text';
 import type { RecordEventToolCallPayload } from './toolCallSchemas';
 
 const props = defineProps<{
     payload: RecordEventToolCallPayload;
 }>();
 
+const toolColor = '#039855';
 const { t } = useI18n();
 const event = computed(() =>
     props.payload.status === 'finished' ? (props.payload.answer?.event ?? null) : null,
@@ -75,14 +77,5 @@ function resolveSummary(): string {
     return t('chat.activities.events.recorded', {
         name: truncateUnicode(event.value.event_name, 48),
     });
-}
-
-function truncateUnicode(value: string, maxLength: number): string {
-    const characters = Array.from(value);
-    if (characters.length <= maxLength) {
-        return value;
-    }
-
-    return `${characters.slice(0, maxLength - 1).join('')}…`;
 }
 </script>

@@ -3,7 +3,7 @@
         :title="payload.tool_label"
         :summary="summary"
         icon="crisis_alert"
-        color="#dc6803"
+        :color="toolColor"
         :mode="mode"
         :status="payload.status"
         default-opened
@@ -11,7 +11,7 @@
         <template #visualization>
             <ToolCallVisualizationSkeleton
                 :loading="payload.status === 'running'"
-                accent-color="#dc6803"
+                :accent-color="toolColor"
                 :query="visualizationQuery"
                 :filters="visualizationFilters"
                 :warnings="result?.warnings"
@@ -34,7 +34,7 @@
                             v-for="event in result.events"
                             :key="`${event.provider}-${event.id}`"
                             :href="event.source_url ?? undefined"
-                            color="#dc6803"
+                            :color="toolColor"
                             :eyebrow="formatProvider(event.provider)"
                             :title="event.title"
                             :extra-info="eventExtraInfo(event)"
@@ -69,6 +69,7 @@ import ChatCardGallery from './ChatCardGallery.vue';
 import ToolCardItem from './ToolCardItem.vue';
 import ToolCallRawContent from './ToolCallRawContent.vue';
 import ToolCallVisualizationSkeleton from './ToolCallVisualizationSkeleton.vue';
+import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
 import type { NaturalEvent, NaturalEventsToolCallPayload } from './toolCallSchemas';
 
 const CenterLocationMap = defineAsyncComponent(
@@ -79,7 +80,9 @@ const props = defineProps<{
     payload: NaturalEventsToolCallPayload;
 }>();
 
-const { locale, t } = useI18n();
+const toolColor = '#dc6803';
+const { t } = useI18n();
+const { formatDate, formatNumber } = useLocalizedFormatters();
 const result = computed(() => (props.payload.status === 'finished' ? props.payload.answer : null));
 const mode = computed<'visual-and-raw' | 'raw-only'>(() =>
     props.payload.status === 'running' || result.value ? 'visual-and-raw' : 'raw-only',
@@ -132,43 +135,21 @@ const summary = computed(() => {
 
     if (result.value) {
         const count = result.value.events.length;
-        return t(
-            count === 1
-                ? 'chat.activities.naturalEvents.result'
-                : 'chat.activities.naturalEvents.results',
-            { count },
-        );
+        return t('chat.activities.naturalEvents.result', count);
     }
 
     return t(`chat.activities.status.${props.payload.status}`);
 });
 
-function formatDate(value: string | null): string {
-    if (!value) {
-        return t('chat.activities.naturalEvents.unknownDate');
-    }
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-
-    return new Intl.DateTimeFormat(locale.value, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-    }).format(date);
-}
-
-function formatNumber(value: number, maximumFractionDigits = 1): string {
-    return new Intl.NumberFormat(locale.value, { maximumFractionDigits }).format(value);
-}
-
 function formatDistance(value: number): string {
-    return t('chat.activities.naturalEvents.distanceValue', { value: formatNumber(value) });
+    return t('chat.activities.naturalEvents.distanceValue', {
+        value: formatNumber(value, { maximumFractionDigits: 1 }),
+    });
 }
 
 function formatCoordinates(latitude: number, longitude: number): string {
-    return `${formatNumber(latitude, 4)}, ${formatNumber(longitude, 4)}`;
+    const options: Intl.NumberFormatOptions = { maximumFractionDigits: 4 };
+    return `${formatNumber(latitude, options)}, ${formatNumber(longitude, options)}`;
 }
 
 function formatProvider(provider: NaturalEvent['provider']): string {
@@ -188,13 +169,16 @@ function formatStatus(status: string): string {
 
 function eventExtraInfo(event: NaturalEvent) {
     const info = [
-        { icon: 'calendar_today', value: formatDate(event.time) },
+        {
+            icon: 'calendar_today',
+            value: formatDate(event.time, t('chat.activities.naturalEvents.unknownDate')),
+        },
         { icon: 'near_me', value: formatDistance(event.distance_km) },
     ];
     if (event.magnitude !== null) {
         info.push({
             icon: 'speed',
-            value: `${t('chat.activities.naturalEvents.magnitude')} ${formatNumber(event.magnitude)}`,
+            value: `${t('chat.activities.naturalEvents.magnitude')} ${formatNumber(event.magnitude, { maximumFractionDigits: 1 })}`,
         });
     }
     info.push({
