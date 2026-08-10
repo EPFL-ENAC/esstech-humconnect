@@ -26,7 +26,7 @@ def assert_dashboard_filter_query(query_text):
     assert query_text.count(" AND ") >= 3
 
 
-def test_recorded_event_service_lists_events_in_descending_order():
+def test_recorded_event_service_lists_paginated_events_in_stable_descending_order():
     FakeAsyncSession.reset()
     older_event = make_recorded_event()
     newer_event = make_recorded_event(event_name="Newer event")
@@ -38,14 +38,22 @@ def test_recorded_event_service_lists_events_in_descending_order():
         engine_factory=cast(Any, lambda: object()),
     )
 
-    events = asyncio.run(
-        service.list_events(filters=recorded_events_module.ListRecordedEventsFilters())
+    events, total_count = asyncio.run(
+        service.list_events(
+            filters=recorded_events_module.ListRecordedEventsFilters(),
+            page=1,
+            page_size=1,
+        )
     )
 
-    assert events == [newer_event, older_event]
+    assert events == [newer_event]
+    assert total_count == 2
     query_text = str(FakeAsyncSession.last_query)
-    assert "ORDER BY recordedevent.created_at DESC" in query_text
+    assert "ORDER BY recordedevent.created_at DESC, recordedevent.id DESC" in query_text
+    assert " LIMIT " in query_text
+    assert " OFFSET " in query_text
     assert "WHERE" not in query_text
+    assert "count(recordedevent.id)" in str(FakeAsyncSession.queries[0]).lower()
 
 
 def test_recorded_event_service_applies_dashboard_filters_to_list_query():
@@ -56,12 +64,15 @@ def test_recorded_event_service_applies_dashboard_filters_to_list_query():
         engine_factory=cast(Any, lambda: object()),
     )
 
-    asyncio.run(service.list_events(filters=filters))
+    asyncio.run(service.list_events(filters=filters, page=2, page_size=20))
 
     assert filters.keyword == "medical"
     query_text = str(FakeAsyncSession.last_query)
     assert_dashboard_filter_query(query_text)
     assert "ORDER BY recordedevent.created_at DESC" in query_text
+    assert " LIMIT " in query_text
+    assert " OFFSET " in query_text
+    assert_dashboard_filter_query(str(FakeAsyncSession.queries[0]))
 
 
 def test_recorded_event_service_counts_events_by_country():

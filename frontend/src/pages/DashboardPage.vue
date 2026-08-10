@@ -94,10 +94,12 @@
             />
 
             <RecordedEventList
-                :data="dashboardStore.eventListData"
+                v-model:page="listPage"
+                :data="dashboardStore.currentPageData"
                 :loading="dashboardStore.eventListLoading"
                 :error="dashboardStore.eventListError"
                 :filtered="hasAppliedFilters"
+                :page-count="dashboardStore.eventListTotalPages"
             />
         </section>
     </q-page>
@@ -133,6 +135,12 @@ const dashboardStore = useDashboardStore();
 const appliedFilters = ref<DashboardFilters>(emptyFilters());
 const draftFilters = ref<DashboardFilters>(emptyFilters());
 const loading = computed(() => dashboardStore.mapLoading || dashboardStore.eventListLoading);
+const listPage = computed({
+    get: () => dashboardStore.currentPage,
+    set: (page: number) => {
+        void dashboardStore.setCurrentListPage(page);
+    },
+});
 
 const tagOptions = computed(() =>
     eventTags.map((tag) => ({
@@ -157,7 +165,7 @@ const hasAppliedFilters = computed(
 );
 
 async function loadEvents() {
-    await dashboardStore.load(appliedFilters.value);
+    await dashboardStore.updateFilters(appliedFilters.value);
 }
 
 async function applyFilters() {

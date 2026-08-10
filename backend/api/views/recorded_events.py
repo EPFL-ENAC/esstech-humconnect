@@ -50,11 +50,21 @@ async def list_recorded_events(
         RecordedEventService,
         Depends(get_recorded_event_service),
     ],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     user: User = Depends(require_admin()),
 ) -> ListRecordedEventsResponse:
-    events = await service.list_events(filters=filters)
+    events, total_count = await service.list_events(
+        filters=filters,
+        page=page,
+        page_size=page_size,
+    )
     return ListRecordedEventsResponse(
-        events=[RecordedEventResponse.from_recorded_event(event) for event in events]
+        events=[RecordedEventResponse.from_recorded_event(event) for event in events],
+        page=page,
+        page_size=page_size,
+        total_count=total_count,
+        total_pages=(total_count + page_size - 1) // page_size,
     )
 
 

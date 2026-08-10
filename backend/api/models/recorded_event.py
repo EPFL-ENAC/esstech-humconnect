@@ -387,6 +387,10 @@ class RecordedEventResponse(BaseModel):
 
 class ListRecordedEventsResponse(BaseModel):
     events: list[RecordedEventResponse]
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1)
+    total_count: int = Field(ge=0)
+    total_pages: int = Field(ge=0)
 
 
 class RecordedEventCountryCount(BaseModel):

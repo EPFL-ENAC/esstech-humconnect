@@ -98,11 +98,17 @@ class FakeResult:
     def first(self):
         return self._rows[0] if self._rows else None
 
+    def one(self):
+        if len(self._rows) != 1:
+            raise AssertionError(f"Expected exactly one row, got {len(self._rows)}")
+        return self._rows[0]
+
 
 class FakeAsyncSession:
     commit_count = 0
     instances = []
     last_query = None
+    queries = []
     rows = {
         ChatSession: {},
         Message: {},
@@ -127,18 +133,24 @@ class FakeAsyncSession:
 
     async def exec(self, query):
         self.__class__.last_query = query
+        self.__class__.queries.append(query)
         query_text = str(query)
         if "chatsession" in query_text:
             return FakeResult(list(self.rows[ChatSession].values()))
         if "recordedevent" in query_text:
             events = list(self.rows[RecordedEvent].values())
             if "count(recordedevent.id)" in query_text.lower():
+                if "group by" not in query_text.lower():
+                    return FakeResult([len(events)])
                 counts = {}
                 for event in events:
                     country_code = event.location_country_code or UNKNOWN_COUNTRY_CODE
                     counts[country_code] = counts.get(country_code, 0) + 1
                 return FakeResult(list(counts.items()))
-            events.sort(key=lambda event: event.created_at, reverse=True)
+            events.sort(key=lambda event: (event.created_at, event.id), reverse=True)
+            offset = getattr(getattr(query, "_offset_clause", None), "value", 0)
+            limit = getattr(getattr(query, "_limit_clause", None), "value", None)
+            events = events[offset : offset + limit if limit is not None else None]
             return FakeResult(events)
 
         messages = list(self.rows[Message].values())
@@ -172,6 +184,7 @@ class FakeAsyncSession:
         cls.commit_count = 0
         cls.instances = []
         cls.last_query = None
+        cls.queries = []
         cls.rows = {
             ChatSession: {},
             Message: {},

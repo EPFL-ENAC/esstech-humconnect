@@ -5,7 +5,6 @@ import type {
     EventTag,
     ListRecordedEventsResponse,
     ProfessionCategory,
-    RecordedEvent,
     RecordedEventCountsByCountry,
 } from 'src/utils/model';
 
@@ -16,7 +15,15 @@ export interface RecordedEventFilters {
     responseProfessionCategories?: readonly ProfessionCategory[];
 }
 
-function queryRecordedEvents(filters: RecordedEventFilters): string {
+export interface RecordedEventPagination {
+    page: number;
+    pageSize: number;
+}
+
+function queryRecordedEvents(
+    filters: RecordedEventFilters,
+    pagination?: RecordedEventPagination,
+): string {
     const params = new URLSearchParams();
     const keyword = filters.keyword?.trim();
     if (keyword) {
@@ -29,27 +36,35 @@ function queryRecordedEvents(filters: RecordedEventFilters): string {
     filters.responseProfessionCategories?.forEach((category) =>
         params.append('response_profession_categories', category),
     );
+    if (pagination) {
+        params.set('page', String(pagination.page));
+        params.set('page_size', String(pagination.pageSize));
+    }
     return params.toString();
 }
 
-function recordedEventsUrl(path: string, filters: RecordedEventFilters): string {
-    const query = queryRecordedEvents(filters);
+function recordedEventsUrl(
+    path: string,
+    filters: RecordedEventFilters,
+    pagination?: RecordedEventPagination,
+): string {
+    const query = queryRecordedEvents(filters, pagination);
     return `${baseUrl}/recorded-events${path}${query ? `?${query}` : ''}`;
 }
 
 export async function listRecordedEvents(
     filters: RecordedEventFilters = {},
-): Promise<RecordedEvent[]> {
+    pagination: RecordedEventPagination,
+): Promise<ListRecordedEventsResponse> {
     const t = getI18nT();
     const authStore = useAuthStore();
-    const response = await authStore.fetchApi(recordedEventsUrl('', filters));
+    const response = await authStore.fetchApi(recordedEventsUrl('', filters, pagination));
 
     if (!response.ok) {
         throw new Error(t('errors.loadRecordedEvents'));
     }
 
-    const payload = (await response.json()) as ListRecordedEventsResponse;
-    return payload.events;
+    return (await response.json()) as ListRecordedEventsResponse;
 }
 
 export async function getRecordedEventCountsByCountry(

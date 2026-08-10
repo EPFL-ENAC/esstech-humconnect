@@ -210,6 +210,16 @@
             </q-expansion-item>
         </template>
     </q-list>
+
+    <div v-if="pageCount > 1" class="event-list-pagination">
+        <q-pagination
+            v-model="page"
+            :max="pageCount"
+            :disable="loading"
+            boundary-numbers
+            direction-links
+        />
+    </div>
 </template>
 
 <script setup lang="ts">
@@ -218,11 +228,14 @@ import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
 import type { EventCoordinates, EventLocation, RecordedEvent } from 'src/utils/model';
 import { prettyPrintJson } from 'src/utils/text';
 
+const page = defineModel<number>('page', { required: true });
+
 defineProps<{
     data: readonly RecordedEvent[];
     loading: boolean;
     error: string;
     filtered: boolean;
+    pageCount: number;
 }>();
 
 const { t } = useI18n();
@@ -277,6 +290,12 @@ function formatJson(value: unknown) {
 <style scoped lang="scss">
 .event-list {
     background: white;
+}
+
+.event-list-pagination {
+    display: flex;
+    justify-content: center;
+    padding-top: 20px;
 }
 
 .event-title {

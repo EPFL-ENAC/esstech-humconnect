@@ -26,15 +26,20 @@ from tests.chat_room_helpers import make_recorded_event
 
 
 class FakeRecordedEventService(RecordedEventService):
-    def __init__(self, *, events=None, counts=None):
+    def __init__(self, *, events=None, total_count=None, counts=None):
         self.events = events or []
+        self.total_count = len(self.events) if total_count is None else total_count
         self.counts = counts or {}
         self.list_filters = None
+        self.list_page = None
+        self.list_page_size = None
         self.count_filters = None
 
-    async def list_events(self, *, filters):
+    async def list_events(self, *, filters, page, page_size):
         self.list_filters = filters
-        return self.events
+        self.list_page = page
+        self.list_page_size = page_size
+        return self.events, self.total_count
 
     async def count_events_by_country(self, *, filters):
         self.count_filters = filters
@@ -95,17 +100,22 @@ def test_recorded_event_end_dates_use_indexed_nullable_columns_and_range_constra
     }
 
 
-def test_list_recorded_events_returns_all_events_in_descending_order():
+def test_list_recorded_events_serializes_events_and_pagination_metadata():
     older_event = make_recorded_event()
     newer_event = make_recorded_event(event_name="Newer event")
     newer_event.created_at = newer_event.created_at.replace(day=30)
     filters = ListRecordedEventsFilters()
-    service = FakeRecordedEventService(events=[newer_event, older_event])
+    service = FakeRecordedEventService(
+        events=[newer_event, older_event],
+        total_count=47,
+    )
 
     response = asyncio.run(
         list_recorded_events(
             filters=filters,
             service=service,
+            page=2,
+            page_size=20,
         )
     )
 
@@ -113,7 +123,13 @@ def test_list_recorded_events_returns_all_events_in_descending_order():
     assert response.events[0].local_severity == 7.5
     assert response.events[0].country_severity == 4.0
     assert response.events[0].global_severity == 1.5
+    assert response.page == 2
+    assert response.page_size == 20
+    assert response.total_count == 47
+    assert response.total_pages == 3
     assert service.list_filters is filters
+    assert service.list_page == 2
+    assert service.list_page_size == 20
 
 
 def test_list_recorded_events_serializes_nested_location():
@@ -188,6 +204,40 @@ def test_recorded_event_filters_are_exposed_as_repeated_query_parameters():
             assert parameters_by_name[parameter_name]["in"] == "query"
             schema = parameters_by_name[parameter_name]["schema"]
             assert any(option.get("type") == "array" for option in schema["anyOf"])
+
+    list_parameters = {
+        parameter["name"]: parameter
+        for parameter in app.openapi()["paths"]["/recorded-events"]["get"]["parameters"]
+    }
+    assert list_parameters["page"]["schema"] == {
+        "type": "integer",
+        "minimum": 1,
+        "default": 1,
+        "title": "Page",
+    }
+    assert list_parameters["page_size"]["schema"] == {
+        "type": "integer",
+        "maximum": 100,
+        "minimum": 1,
+        "default": 20,
+        "title": "Page Size",
+    }
+
+
+def test_list_recorded_events_empty_page_has_zero_total_pages():
+    response = asyncio.run(
+        list_recorded_events(
+            filters=ListRecordedEventsFilters(),
+            service=FakeRecordedEventService(),
+            page=4,
+            page_size=20,
+        )
+    )
+
+    assert response.events == []
+    assert response.page == 4
+    assert response.total_count == 0
+    assert response.total_pages == 0
 
 
 def test_count_recorded_events_by_country_serializes_service_counts():

@@ -40,19 +40,29 @@ class RecordedEventService:
         self,
         *,
         filters: ListRecordedEventsFilters,
-    ) -> list[RecordedEvent]:
-        query = (
+        page: int,
+        page_size: int,
+    ) -> tuple[list[RecordedEvent], int]:
+        filter_clauses = _filter_clauses(filters)
+        count_query = select(func.count(col(RecordedEvent.id))).where(*filter_clauses)
+        events_query = (
             select(RecordedEvent)
-            .where(*_filter_clauses(filters))
-            .order_by(col(RecordedEvent.created_at).desc())
+            .where(*filter_clauses)
+            .order_by(
+                col(RecordedEvent.created_at).desc(),
+                col(RecordedEvent.id).desc(),
+            )
+            .limit(page_size)
+            .offset((page - 1) * page_size)
         )
 
         async with self._session_factory(
             self._engine_factory(),
             expire_on_commit=False,
         ) as session:
-            result = await session.exec(query)
-            return list(result.all())
+            total_count = (await session.exec(count_query)).one()
+            events = (await session.exec(events_query)).all()
+            return list(events), total_count
 
     async def count_events_by_country(
         self,
