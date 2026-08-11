@@ -33,7 +33,7 @@ export const eventTags = [
     'access_constraint',
     'security_incident',
     'displacement',
-    'food_or_nutrition_insecurity',
+    'food_or_sym_o_nutrition_insecurity',
     'environmental_hazard',
     'coordination_or_information_gap',
     'community_concern',
