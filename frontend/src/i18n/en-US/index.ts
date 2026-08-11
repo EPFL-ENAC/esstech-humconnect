@@ -113,7 +113,7 @@ export default {
             access_constraint: 'Access constraint',
             security_incident: 'Security incident',
             displacement: 'Displacement',
-            food_or_sym_o_nutrition_insecurity: 'Food / sym_o_nutrition insecurity',
+            food_or_nutrition_insecurity: 'Food / nutrition insecurity',
             environmental_hazard: 'Environmental hazard',
             coordination_or_information_gap: 'Coordination / information gap',
             community_concern: 'Community concern',
