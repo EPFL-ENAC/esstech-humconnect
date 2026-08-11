@@ -26,17 +26,23 @@ export const useAuthStore = defineStore('auth', () => {
         profile.value = undefined;
         realmRoles.value = [];
 
-        const authenticated = await keycloak.init({
-            onLoad: 'check-sso',
-        });
-        initialized.value = true;
+        try {
+            const authenticated = await keycloak.init({
+                onLoad: 'check-sso',
+            });
+            initialized.value = true;
 
-        if (authenticated) {
-            realmRoles.value = keycloak.tokenParsed?.realm_access?.roles || [];
-            profile.value = await keycloak.loadUserProfile();
+            if (authenticated) {
+                realmRoles.value = keycloak.tokenParsed?.realm_access?.roles || [];
+                profile.value = await keycloak.loadUserProfile();
+            }
+
+            return authenticated;
+        } catch (error) {
+            console.error('Failed to initialize Keycloak:', error);
+            initialized.value = true;
+            return false;
         }
-
-        return authenticated;
     }
 
     async function login(redirectUri?: string) {

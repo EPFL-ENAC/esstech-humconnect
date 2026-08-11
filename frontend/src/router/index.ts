@@ -27,7 +27,18 @@ export default defineRouter(function ({ store }) {
 
     Router.beforeEach(async (to) => {
         const authStore = useAuthStore(store);
-        await authStore.init();
+
+        try {
+            await authStore.init();
+        } catch (error) {
+            console.error('Auth initialization failed:', error);
+            if (!to.meta.public) {
+                return {
+                    path: '/signin',
+                    query: { redirect: to.fullPath },
+                };
+            }
+        }
 
         if (to.meta.public) {
             if (authStore.isAuthenticated && to.path === '/signin') {
