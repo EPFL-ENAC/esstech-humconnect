@@ -578,6 +578,18 @@ export const listAnalysesToolCallPayloadSchema = requireFinishedAnswer(
 
 export type ListAnalysesToolCallPayload = z.output<typeof listAnalysesToolCallPayloadSchema>;
 
+const askQuestionArgumentsSchema = z.strictObject({
+    question: z.string().trim().min(1),
+    possible_answers: z.array(z.string().trim().min(1)),
+});
+
+export const askQuestionToolCallPayloadSchema = baseToolCallPayloadSchema.extend({
+    tool_name: z.literal('ask_question'),
+    arguments: askQuestionArgumentsSchema,
+});
+
+export type AskQuestionToolCallPayload = z.output<typeof askQuestionToolCallPayloadSchema>;
+
 export type ToolCallDisplayPayload = Omit<ToolCallPayload, 'arguments' | 'answer'> & {
     arguments: unknown;
     answer: unknown;

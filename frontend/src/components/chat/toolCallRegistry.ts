@@ -1,6 +1,7 @@
 import type { Component } from 'vue';
 import type { z } from 'zod';
 import type { ToolCallPayload } from 'src/utils/model';
+import AskQuestionToolCall from './AskQuestionToolCall.vue';
 import ExpertAnswerToolCall from './ExpertAnswerToolCall.vue';
 import GenericToolCall from './GenericToolCall.vue';
 import GetAnalysisToolCall from './GetAnalysisToolCall.vue';
@@ -17,6 +18,7 @@ import Start5WhysAnalysisToolCall from './Start5WhysAnalysisToolCall.vue';
 import WhoPublicationContentToolCall from './WhoPublicationContentToolCall.vue';
 import WhoPublicationSearchToolCall from './WhoPublicationSearchToolCall.vue';
 import {
+    askQuestionToolCallPayloadSchema,
     baseToolCallPayloadSchema,
     expertAnswerToolCallPayloadSchema,
     getAnalysisToolCallPayloadSchema,
@@ -52,6 +54,7 @@ function defineToolCall<Schema extends z.ZodType>(
 }
 
 const TOOL_CALL_REGISTRY: Record<string, ToolCallRegistration> = {
+    ask_question: defineToolCall(AskQuestionToolCall, askQuestionToolCallPayloadSchema),
     ask_meditron: defineToolCall(ExpertAnswerToolCall, expertAnswerToolCallPayloadSchema),
     ask_legitron: defineToolCall(ExpertAnswerToolCall, expertAnswerToolCallPayloadSchema),
     get_humanitarian_context: defineToolCall(

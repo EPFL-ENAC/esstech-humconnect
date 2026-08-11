@@ -185,6 +185,11 @@ export default {
         copyMessage: 'Copier le message',
         copiedMessage: 'Message copié',
         copyMessageFailed: 'Impossible de copier le message.',
+        askQuestion: {
+            other: 'Autre',
+            otherPlaceholder: 'Saisissez votre réponse...',
+            answerPlaceholder: 'Votre réponse...',
+        },
         activities: {
             thinking: 'Réflexion',
             character: '{count} caractère | {count} caractères',
@@ -212,6 +217,10 @@ export default {
                 question: 'Question',
                 systemPrompt: 'Instructions système',
                 emptyAnswer: "Aucune réponse n'a été renvoyée.",
+            },
+            askQuestion: {
+                waiting: "En attente d'une réponse",
+                answered: 'Répondu',
             },
             events: {
                 recording: "Enregistrement de l'événement",
