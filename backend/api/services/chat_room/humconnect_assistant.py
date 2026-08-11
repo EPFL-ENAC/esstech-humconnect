@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import Sequence, cast
 
 from openai.types.responses import (
-    EasyInputMessageParam,
     ResponseFunctionToolCall,
     ResponseInputItemParam,
     ResponseInputParam,
@@ -32,7 +31,7 @@ from api.services.chat_room.default_tool_set import HUMCONNECT_TOOL_SET
 from api.services.chat_room.tools import ToolSet, parse_tool_call_arguments
 from api.services.chat_room.tools.base import ToolCallExecution, ToolExecutionContext
 
-ModelInputMessage = EasyInputMessageParam
+ModelInputMessage = ResponseInputItemParam
 MAX_TOOL_CALL_ROUNDS = 10
 BASE_INSTRUCTIONS = (
     "When the user states a problem, run a 5 Whys root cause analysis by calling "
@@ -125,28 +124,13 @@ class HumConnectAssistant(ChatAssistant):
     def chat_history_to_model_input(
         chat_history: Sequence[ChatMessageResponse],
     ) -> list[ModelInputMessage]:
-        items: list[ModelInputMessage] = []
+        items: list[ResponseInputItemParam] = []
         for message in chat_history:
             if message.status != MESSAGE_STATUS_COMPLETE:
                 continue
-            item = message.to_ai_model_input()
-            if not item["content"]:
-                # Terminal tool calls such as ask_question end the turn without
-                # producing text. Surface the tool's output as the message
-                # content so the exchange is preserved in the model's history.
-                parts: list[str] = []
-                for chunk in message.chunks:
-                    if chunk.type != CHUNK_TYPE_TOOL_CALL or chunk.payload is None:
-                        continue
-                    if chunk.payload.answer:
-                        parts.append(chunk.payload.answer)
-                if parts:
-                    item = cast(
-                        ModelInputMessage,
-                        {"role": item["role"], "content": "\n\n".join(parts)},
-                    )
-            if item["content"]:
-                items.append(item)
+            message_items = message.to_model_input_items()
+            if message_items:
+                items.extend(message_items)
         return items
 
     @staticmethod

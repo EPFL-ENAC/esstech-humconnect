@@ -18,16 +18,13 @@ class AskQuestionToolInput(BaseModel):
 
 
 def _execute_ask_question(tool_input: AskQuestionToolInput) -> str:
-    """Return the question so it is preserved in the conversation history.
+    """Return nothing.
 
     The answer is collected from the user by the frontend (which replaces the
     normal chat composer with a dedicated answer UI) and is sent back as a
-    regular chat message. Returning the question as the tool output keeps the
-    exchange in history even though the tool-call loop is interrupted: the
-    question is carried over as the assistant message and the user's answer
-    arrives as the next message.
+    regular chat message. The backend therefore does not produce a tool result.
     """
-    return tool_input.question
+    return ""
 
 
 ASK_QUESTION_TOOL = HumConnectTool.from_sync_handler(
