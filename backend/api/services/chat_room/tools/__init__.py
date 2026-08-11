@@ -14,6 +14,7 @@ from api.services.chat_room.tools.events import RECALL_EVENTS_TOOL, RECORD_EVENT
 from api.services.chat_room.tools.humanitarian_context import (
     GET_HUMANITARIAN_CONTEXT_TOOL,
 )
+from api.services.chat_room.tools.hunger_map import GET_HUNGER_MAP_CONTEXT_TOOL
 from api.services.chat_room.tools.legitron import ASK_LEGITRON_TOOL
 from api.services.chat_room.tools.mcp_proxy import HumConnectMCPProxy
 from api.services.chat_room.tools.meditron import ASK_MEDITRON_TOOL
@@ -37,6 +38,7 @@ __all__ = [
     "DUMMY_TOOL",
     "GET_ANALYSIS_TOOL",
     "GET_HUMANITARIAN_CONTEXT_TOOL",
+    "GET_HUNGER_MAP_CONTEXT_TOOL",
     "GET_NATURAL_EVENTS_CONTEXT_TOOL",
     "GET_WHO_PUBLICATION_CONTENT_TOOL",
     "LIST_ANALYSES_TOOL",

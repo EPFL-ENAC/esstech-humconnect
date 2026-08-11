@@ -198,6 +198,56 @@ export type HumanitarianContextToolCallPayload = z.output<
 >;
 export type HumanitarianContextItem = z.output<typeof humanitarianContextItemSchema>;
 
+const hungerMapPhaseEstimateSchema = z.looseObject({
+    percentage: z.number().min(0).max(100),
+    population: z.number().int().nonnegative(),
+});
+
+const hungerMapCountryEstimateSchema = z.looseObject({
+    country_code: z.string().regex(/^[A-Z]{2}$/),
+    wfp_area_code: z.string().regex(/^[A-Z]{3}$/),
+    name: z.string(),
+    reference_period: z.string(),
+    analysis_date: z.string(),
+    data_source: z.string(),
+    phase_3_or_above: hungerMapPhaseEstimateSchema,
+    phase_4_or_above: hungerMapPhaseEstimateSchema,
+    phase_5: hungerMapPhaseEstimateSchema,
+});
+
+const hungerMapGlobalHeadlineSchema = z.looseObject({
+    period: z.string(),
+    acute_food_insecurity_millions: z.number().nonnegative(),
+    covered_country_count: z.number().int().nonnegative(),
+    source_note: z.string(),
+});
+
+const hungerMapResponseSchema = z.looseObject({
+    provider: z.literal('WFP HungerMap LIVE'),
+    scope: z.enum(['country', 'global']),
+    headline: hungerMapGlobalHeadlineSchema.nullable().optional(),
+    available_country_estimate_count: z.number().int().nonnegative(),
+    countries: z.array(hungerMapCountryEstimateSchema),
+    source_url: z.string(),
+    warnings: z.array(z.string()),
+});
+
+export const hungerMapToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('get_hunger_map_context'),
+        arguments: z.strictObject({
+            country: z.string().regex(/^(global|[A-Z]{2,3})$/),
+        }),
+        answer: jsonString(hungerMapResponseSchema).nullable(),
+    }),
+);
+
+export type HungerMapToolCallPayload = z.output<typeof hungerMapToolCallPayloadSchema>;
+export type HungerMapResponse = z.output<typeof hungerMapResponseSchema>;
+export type HungerMapGlobalHeadline = z.output<typeof hungerMapGlobalHeadlineSchema>;
+export type HungerMapCountryEstimate = z.output<typeof hungerMapCountryEstimateSchema>;
+export type HungerMapPhaseEstimate = z.output<typeof hungerMapPhaseEstimateSchema>;
+
 const naturalEventsArgumentsSchema = z.strictObject({
     center_latitude: z.number().min(-90).max(90),
     center_longitude: z.number().min(-180).max(180),

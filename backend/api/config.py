@@ -31,7 +31,6 @@ class Config(BaseSettings):
     KEYCLOAK_API_SECRET: str
     KEYCLOAK_TOTP: bool = True
 
-
     NOMINATIM_BASE_URL: str = "https://nominatim.openstreetmap.org"
     NOMINATIM_TIMEOUT_SECONDS: float = 5
 
@@ -46,6 +45,9 @@ class Config(BaseSettings):
     HUMANITARIAN_CONTEXT_TIMEOUT_SECONDS: float = 5
     HUMANITARIAN_CONTEXT_DAYS: int = 30
     HUMANITARIAN_CONTEXT_LIMIT: int = 10
+
+    HUNGER_MAP_BASE_URL: str = "https://ew-tool-api.hungermapdata.org/ew/v1"
+    HUNGER_MAP_TIMEOUT_SECONDS: float = 10
 
     WHO_IRIS_API_BASE_URL: str = "https://iris.who.int/server/api"
     WHO_IRIS_TIMEOUT_SECONDS: float = 10

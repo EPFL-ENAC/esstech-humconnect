@@ -3,6 +3,7 @@ import type { z } from 'zod';
 import type { ToolCallPayload } from 'src/utils/model';
 import ExpertAnswerToolCall from './ExpertAnswerToolCall.vue';
 import GenericToolCall from './GenericToolCall.vue';
+import HungerMapToolCall from './HungerMapToolCall.vue';
 import HumanitarianContextToolCall from './HumanitarianContextToolCall.vue';
 import NaturalEventsToolCall from './NaturalEventsToolCall.vue';
 import RecallEventsToolCall from './RecallEventsToolCall.vue';
@@ -14,6 +15,7 @@ import WhoPublicationSearchToolCall from './WhoPublicationSearchToolCall.vue';
 import {
     baseToolCallPayloadSchema,
     expertAnswerToolCallPayloadSchema,
+    hungerMapToolCallPayloadSchema,
     humanitarianContextToolCallPayloadSchema,
     naturalEventsToolCallPayloadSchema,
     recallEventsToolCallPayloadSchema,
@@ -48,6 +50,7 @@ const TOOL_CALL_REGISTRY: Record<string, ToolCallRegistration> = {
         HumanitarianContextToolCall,
         humanitarianContextToolCallPayloadSchema,
     ),
+    get_hunger_map_context: defineToolCall(HungerMapToolCall, hungerMapToolCallPayloadSchema),
     get_natural_events_context: defineToolCall(
         NaturalEventsToolCall,
         naturalEventsToolCallPayloadSchema,
