@@ -69,6 +69,11 @@
                     </div>
                 </div>
             </section>
+
+            <p class="analysis-scope-note">
+                <q-icon name="info_outline" size="16px" />
+                <span>{{ t('chat.activities.hungerMap.analysisScopeNote') }}</span>
+            </p>
         </template>
 
         <div v-else class="empty-map">
@@ -320,6 +325,23 @@ function handleMapRenderError(): void {
     display: grid;
     gap: 12px;
     min-width: 0;
+}
+
+.analysis-scope-note {
+    align-items: flex-start;
+    background: #f8fafc;
+    border-radius: 4px;
+    color: #475467;
+    display: flex;
+    font-size: 11px;
+    gap: 6px;
+    margin: 0;
+    padding: 8px 10px;
+}
+
+.analysis-scope-note .q-icon {
+    color: #007dbc;
+    flex: 0 0 auto;
 }
 
 .headline {

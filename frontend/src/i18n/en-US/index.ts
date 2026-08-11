@@ -268,12 +268,25 @@ export default {
                 headline: 'Global HungerMap headline',
                 peopleFacingAcuteInsecurity: 'million people facing acute food insecurity',
                 coveredCountries: 'countries covered',
-                phaseThreePercentage: 'Population in IPC/CH Phase 3 or above',
-                affectedPopulation: 'Affected population',
+                phaseThreePercentage: 'IPC/CH Phase 3 or above (% of analyzed population)',
+                ipcBreakdown: 'IPC acute food insecurity classes',
+                ipcClassLegend: 'IPC classes',
+                percentageAxis: '% of analyzed population',
+                populationAxis: 'Number of people',
+                analysisScopeNote:
+                    "Percentages refer to the population covered by the IPC analysis, not the country's total population.",
+                countryChartAriaLabel:
+                    'IPC food insecurity chart for {country}, comparing percentages of the analyzed population and numbers of people affected.',
+                ipcPhases: {
+                    phaseThree: 'IPC Phase 3',
+                    phaseFour: 'IPC Phase 4',
+                    phaseFive: 'IPC Phase 5',
+                },
+                affectedPopulation: 'People in IPC/CH Phase 3 or above',
                 referencePeriod: 'Reference period',
                 analysisDate: 'Analysis date',
                 dataSource: 'Data source',
-                legendTitle: '% of population in IPC/CH Phase 3 or above',
+                legendTitle: '% of analyzed population in IPC/CH Phase 3 or above',
                 noData: 'No estimate',
                 noEstimates: 'No current HungerMap estimates were returned.',
                 loadingMap: 'Loading map',
@@ -281,7 +294,8 @@ export default {
                 boundariesUnavailable: 'Compatible boundaries are unavailable for these estimates.',
                 unmappedRegions: 'No compatible boundary was found for: {codes}.',
                 openSource: 'Open WFP HungerMap LIVE',
-                mapAriaLabel: 'HungerMap choropleth with {count} mapped areas',
+                mapAriaLabel:
+                    'HungerMap choropleth showing IPC/CH Phase 3 or above as a percentage of the analyzed population in {count} mapped areas',
                 percentageValue: '{value}%',
                 millionValue: '{value} million',
                 bands: {

@@ -269,12 +269,25 @@ export default {
                 peopleFacingAcuteInsecurity:
                     'millions de personnes confrontées à une insécurité alimentaire aiguë',
                 coveredCountries: 'pays couverts',
-                phaseThreePercentage: 'Population en phase IPC/CH 3 ou supérieure',
-                affectedPopulation: 'Population touchée',
+                phaseThreePercentage: 'Phase IPC/CH 3 ou supérieure (% de la population analysée)',
+                ipcBreakdown: "Classes d'insécurité alimentaire aiguë IPC",
+                ipcClassLegend: 'Classes IPC',
+                percentageAxis: '% de la population analysée',
+                populationAxis: 'Nombre de personnes',
+                analysisScopeNote:
+                    'Les pourcentages se rapportent à la population couverte par l’analyse IPC, et non à la population totale du pays.',
+                countryChartAriaLabel:
+                    'Graphique de l’insécurité alimentaire IPC pour {country}, comparant les pourcentages de la population analysée et le nombre de personnes affectées.',
+                ipcPhases: {
+                    phaseThree: 'Phase IPC 3',
+                    phaseFour: 'Phase IPC 4',
+                    phaseFive: 'Phase IPC 5',
+                },
+                affectedPopulation: 'Personnes en phase IPC/CH 3 ou supérieure',
                 referencePeriod: 'Période de référence',
                 analysisDate: "Date d'analyse",
                 dataSource: 'Source des données',
-                legendTitle: '% de la population en phase IPC/CH 3 ou supérieure',
+                legendTitle: '% de la population analysée en phase IPC/CH 3 ou supérieure',
                 noData: 'Aucune estimation',
                 noEstimates: "Aucune estimation HungerMap actuelle n'a été renvoyée.",
                 loadingMap: 'Chargement de la carte',
@@ -283,7 +296,8 @@ export default {
                     'Aucune frontière compatible avec ces estimations n’est disponible.',
                 unmappedRegions: 'Aucune frontière compatible trouvée pour : {codes}.',
                 openSource: 'Ouvrir WFP HungerMap LIVE',
-                mapAriaLabel: 'Carte HungerMap comprenant {count} zones cartographiées',
+                mapAriaLabel:
+                    'Carte HungerMap montrant la phase IPC/CH 3 ou supérieure en pourcentage de la population analysée dans {count} zones cartographiées',
                 percentageValue: '{value} %',
                 millionValue: '{value} millions',
                 bands: {

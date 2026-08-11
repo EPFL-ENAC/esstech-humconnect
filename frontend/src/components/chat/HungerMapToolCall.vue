@@ -19,7 +19,12 @@
                 :empty-state="visualizationEmptyState"
             >
                 <template #results>
-                    <HungerMap v-if="result" :response="result" />
+                    <HungerMapCountryChart
+                        v-if="countryEstimate && result"
+                        :estimate="countryEstimate"
+                        :source-url="result.source_url"
+                    />
+                    <HungerMap v-else-if="result" :response="result" />
                 </template>
             </ToolCallVisualizationSkeleton>
         </template>
@@ -39,6 +44,7 @@ import ToolCallVisualizationSkeleton from './ToolCallVisualizationSkeleton.vue';
 import type { HungerMapToolCallPayload } from './toolCallSchemas';
 
 const HungerMap = defineAsyncComponent(() => import('./HungerMap.vue'));
+const HungerMapCountryChart = defineAsyncComponent(() => import('./HungerMapCountryChart.vue'));
 
 const props = defineProps<{
     payload: HungerMapToolCallPayload;
@@ -47,6 +53,13 @@ const props = defineProps<{
 const toolColor = '#007dbc';
 const { t } = useI18n();
 const result = computed(() => (props.payload.status === 'finished' ? props.payload.answer : null));
+const countryEstimate = computed(() => {
+    if (result.value?.scope !== 'country' || result.value.countries.length !== 1) {
+        return null;
+    }
+
+    return result.value.countries[0] ?? null;
+});
 const mode = computed<'visual-and-raw' | 'raw-only'>(() =>
     props.payload.status === 'running' || result.value ? 'visual-and-raw' : 'raw-only',
 );
@@ -62,7 +75,9 @@ const visualizationFilters = computed(() => [
     {
         icon: 'sym_o_nutrition',
         label: t('chat.activities.hungerMap.indicator'),
-        value: t('chat.activities.hungerMap.phaseThreePercentage'),
+        value: countryEstimate.value
+            ? t('chat.activities.hungerMap.ipcBreakdown')
+            : t('chat.activities.hungerMap.phaseThreePercentage'),
     },
 ]);
 const visualizationResultsSummary = computed(() =>
