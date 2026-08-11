@@ -64,7 +64,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useChat } from 'src/composables/useChat';
 import AskQuestionComposer from 'src/components/chat/AskQuestionComposer.vue';
-import { askQuestionToolCallPayloadSchema } from 'src/components/chat/toolCallSchemas';
+import type { AskQuestionToolCallPayload } from 'src/components/chat/toolCallSchemas';
 import ChatMessageBubble from 'src/components/chat/ChatMessageBubble.vue';
 
 const route = useRoute();
@@ -104,12 +104,13 @@ const activeQuestion = computed<{
         if (chunk.type !== 'tool_call' || !chunk.payload) {
             continue;
         }
-        const parsed = askQuestionToolCallPayloadSchema.safeParse(chunk.payload);
-        if (parsed.success && parsed.data.status === 'finished') {
+        const { payload } = chunk;
+        if (payload.tool_name === 'ask_question' && payload.status === 'finished') {
+            const { call_id, arguments: args } = payload as AskQuestionToolCallPayload;
             return {
-                callId: parsed.data.call_id,
-                question: parsed.data.arguments.question,
-                possibleAnswers: parsed.data.arguments.possible_answers,
+                callId: call_id,
+                question: args.question,
+                possibleAnswers: args.possible_answers,
             };
         }
     }
