@@ -185,6 +185,11 @@ export default {
         copyMessage: 'Copy message',
         copiedMessage: 'Message copied',
         copyMessageFailed: 'Could not copy message.',
+        askQuestion: {
+            other: 'Other',
+            otherPlaceholder: 'Type your answer...',
+            answerPlaceholder: 'Your answer...',
+        },
         activities: {
             thinking: 'Thinking',
             character: '{count} character | {count} characters',
@@ -212,6 +217,10 @@ export default {
                 question: 'Question',
                 systemPrompt: 'System instructions',
                 emptyAnswer: 'No answer was returned.',
+            },
+            askQuestion: {
+                waiting: 'Waiting for an answer',
+                answered: 'Answered',
             },
             events: {
                 recording: 'Recording event',
@@ -396,6 +405,29 @@ export default {
                 types: {
                     report: 'Report',
                     disaster: 'Disaster',
+                },
+            },
+            rootCauseAnalysis: {
+                problem: 'Problem statement',
+                whyLevel: 'Why {level}',
+                questionTag: 'Q',
+                answerTag: 'A',
+                pendingAnswer: 'Pending answer',
+                rootCause: 'Root cause',
+                starting: 'Starting 5 Whys analysis',
+                savingWhyStep: 'Recording why step',
+                savedWhyStep: 'Recorded why level {level}',
+                loading: 'Loading analysis',
+                recordingRootCause: 'Recording root cause',
+                listing: 'Listing analyses',
+                noAnalyses: 'No analyses found.',
+                analysesCount: '{count} analysis | {count} analyses',
+                completedSummary: 'Completed · {count} level | Completed · {count} levels',
+                inProgressSummary: 'In progress · {count} level | In progress · {count} levels',
+                levelOf: 'Level {current}/{max}',
+                statuses: {
+                    in_progress: 'In progress',
+                    completed: 'Completed',
                 },
             },
         },

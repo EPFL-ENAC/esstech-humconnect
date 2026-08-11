@@ -209,6 +209,7 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
     assert [tool["name"] for tool in fake_client.responses.create_kwargs["tools"]] == [
         "ask_meditron",
         "ask_legitron",
+        "ask_question",
         "record_event",
         "recall_events",
         "get_natural_events_context",

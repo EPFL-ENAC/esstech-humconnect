@@ -1,3 +1,4 @@
+from api.services.chat_room.tools.ask_question import ASK_QUESTION_TOOL
 from api.services.chat_room.tools.base import (
     HumConnectTool,
     HumConnectToolProvider,
@@ -35,6 +36,7 @@ from api.services.chat_room.tools.who_iris import (
 __all__ = [
     "ASK_LEGITRON_TOOL",
     "ASK_MEDITRON_TOOL",
+    "ASK_QUESTION_TOOL",
     "DUMMY_TOOL",
     "GET_ANALYSIS_TOOL",
     "GET_HUMANITARIAN_CONTEXT_TOOL",

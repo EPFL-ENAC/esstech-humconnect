@@ -46,6 +46,7 @@ class HumConnectTool:
     label: str
     definition: FunctionToolParam
     execute: ToolExecutor
+    terminal: bool = False
 
     @classmethod
     def from_sync_handler(
@@ -58,6 +59,7 @@ class HumConnectTool:
         invalid_input_message: str,
         handler: SyncToolHandler[ToolInputT],
         include_validation_details: bool = True,
+        terminal: bool = False,
     ) -> "HumConnectTool":
         async def execute(
             arguments: dict[str, object],
@@ -80,6 +82,7 @@ class HumConnectTool:
                 description=description,
             ),
             execute=execute,
+            terminal=terminal,
         )
 
     @classmethod
@@ -93,6 +96,7 @@ class HumConnectTool:
         invalid_input_message: str,
         handler: SyncContextToolHandler[ToolInputT],
         include_validation_details: bool = True,
+        terminal: bool = False,
     ) -> "HumConnectTool":
         async def execute(
             arguments: dict[str, object],
@@ -116,6 +120,7 @@ class HumConnectTool:
                 description=description,
             ),
             execute=execute,
+            terminal=terminal,
         )
 
     @classmethod
@@ -129,6 +134,7 @@ class HumConnectTool:
         invalid_input_message: str,
         handler: AsyncToolHandler[ToolInputT],
         include_validation_details: bool = True,
+        terminal: bool = False,
     ) -> "HumConnectTool":
         async def execute(
             arguments: dict[str, object],
@@ -151,6 +157,7 @@ class HumConnectTool:
                 description=description,
             ),
             execute=execute,
+            terminal=terminal,
         )
 
     @classmethod
@@ -164,6 +171,7 @@ class HumConnectTool:
         invalid_input_message: str,
         handler: AsyncContextToolHandler[ToolInputT],
         include_validation_details: bool = True,
+        terminal: bool = False,
     ) -> "HumConnectTool":
         async def execute(
             arguments: dict[str, object],
@@ -187,6 +195,7 @@ class HumConnectTool:
                 description=description,
             ),
             execute=execute,
+            terminal=terminal,
         )
 
 
@@ -244,6 +253,7 @@ class ToolCallExecution:
     succeeded: bool
     function_call_input_item: ResponseInputItemParam
     function_call_output_input_item: ResponseInputItemParam
+    terminal: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -426,6 +436,7 @@ class ToolSet:
         context: ToolExecutionContext | None = None,
     ) -> ToolCallExecution:
         self._require_ready()
+        tool = self._tools.get(function_call.name)
         tool_output = await self._execute_tool_call(function_call, context)
         output = tool_output.to_json()
         input_item = ToolCallInputItem.from_function_call(function_call)
@@ -436,6 +447,7 @@ class ToolSet:
             succeeded=tool_output.is_successful(),
             function_call_input_item=input_item.to_openai_input_item(),
             function_call_output_input_item=output_item.to_openai_input_item(),
+            terminal=tool.terminal if tool is not None else False,
         )
 
     async def _execute_tool_call(

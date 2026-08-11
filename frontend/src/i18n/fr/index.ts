@@ -185,6 +185,11 @@ export default {
         copyMessage: 'Copier le message',
         copiedMessage: 'Message copié',
         copyMessageFailed: 'Impossible de copier le message.',
+        askQuestion: {
+            other: 'Autre',
+            otherPlaceholder: 'Saisissez votre réponse...',
+            answerPlaceholder: 'Votre réponse...',
+        },
         activities: {
             thinking: 'Réflexion',
             character: '{count} caractère | {count} caractères',
@@ -212,6 +217,10 @@ export default {
                 question: 'Question',
                 systemPrompt: 'Instructions système',
                 emptyAnswer: "Aucune réponse n'a été renvoyée.",
+            },
+            askQuestion: {
+                waiting: "En attente d'une réponse",
+                answered: 'Répondu',
             },
             events: {
                 recording: "Enregistrement de l'événement",
@@ -398,6 +407,29 @@ export default {
                 types: {
                     report: 'Rapport',
                     disaster: 'Catastrophe',
+                },
+            },
+            rootCauseAnalysis: {
+                problem: 'Énoncé du problème',
+                whyLevel: 'Pourquoi {level}',
+                questionTag: 'Q',
+                answerTag: 'R',
+                pendingAnswer: 'Réponse en attente',
+                rootCause: 'Cause racine',
+                starting: 'Démarrage de l’analyse 5 Pourquoi',
+                savingWhyStep: 'Enregistrement de l’étape « pourquoi »',
+                savedWhyStep: 'Niveau « pourquoi » {level} enregistré',
+                loading: 'Chargement de l’analyse',
+                recordingRootCause: 'Enregistrement de la cause racine',
+                listing: 'Liste des analyses',
+                noAnalyses: 'Aucune analyse trouvée.',
+                analysesCount: '{count} analyse | {count} analyses',
+                completedSummary: 'Terminée · {count} niveau | Terminée · {count} niveaux',
+                inProgressSummary: 'En cours · {count} niveau | En cours · {count} niveaux',
+                levelOf: 'Niveau {current}/{max}',
+                statuses: {
+                    in_progress: 'En cours',
+                    completed: 'Terminée',
                 },
             },
         },

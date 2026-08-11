@@ -2,6 +2,7 @@ from api.config import config
 from api.services.chat_room.tools import (
     ASK_LEGITRON_TOOL,
     ASK_MEDITRON_TOOL,
+    ASK_QUESTION_TOOL,
     GET_ANALYSIS_TOOL,
     GET_HUMANITARIAN_CONTEXT_TOOL,
     GET_HUNGER_MAP_CONTEXT_TOOL,
@@ -21,6 +22,7 @@ from api.services.chat_room.tools import (
 DEFAULT_LOCAL_TOOLS = (
     ASK_MEDITRON_TOOL,
     ASK_LEGITRON_TOOL,
+    ASK_QUESTION_TOOL,
     RECORD_EVENT_TOOL,
     RECALL_EVENTS_TOOL,
     GET_NATURAL_EVENTS_CONTEXT_TOOL,

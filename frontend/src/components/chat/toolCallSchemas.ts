@@ -510,6 +510,136 @@ export const recallEventsToolCallPayloadSchema = requireFinishedAnswer(
 
 export type RecallEventsToolCallPayload = z.output<typeof recallEventsToolCallPayloadSchema>;
 
+const ROOT_CAUSE_ANALYSIS_MAX_WHYS = 5;
+const analysisStatusSchema = z.enum(['in_progress', 'completed']);
+const analysisNextExpectedSchema = z.enum([
+    'why_step',
+    'why_step_or_root_cause',
+    'root_cause',
+    'none',
+]);
+
+const whyQuestionAnswerSchema = z.looseObject({
+    level: z.number().int().min(1).max(ROOT_CAUSE_ANALYSIS_MAX_WHYS),
+    question: z.string(),
+    answer: z.string().nullable(),
+});
+
+export type WhyQuestionAnswer = z.output<typeof whyQuestionAnswerSchema>;
+
+const rootCauseAnalysisSnapshotSchema = z.looseObject({
+    analysis_id: z.string(),
+    problem_statement: z.string(),
+    status: analysisStatusSchema,
+    current_level: z.number().int().min(0).max(ROOT_CAUSE_ANALYSIS_MAX_WHYS),
+    next_expected: analysisNextExpectedSchema,
+    can_save_why_step: z.boolean(),
+    can_set_root_cause: z.boolean(),
+    questions_and_answers: z.array(whyQuestionAnswerSchema),
+    root_cause: z.string().nullable(),
+    created_at: z.string(),
+    updated_at: z.string(),
+});
+
+export type RootCauseAnalysisSnapshot = z.output<typeof rootCauseAnalysisSnapshotSchema>;
+
+const rootCauseAnalysisSnapshotResultSchema = z.looseObject({
+    message: z.string(),
+    analysis: rootCauseAnalysisSnapshotSchema,
+});
+
+const analysisSummarySchema = z.looseObject({
+    analysis_id: z.string(),
+    problem_statement: z.string(),
+    status: analysisStatusSchema,
+    current_level: z.number().int().min(0).max(ROOT_CAUSE_ANALYSIS_MAX_WHYS),
+    created_at: z.string(),
+});
+
+export type RootCauseAnalysisSummary = z.output<typeof analysisSummarySchema>;
+
+const listAnalysesResultSchema = z.looseObject({
+    message: z.string(),
+    analyses: z.array(analysisSummarySchema),
+});
+
+export const start5WhysAnalysisToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('start_5_whys_analysis'),
+        arguments: z.strictObject({
+            problem_statement: z.string().trim().min(1),
+        }),
+        answer: jsonString(rootCauseAnalysisSnapshotResultSchema).nullable(),
+    }),
+);
+
+export type Start5WhysAnalysisToolCallPayload = z.output<
+    typeof start5WhysAnalysisToolCallPayloadSchema
+>;
+
+export const saveWhyStepToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('save_why_step'),
+        arguments: z.strictObject({
+            analysis_id: z.string().trim().min(1),
+            question: z.string().trim().min(1),
+            answer: z.string().trim().min(1),
+        }),
+        answer: jsonString(rootCauseAnalysisSnapshotResultSchema).nullable(),
+    }),
+);
+
+export type SaveWhyStepToolCallPayload = z.output<typeof saveWhyStepToolCallPayloadSchema>;
+
+export const getAnalysisToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('get_analysis'),
+        arguments: z.strictObject({
+            analysis_id: z.string().trim().min(1),
+        }),
+        answer: jsonString(rootCauseAnalysisSnapshotResultSchema).nullable(),
+    }),
+);
+
+export type GetAnalysisToolCallPayload = z.output<typeof getAnalysisToolCallPayloadSchema>;
+
+export const setRootCauseToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('set_root_cause'),
+        arguments: z.strictObject({
+            analysis_id: z.string().trim().min(1),
+            root_cause: z.string().trim().min(1),
+        }),
+        answer: jsonString(rootCauseAnalysisSnapshotResultSchema).nullable(),
+    }),
+);
+
+export type SetRootCauseToolCallPayload = z.output<typeof setRootCauseToolCallPayloadSchema>;
+
+export const listAnalysesToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('list_analyses'),
+        arguments: z.strictObject({
+            status: analysisStatusSchema.nullable().optional().default(null),
+        }),
+        answer: jsonString(listAnalysesResultSchema).nullable(),
+    }),
+);
+
+export type ListAnalysesToolCallPayload = z.output<typeof listAnalysesToolCallPayloadSchema>;
+
+const askQuestionArgumentsSchema = z.strictObject({
+    question: z.string().trim().min(1),
+    possible_answers: z.array(z.string().trim().min(1)),
+});
+
+export const askQuestionToolCallPayloadSchema = baseToolCallPayloadSchema.extend({
+    tool_name: z.literal('ask_question'),
+    arguments: askQuestionArgumentsSchema,
+});
+
+export type AskQuestionToolCallPayload = z.output<typeof askQuestionToolCallPayloadSchema>;
+
 export type ToolCallDisplayPayload = Omit<ToolCallPayload, 'arguments' | 'answer'> & {
     arguments: unknown;
     answer: unknown;
