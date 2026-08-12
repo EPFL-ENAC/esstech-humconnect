@@ -1,3 +1,5 @@
+import type { ExpressionSpecification } from 'maplibre-gl';
+
 export interface ColorStop {
     progress: number;
     color: string;
@@ -76,6 +78,46 @@ export class ColorScale {
     toLinearGradient(deg: number = 90): string {
         const gradientStops = this.stops.map((stop) => `${stop.color} ${stop.progress * 100}%`);
         return `linear-gradient(${deg}deg, ${gradientStops.join(', ')})`;
+    }
+
+    toMapLibreExpression(
+        type: 'step' | 'linear',
+        sourceProperty: string,
+        noDataColor: string = this.sample(0),
+    ): string | ExpressionSpecification {
+        if (!sourceProperty) {
+            throw new TypeError('MapLibre source property must not be empty.');
+        }
+
+        let colorExpression: string | ExpressionSpecification;
+        if (this.stops.length === 1) {
+            colorExpression = this.stops[0]?.color ?? this.sample(0);
+        } else if (type === 'step') {
+            const firstStop = this.stops[0];
+            if (!firstStop) {
+                throw new TypeError('ColorScale requires at least one stop.');
+            }
+            colorExpression = [
+                'step',
+                ['get', sourceProperty],
+                firstStop.color,
+                ...this.stops.slice(1).flatMap((stop) => [stop.progress, stop.color]),
+            ] as ExpressionSpecification;
+        } else {
+            colorExpression = [
+                'interpolate',
+                ['linear'],
+                ['get', sourceProperty],
+                ...this.stops.flatMap((stop) => [stop.progress, stop.color]),
+            ] as ExpressionSpecification;
+        }
+
+        return [
+            'case',
+            ['has', sourceProperty],
+            colorExpression,
+            noDataColor,
+        ] as ExpressionSpecification;
     }
 }
 

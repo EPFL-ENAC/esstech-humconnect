@@ -8,14 +8,13 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import maplibregl, {
     GeoJSONSource,
-    type ExpressionSpecification,
     type Map as MapLibreMap,
     type MapLayerMouseEvent,
     type Popup,
 } from 'maplibre-gl';
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from 'geojson';
 import type { ColorScale } from 'src/utils/colorScale';
-import type { LngLat, LngLatBounds } from 'src/utils/mapGeometry';
+import { type LngLatBounds, calculateRegionBounds } from 'src/utils/mapGeometry';
 import { createLightMapStyle } from 'src/utils/mapStyle';
 import type { CreatePopupContent, DataByRegion } from './regionMap';
 
@@ -50,7 +49,6 @@ const sourceId = 'region-map-source';
 const fillLayerId = 'region-map-fill';
 const lineLayerId = 'region-map-line';
 const internalCodeProperty = '__humconnect_region_code';
-const internalHasDataProperty = '__humconnect_region_has_data';
 const internalProgressProperty = '__humconnect_region_progress';
 const internalFeatureIndexProperty = '__humconnect_region_feature_index';
 const mapContainer = ref<HTMLElement | null>(null);
@@ -96,56 +94,31 @@ function createRegionData(): FeatureCollection<Geometry, GeoJsonProperties> {
         features: props.regions.features.map((feature, index) => {
             const code = regionCode(feature);
             const validValue = validDisplayedValue(code);
-            const value = validValue ?? 0;
+            const properties: Record<string, unknown> = {
+                ...(feature.properties ?? {}),
+                [internalCodeProperty]: code ?? '',
+                [internalFeatureIndexProperty]: index,
+            };
+            delete properties[internalProgressProperty];
+            if (validValue !== null) {
+                properties[internalProgressProperty] =
+                    maximum > 0 ? Math.min(validValue / maximum, 1) : 0;
+            }
+
             return {
                 ...feature,
-                properties: {
-                    ...(feature.properties ?? {}),
-                    [internalCodeProperty]: code ?? '',
-                    [internalHasDataProperty]: validValue !== null,
-                    [internalProgressProperty]: maximum > 0 ? Math.min(value / maximum, 1) : 0,
-                    [internalFeatureIndexProperty]: index,
-                },
+                properties,
             };
         }),
     };
 }
 
-function createFillColorExpression(): string | ExpressionSpecification {
-    let colorExpression: string | ExpressionSpecification;
-
-    if (props.colorScale.stops.length === 1) {
-        colorExpression = props.colorScale.sample(0);
-    } else if (props.colorInterpolation === 'step') {
-        const firstStop = props.colorScale.stops[0];
-        if (!firstStop) {
-            throw new TypeError('RegionMap color scale requires at least one stop.');
-        }
-        colorExpression = [
-            'step',
-            ['get', internalProgressProperty],
-            firstStop.color,
-            ...props.colorScale.stops.slice(1).flatMap((stop) => [stop.progress, stop.color]),
-        ] as ExpressionSpecification;
-    } else {
-        colorExpression = [
-            'interpolate',
-            ['linear'],
-            ['get', internalProgressProperty],
-            ...props.colorScale.stops.flatMap((stop) => [stop.progress, stop.color]),
-        ] as ExpressionSpecification;
-    }
-
-    if (!props.noDataColor) {
-        return colorExpression;
-    }
-
-    return [
-        'case',
-        ['get', internalHasDataProperty],
-        colorExpression,
+function createFillColorExpression() {
+    return props.colorScale.toMapLibreExpression(
+        props.colorInterpolation,
+        internalProgressProperty,
         props.noDataColor,
-    ] as ExpressionSpecification;
+    );
 }
 
 function syncRegionData(): void {
@@ -294,59 +267,6 @@ function createMap(): void {
     } catch {
         emit('renderError');
     }
-}
-
-function calculateRegionBounds(
-    regions: FeatureCollection<Geometry, GeoJsonProperties>,
-): LngLatBounds | null {
-    let minimumLongitude = Number.POSITIVE_INFINITY;
-    let minimumLatitude = Number.POSITIVE_INFINITY;
-    let maximumLongitude = Number.NEGATIVE_INFINITY;
-    let maximumLatitude = Number.NEGATIVE_INFINITY;
-
-    function includePosition(position: LngLat): void {
-        minimumLongitude = Math.min(minimumLongitude, position[0]);
-        minimumLatitude = Math.min(minimumLatitude, position[1]);
-        maximumLongitude = Math.max(maximumLongitude, position[0]);
-        maximumLatitude = Math.max(maximumLatitude, position[1]);
-    }
-
-    function includeCoordinates(coordinates: unknown): void {
-        if (!Array.isArray(coordinates)) {
-            return;
-        }
-        if (
-            coordinates.length >= 2 &&
-            typeof coordinates[0] === 'number' &&
-            typeof coordinates[1] === 'number'
-        ) {
-            includePosition([coordinates[0], coordinates[1]]);
-            return;
-        }
-        coordinates.forEach(includeCoordinates);
-    }
-
-    function includeGeometry(geometry: Geometry): void {
-        if (geometry.type === 'GeometryCollection') {
-            geometry.geometries.forEach(includeGeometry);
-        } else {
-            includeCoordinates(geometry.coordinates);
-        }
-    }
-
-    regions.features.forEach((feature) => includeGeometry(feature.geometry));
-    if (
-        !Number.isFinite(minimumLongitude) ||
-        !Number.isFinite(minimumLatitude) ||
-        !Number.isFinite(maximumLongitude) ||
-        !Number.isFinite(maximumLatitude)
-    ) {
-        return null;
-    }
-    return [
-        [minimumLongitude, minimumLatitude],
-        [maximumLongitude, maximumLatitude],
-    ];
 }
 
 onMounted(async () => {

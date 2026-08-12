@@ -1,4 +1,4 @@
-import type { FeatureCollection, Polygon } from 'geojson';
+import type { FeatureCollection, GeoJsonProperties, Geometry, Polygon } from 'geojson';
 import type { UserProfileCoordinates } from 'src/utils/model';
 
 const earthRadiusKm = 6371;
@@ -77,4 +77,57 @@ export function createRadiusBounds(
         ],
         [coordinatesToLngLat(coordinates), coordinatesToLngLat(coordinates)],
     );
+}
+
+export function calculateRegionBounds(
+    regions: FeatureCollection<Geometry, GeoJsonProperties>,
+): LngLatBounds | null {
+    let minimumLongitude = Number.POSITIVE_INFINITY;
+    let minimumLatitude = Number.POSITIVE_INFINITY;
+    let maximumLongitude = Number.NEGATIVE_INFINITY;
+    let maximumLatitude = Number.NEGATIVE_INFINITY;
+
+    function includePosition(position: LngLat): void {
+        minimumLongitude = Math.min(minimumLongitude, position[0]);
+        minimumLatitude = Math.min(minimumLatitude, position[1]);
+        maximumLongitude = Math.max(maximumLongitude, position[0]);
+        maximumLatitude = Math.max(maximumLatitude, position[1]);
+    }
+
+    function includeCoordinates(coordinates: unknown): void {
+        if (!Array.isArray(coordinates)) {
+            return;
+        }
+        if (
+            coordinates.length >= 2 &&
+            typeof coordinates[0] === 'number' &&
+            typeof coordinates[1] === 'number'
+        ) {
+            includePosition([coordinates[0], coordinates[1]]);
+            return;
+        }
+        coordinates.forEach(includeCoordinates);
+    }
+
+    function includeGeometry(geometry: Geometry): void {
+        if (geometry.type === 'GeometryCollection') {
+            geometry.geometries.forEach(includeGeometry);
+        } else {
+            includeCoordinates(geometry.coordinates);
+        }
+    }
+
+    regions.features.forEach((feature) => includeGeometry(feature.geometry));
+    if (
+        !Number.isFinite(minimumLongitude) ||
+        !Number.isFinite(minimumLatitude) ||
+        !Number.isFinite(maximumLongitude) ||
+        !Number.isFinite(maximumLatitude)
+    ) {
+        return null;
+    }
+    return [
+        [minimumLongitude, minimumLatitude],
+        [maximumLongitude, maximumLatitude],
+    ];
 }
