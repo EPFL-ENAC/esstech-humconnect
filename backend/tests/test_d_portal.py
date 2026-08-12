@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 from datetime import date, timedelta
+from threading import Barrier
 
 import pytest
 import requests
@@ -71,16 +72,14 @@ def activity_row(**overrides):
 
 def test_search_sends_fixed_queries_and_normalizes_results(monkeypatch):
     calls = []
-    responses = iter(
-        [
-            FakeResponse(query_response([{"count_aid": "42"}])),
-            FakeResponse(query_response([activity_row()])),
-        ]
-    )
+    request_barrier = Barrier(2)
 
     def fake_post(url, *, json, headers, timeout):
         calls.append((url, json, headers, timeout))
-        return next(responses)
+        request_barrier.wait(timeout=2)
+        if json["select"] == "count_aid":
+            return FakeResponse(query_response([{"count_aid": "42"}]))
+        return FakeResponse(query_response([activity_row()]))
 
     monkeypatch.setattr(http_utils.requests, "post", fake_post)
     filters = SearchIatiActivitiesInput.model_validate(
@@ -113,8 +112,9 @@ def test_search_sends_fixed_queries_and_normalizes_results(monkeypatch):
         "day_end_gt": "2024-01-01",
         "day_start_lteq": "2027-01-01",
     }
-    assert calls == [
-        (
+    calls_by_select = {call[1]["select"]: call for call in calls}
+    assert calls_by_select == {
+        "count_aid": (
             "https://d-portal.test/q",
             {
                 "from": "act",
@@ -126,6 +126,9 @@ def test_search_sends_fixed_queries_and_normalizes_results(monkeypatch):
             7,
         ),
         (
+            "aid,reporting,reporting_ref,title,status_code,day_start,day_end,"
+            "description,commitment,spend"
+        ): (
             "https://d-portal.test/q",
             {
                 "from": "act",
@@ -140,7 +143,7 @@ def test_search_sends_fixed_queries_and_normalizes_results(monkeypatch):
             {"User-Agent": "HumConnect/Test"},
             7,
         ),
-    ]
+    }
     assert result.total == 42
     assert result.returned == 1
     assert result.warnings == []
@@ -184,11 +187,12 @@ def test_search_supports_multiple_values_false_flag_and_empty_results(monkeypatc
 
     result = DPortalService().search(filters)
 
-    assert calls[0]["country_code"] == "HT|SD"
-    assert calls[0]["sector_code"] == "12250|14030"
-    assert calls[0]["sector_group"] == "122|140"
-    assert calls[0]["reporting_ref"] == "44000|XM-DAC-41114"
-    assert calls[0]["*@humanitarian"] == "0"
+    for call in calls:
+        assert call["country_code"] == "HT|SD"
+        assert call["sector_code"] == "12250|14030"
+        assert call["sector_group"] == "122|140"
+        assert call["reporting_ref"] == "44000|XM-DAC-41114"
+        assert call["*@humanitarian"] == "0"
     assert result.total == 0
     assert result.activities == []
 
@@ -233,6 +237,7 @@ def test_search_input_strips_query_and_organisation_references():
 
 def test_detail_uses_bounded_queries_and_normalizes_references(monkeypatch):
     calls = []
+    detail_request_barrier = Barrier(4)
     participant_rows = [
         {
             "xson": {
@@ -260,6 +265,7 @@ def test_detail_uses_bounded_queries_and_normalizes_references(monkeypatch):
         calls.append(json)
         if json["from"] == "act":
             return FakeResponse(query_response([activity_row()]))
+        detail_request_barrier.wait(timeout=2)
         if json["from"] == "country":
             return FakeResponse(
                 query_response([{"country_code": "HT", "country_percent": 100}])
@@ -286,43 +292,47 @@ def test_detail_uses_bounded_queries_and_normalizes_references(monkeypatch):
         max_documents=1,
     ).get_activity("44000-P120110")
 
-    assert calls == [
-        {
-            "from": "act",
-            "select": (
-                "aid,reporting,reporting_ref,title,status_code,day_start,day_end,"
-                "description,commitment,spend"
-            ),
-            "aid": "44000-P120110",
-            "limit": 1,
-        },
-        {
+    assert calls[0] == {
+        "from": "act",
+        "select": (
+            "aid,reporting,reporting_ref,title,status_code,day_start,day_end,"
+            "description,commitment,spend"
+        ),
+        "aid": "44000-P120110",
+        "limit": 1,
+    }
+    detail_calls = {(call["from"], call.get("root")): call for call in calls[1:]}
+    assert detail_calls == {
+        ("country", None): {
             "from": "country",
             "select": "country_code,country_percent",
             "aid": "44000-P120110",
             "limit": 100,
         },
-        {
+        ("sector", None): {
             "from": "sector",
             "select": "sector_code,sector_group,sector_percent",
             "aid": "44000-P120110",
             "limit": 100,
         },
-        {
+        (
+            "xson,act",
+            "/iati-activities/iati-activity/participating-org",
+        ): {
             "from": "xson,act",
             "select": "xson",
             "aid": "44000-P120110",
             "root": "/iati-activities/iati-activity/participating-org",
             "limit": 2,
         },
-        {
+        ("xson,act", "/iati-activities/iati-activity/document-link"): {
             "from": "xson,act",
             "select": "xson",
             "aid": "44000-P120110",
             "root": "/iati-activities/iati-activity/document-link",
             "limit": 2,
         },
-    ]
+    }
     assert result.recipient_countries[0].model_dump() == {
         "code": "HT",
         "name": "Haiti",
@@ -353,35 +363,33 @@ def test_detail_uses_bounded_queries_and_normalizes_references(monkeypatch):
 
 
 def test_detail_handles_missing_optional_values_and_invalid_dates(monkeypatch):
-    responses = iter(
-        [
-            FakeResponse(
-                query_response(
-                    [
-                        activity_row(
-                            title=" ",
-                            reporting=None,
-                            reporting_ref=None,
-                            description="",
-                            status_code=999,
-                            day_start=10**30,
-                            day_end=None,
-                            commitment=None,
-                            spend=None,
-                        )
-                    ]
+    core_response = FakeResponse(
+        query_response(
+            [
+                activity_row(
+                    title=" ",
+                    reporting=None,
+                    reporting_ref=None,
+                    description="",
+                    status_code=999,
+                    day_start=10**30,
+                    day_end=None,
+                    commitment=None,
+                    spend=None,
                 )
-            ),
-            FakeResponse(query_response([])),
-            FakeResponse(query_response([])),
-            FakeResponse(query_response([])),
-            FakeResponse(query_response([])),
-        ]
+            ]
+        )
     )
+
+    def fake_post(url, *, json, headers, timeout):
+        if json["from"] == "act":
+            return core_response
+        return FakeResponse(query_response([]))
+
     monkeypatch.setattr(
         http_utils.requests,
         "post",
-        lambda *args, **kwargs: next(responses),
+        fake_post,
     )
 
     result = DPortalService().get_activity("44000-P120110")

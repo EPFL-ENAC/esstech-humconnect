@@ -355,6 +355,161 @@ export type WhoPublicationContentToolCallPayload = z.output<
 >;
 export type WhoPublication = z.output<typeof whoPublicationSchema>;
 
+const iatiSearchArgumentsSchema = z
+    .strictObject({
+        query: z.string().trim().min(1).max(200).nullable().optional().default(null),
+        country_codes: z
+            .array(z.string().regex(/^[A-Z]{2}$/))
+            .max(10)
+            .optional()
+            .default([]),
+        sector_codes: z
+            .array(z.string().regex(/^\d{5}$/))
+            .max(10)
+            .optional()
+            .default([]),
+        sector_group_codes: z
+            .array(z.string().regex(/^\d{3}$/))
+            .max(10)
+            .optional()
+            .default([]),
+        reporting_organisation_refs: z
+            .array(z.string().trim().min(1))
+            .max(10)
+            .optional()
+            .default([]),
+        humanitarian: z.boolean().nullable().optional().default(null),
+        active_from_year: z
+            .number()
+            .int()
+            .min(1960)
+            .max(new Date().getFullYear() + 2)
+            .nullable()
+            .optional()
+            .default(null),
+        active_to_year: z
+            .number()
+            .int()
+            .min(1960)
+            .max(new Date().getFullYear() + 2)
+            .nullable()
+            .optional()
+            .default(null),
+        limit: z.number().int().min(1).max(10).optional().default(5),
+    })
+    .superRefine((values, context) => {
+        const hasCriterion =
+            values.query !== null ||
+            values.country_codes.length > 0 ||
+            values.sector_codes.length > 0 ||
+            values.sector_group_codes.length > 0 ||
+            values.reporting_organisation_refs.length > 0 ||
+            values.humanitarian !== null ||
+            values.active_from_year !== null ||
+            values.active_to_year !== null;
+        if (!hasCriterion) {
+            context.addIssue({
+                code: 'custom',
+                message: 'At least one IATI search criterion is required',
+            });
+        }
+        if (
+            values.active_from_year !== null &&
+            values.active_to_year !== null &&
+            values.active_from_year > values.active_to_year
+        ) {
+            context.addIssue({
+                code: 'custom',
+                message: 'The IATI activity year range is reversed',
+                path: ['active_to_year'],
+            });
+        }
+    });
+
+const iatiOrganisationSchema = z.looseObject({
+    reference: z.string().nullable(),
+    name: z.string().nullable(),
+});
+
+const iatiActivitySummarySchema = z.looseObject({
+    activity_id: z.string().min(1),
+    title: z.string(),
+    description: z.string().nullable(),
+    reporting_organisation: iatiOrganisationSchema,
+    status_code: z.number().int().nullable(),
+    status: z.string().nullable(),
+    start_date: z.string().nullable(),
+    end_date: z.string().nullable(),
+    commitment_usd: z.number().nullable(),
+    spend_usd: z.number().nullable(),
+    source_url: z.string().regex(/^https?:\/\//),
+});
+
+const iatiActivitySearchResultSchema = z.looseObject({
+    total: z.number().int().nonnegative(),
+    returned: z.number().int().nonnegative(),
+    activities: z.array(iatiActivitySummarySchema),
+    warnings: z.array(z.string()),
+});
+
+const iatiRecipientCountrySchema = z.looseObject({
+    code: z.string().regex(/^[A-Z]{2}$/),
+    name: z.string(),
+    percentage: z.number().nullable(),
+});
+
+const iatiSectorSchema = z.looseObject({
+    code: z.string(),
+    group_code: z.string().nullable(),
+    percentage: z.number().nullable(),
+});
+
+const iatiParticipatingOrganisationSchema = iatiOrganisationSchema.extend({
+    role_code: z.number().int().nullable(),
+    role: z.string().nullable(),
+    type_code: z.number().int().nullable(),
+});
+
+const iatiDocumentSchema = z.looseObject({
+    title: z.string().nullable(),
+    url: z.string().regex(/^https?:\/\//),
+    format: z.string().nullable(),
+    category_codes: z.array(z.string()),
+});
+
+const iatiActivityDetailSchema = iatiActivitySummarySchema.extend({
+    recipient_countries: z.array(iatiRecipientCountrySchema),
+    sectors: z.array(iatiSectorSchema),
+    participating_organisations: z.array(iatiParticipatingOrganisationSchema),
+    documents: z.array(iatiDocumentSchema),
+    warnings: z.array(z.string()),
+});
+
+export const iatiActivitySearchToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('search_iati_activities'),
+        arguments: iatiSearchArgumentsSchema,
+        answer: jsonString(iatiActivitySearchResultSchema).nullable(),
+    }),
+);
+
+export const iatiActivityDetailToolCallPayloadSchema = requireFinishedAnswer(
+    baseToolCallPayloadSchema.extend({
+        tool_name: z.literal('get_iati_activity'),
+        arguments: z.strictObject({ activity_id: z.string().trim().min(1) }),
+        answer: jsonString(iatiActivityDetailSchema).nullable(),
+    }),
+);
+
+export type IatiActivitySearchToolCallPayload = z.output<
+    typeof iatiActivitySearchToolCallPayloadSchema
+>;
+export type IatiActivityDetailToolCallPayload = z.output<
+    typeof iatiActivityDetailToolCallPayloadSchema
+>;
+export type IatiActivitySummary = z.output<typeof iatiActivitySummarySchema>;
+export type IatiActivityDetail = z.output<typeof iatiActivityDetailSchema>;
+
 const sanihubTopicSchema = z.enum([
     'Preparedness',
     'Needs Assessment',

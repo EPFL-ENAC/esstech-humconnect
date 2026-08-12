@@ -1,5 +1,6 @@
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated, Any, Generic, TypeVar
+from urllib.parse import quote
 
 import pycountry
 from pydantic import (
@@ -15,6 +16,21 @@ from api.config import config
 from api.utils.pydantic_types import NonEmptyString
 
 D_PORTAL_PUBLIC_BASE_URL = "https://d-portal.iatistandard.org"
+
+ACTIVITY_STATUS_NAMES = {
+    1: "Pipeline/identification",
+    2: "Implementation",
+    3: "Completion",
+    4: "Post-completion",
+    5: "Cancelled",
+    6: "Suspended",
+}
+PARTICIPATING_ORGANISATION_ROLE_NAMES = {
+    1: "Funding",
+    2: "Accountable",
+    3: "Extending",
+    4: "Implementing",
+}
 
 BoundedSearchText = Annotated[
     str,
@@ -147,6 +163,26 @@ class SearchIatiActivitiesInput(BaseModel):
             raise ValueError("active_from_year cannot be after active_to_year")
         return self
 
+    def to_api_filters(self) -> dict[str, object]:
+        values: dict[str, object] = {}
+        if self.query is not None:
+            values["text_search"] = self.query
+        if self.country_codes:
+            values["country_code"] = "|".join(self.country_codes)
+        if self.sector_codes:
+            values["sector_code"] = "|".join(self.sector_codes)
+        if self.sector_group_codes:
+            values["sector_group"] = "|".join(self.sector_group_codes)
+        if self.reporting_organisation_refs:
+            values["reporting_ref"] = "|".join(self.reporting_organisation_refs)
+        if self.humanitarian is not None:
+            values["*@humanitarian"] = "1" if self.humanitarian else "0"
+        if self.active_from_year is not None:
+            values["day_end_gt"] = f"{self.active_from_year}-01-01"
+        if self.active_to_year is not None:
+            values["day_start_lteq"] = f"{self.active_to_year + 1}-01-01"
+        return values
+
     @staticmethod
     def _require_unique(values: list[str], field_name: str) -> None:
         if len(values) != len(set(values)):
@@ -229,6 +265,29 @@ class IatiActivitySummary(HumConnectIatiModel):
     spend_usd: float | None
     source_url: str
 
+    @classmethod
+    def from_activity_row(cls, row: DPortalActivityRow) -> "IatiActivitySummary":
+        return cls(
+            activity_id=row.aid,
+            title=_clean_string(row.title) or "Untitled IATI activity",
+            description=_clean_string(row.description),
+            reporting_organisation=IatiOrganisation(
+                reference=_clean_string(row.reporting_ref),
+                name=_clean_string(row.reporting),
+            ),
+            status_code=row.status_code,
+            status=(
+                ACTIVITY_STATUS_NAMES.get(row.status_code)
+                if row.status_code is not None
+                else None
+            ),
+            start_date=_date_from_days(row.day_start),
+            end_date=_date_from_days(row.day_end),
+            commitment_usd=row.commitment,
+            spend_usd=row.spend,
+            source_url=_activity_url(row.aid),
+        )
+
 
 class IatiActivitySearchResponse(HumConnectIatiModel):
     total: int = Field(ge=0)
@@ -242,17 +301,55 @@ class IatiRecipientCountry(HumConnectIatiModel):
     name: str
     percentage: float | None
 
+    @classmethod
+    def from_dportal_country_row(
+        cls,
+        row: DPortalCountryRow,
+    ) -> "IatiRecipientCountry":
+        country = pycountry.countries.get(alpha_2=row.country_code)
+        return cls(
+            code=row.country_code,
+            name=country.name if country is not None else row.country_code,
+            percentage=row.country_percent,
+        )
+
 
 class IatiSector(HumConnectIatiModel):
     code: str
     group_code: str | None
     percentage: float | None
 
+    @classmethod
+    def from_dportal_sector_row(cls, row: DPortalSectorRow) -> "IatiSector":
+        return cls(
+            code=row.sector_code,
+            group_code=row.sector_group,
+            percentage=row.sector_percent,
+        )
+
 
 class IatiParticipatingOrganisation(IatiOrganisation):
     role_code: int | None
     role: str | None
     type_code: int | None
+
+    @classmethod
+    def from_dportal_xson_row(
+        cls,
+        row: DPortalXsonRow,
+    ) -> "IatiParticipatingOrganisation":
+        role_code = _optional_int(row.xson.get("@role"))
+        return cls(
+            reference=_clean_string(row.xson.get("@ref")),
+            name=_first_narrative(row.xson.get("/narrative")),
+            role_code=role_code,
+            role=(
+                PARTICIPATING_ORGANISATION_ROLE_NAMES.get(role_code)
+                if role_code is not None
+                else None
+            ),
+            type_code=_optional_int(row.xson.get("@type")),
+        )
 
 
 class IatiDocument(HumConnectIatiModel):
@@ -261,6 +358,27 @@ class IatiDocument(HumConnectIatiModel):
     format: str | None
     category_codes: list[str]
 
+    @classmethod
+    def from_dportal_xson_row(cls, row: DPortalXsonRow) -> "IatiDocument | None":
+        url = _clean_string(row.xson.get("@url"))
+        if url is None:
+            return None
+
+        categories = row.xson.get("/category")
+        category_codes: list[str] = []
+        if isinstance(categories, list):
+            for category in categories:
+                if isinstance(category, dict):
+                    code = _clean_string(category.get("@code"))
+                    if code is not None:
+                        category_codes.append(code)
+        return cls(
+            title=_first_narrative(row.xson.get("/title/narrative")),
+            url=url,
+            format=_clean_string(row.xson.get("@format")),
+            category_codes=list(dict.fromkeys(category_codes)),
+        )
+
 
 class IatiActivityDetail(IatiActivitySummary):
     recipient_countries: list[IatiRecipientCountry]
@@ -268,3 +386,52 @@ class IatiActivityDetail(IatiActivitySummary):
     participating_organisations: list[IatiParticipatingOrganisation]
     documents: list[IatiDocument]
     warnings: list[str] = Field(default_factory=list)
+
+
+def _first_narrative(value: Any) -> str | None:
+    if isinstance(value, list):
+        for item in value:
+            narrative = _first_narrative(item)
+            if narrative is not None:
+                return narrative
+        return None
+    if isinstance(value, dict):
+        direct = _clean_string(value.get(""))
+        if direct is not None:
+            return direct
+        return _first_narrative(value.get("/narrative"))
+    return _clean_string(value)
+
+
+def _optional_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _clean_string(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _date_from_days(days: int | None) -> date | None:
+    if days is None:
+        return None
+    try:
+        return date(1970, 1, 1) + timedelta(days=days)
+    except OverflowError:
+        return None
+
+
+def _activity_url(activity_id: str) -> str:
+    encoded_id = quote(activity_id, safe="")
+    return f"{D_PORTAL_PUBLIC_BASE_URL}/ctrack.html#view=act&aid={encoded_id}"
