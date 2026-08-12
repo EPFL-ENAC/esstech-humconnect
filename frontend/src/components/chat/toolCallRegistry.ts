@@ -4,6 +4,7 @@ import type { ToolCallPayload } from 'src/utils/model';
 import AskQuestionToolCall from './AskQuestionToolCall.vue';
 import ExpertAnswerToolCall from './ExpertAnswerToolCall.vue';
 import GenericToolCall from './GenericToolCall.vue';
+import HungerMapToolCall from './HungerMapToolCall.vue';
 import GetAnalysisToolCall from './GetAnalysisToolCall.vue';
 import HumanitarianContextToolCall from './HumanitarianContextToolCall.vue';
 import ListAnalysesToolCall from './ListAnalysesToolCall.vue';
@@ -21,6 +22,7 @@ import {
     askQuestionToolCallPayloadSchema,
     baseToolCallPayloadSchema,
     expertAnswerToolCallPayloadSchema,
+    hungerMapToolCallPayloadSchema,
     getAnalysisToolCallPayloadSchema,
     humanitarianContextToolCallPayloadSchema,
     listAnalysesToolCallPayloadSchema,
@@ -61,6 +63,7 @@ const TOOL_CALL_REGISTRY: Record<string, ToolCallRegistration> = {
         HumanitarianContextToolCall,
         humanitarianContextToolCallPayloadSchema,
     ),
+    get_hunger_map_context: defineToolCall(HungerMapToolCall, hungerMapToolCallPayloadSchema),
     get_natural_events_context: defineToolCall(
         NaturalEventsToolCall,
         naturalEventsToolCallPayloadSchema,

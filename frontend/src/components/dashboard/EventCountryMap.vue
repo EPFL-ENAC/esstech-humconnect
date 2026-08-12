@@ -9,7 +9,20 @@
         </q-card-section>
 
         <div class="map-frame">
-            <div ref="mapContainer" class="map-canvas" role="region" :aria-label="mapAriaLabel" />
+            <RegionMap
+                class="event-country-region-map"
+                :regions="countryBoundaries"
+                region-code-property="country_code"
+                :data-by-region="dataByRegion"
+                displayed-property="event_count"
+                :color-scale="eventColorScale"
+                :ariaLabel="mapAriaLabel"
+                :bounds="worldBounds"
+                :create-popup-content="createCountryPopup"
+                :attribution="naturalEarthAttribution"
+                @ready="handleMapReady"
+                @render-error="handleMapRenderError"
+            />
             <div v-if="dashboardData.mapError || renderError" class="map-state map-error-state">
                 {{ dashboardData.mapError || t('dashboard.map.loadError') }}
             </div>
@@ -26,7 +39,7 @@
             <div class="map-legend" :aria-label="t('dashboard.map.legend')">
                 <span>{{ t('dashboard.map.legend') }}</span>
                 <span>0</span>
-                <div class="legend-scale" />
+                <div class="legend-scale" :style="{ background: eventLegendGradient }" />
                 <span>{{ formatNumber(countryStats.maxCount) }}</span>
             </div>
         </q-card-section>
@@ -34,29 +47,19 @@
 </template>
 
 <script setup lang="ts">
-import 'maplibre-gl/dist/maplibre-gl.css';
-
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import maplibregl, {
-    GeoJSONSource,
-    type ExpressionSpecification,
-    type Map as MapLibreMap,
-    type MapLayerMouseEvent,
-    type Popup,
-} from 'maplibre-gl';
-import type { Feature, FeatureCollection, Geometry } from 'geojson';
+import type { FeatureCollection, Geometry } from 'geojson';
 import countryBoundariesJson from 'src/assets/country-boundaries.json';
+import RegionMap from 'src/components/maps/RegionMap.vue';
+import type { CreatePopupContent, DataByRegion } from 'src/components/maps/regionMap';
 import { useLocalizedFormatters } from 'src/composables/useLocalizedFormatters';
 import { useDashboardData } from 'src/queries/dashboard';
-import { createLightMapStyle } from 'src/utils/mapStyle';
+import { ColorScale } from 'src/utils/colorScale';
+import type { LngLatBounds } from 'src/utils/mapGeometry';
 
 interface CountryBoundaryProperties {
     country_code: string;
-}
-
-interface CountryMapProperties extends CountryBoundaryProperties {
-    event_count: number;
 }
 
 interface CountryStats {
@@ -70,21 +73,40 @@ const countryBoundaries = countryBoundariesJson as unknown as FeatureCollection<
     CountryBoundaryProperties
 >;
 
-const countrySourceId = 'event-country-source';
-const countryFillLayerId = 'event-country-fill';
-const countryLineLayerId = 'event-country-line';
-const mapContainer = ref<HTMLElement | null>(null);
+const countryBoundaryCodes = new Set(
+    countryBoundaries.features.map((feature) => feature.properties.country_code),
+);
+const worldBounds: LngLatBounds = [
+    [-180, -85],
+    [180, 85],
+];
+const naturalEarthAttribution =
+    'Country boundaries: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener noreferrer">Natural Earth</a>';
+const eventColorScale = new ColorScale([
+    { progress: 0, color: '#f2f4f7' },
+    { progress: 0.28, color: '#bbdefb' },
+    { progress: 1, color: '#0d47a1' },
+]);
+const eventLegendGradient = eventColorScale.toLinearGradient();
 const renderError = ref(false);
 const mapIsReady = ref(false);
 const { locale, t } = useI18n();
 const { formatNumber } = useLocalizedFormatters();
 const dashboardData = useDashboardData();
-let map: MapLibreMap | null = null;
-let popup: Popup | null = null;
+
+const dataByRegion = computed<DataByRegion>(() =>
+    Object.fromEntries(
+        Object.entries(dashboardData.mapData).map(([code, properties]) => [
+            code,
+            { properties: { event_count: properties.event_count } },
+        ]),
+    ),
+);
 
 const countryStats = computed<CountryStats>(() => {
-    const values = countryBoundaries.features
-        .map((feature) => dashboardData.mapData[feature.properties.country_code]?.event_count ?? 0)
+    const values = Object.entries(dashboardData.mapData)
+        .filter(([countryCode]) => countryBoundaryCodes.has(countryCode))
+        .map(([, countryData]) => countryData.event_count)
         .filter((count) => count > 0);
     return {
         countryCount: values.length,
@@ -124,182 +146,26 @@ function countryName(countryCode: string) {
     }
 }
 
-function createCountryData(): FeatureCollection<Geometry, CountryMapProperties> {
-    return {
-        type: 'FeatureCollection',
-        features: countryBoundaries.features.map(
-            (feature): Feature<Geometry, CountryMapProperties> => ({
-                ...feature,
-                properties: {
-                    country_code: feature.properties.country_code,
-                    event_count:
-                        dashboardData.mapData[feature.properties.country_code]?.event_count ?? 0,
-                },
-            }),
-        ),
-    };
-}
-
-function createFillColorExpression(): string | ExpressionSpecification {
-    if (countryStats.value.maxCount <= 1) {
-        return [
-            'case',
-            ['>', ['get', 'event_count'], 0],
-            '#1976d2',
-            '#f2f4f7',
-        ] as ExpressionSpecification;
-    }
-    return [
-        'case',
-        ['==', ['get', 'event_count'], 0],
-        '#f2f4f7',
-        [
-            'interpolate',
-            ['linear'],
-            ['get', 'event_count'],
-            1,
-            '#bbdefb',
-            countryStats.value.maxCount,
-            '#0d47a1',
-        ],
-    ] as ExpressionSpecification;
-}
-
-function syncCountryData() {
-    if (!mapIsReady.value || !map) {
-        return;
-    }
-    const source = map.getSource(countrySourceId);
-    if (source instanceof GeoJSONSource) {
-        source.setData(createCountryData());
-    }
-    map.setPaintProperty(countryFillLayerId, 'fill-color', createFillColorExpression());
-}
-
-function showCountryPopup(event: MapLayerMouseEvent) {
-    const feature = event.features?.[0];
-    const rawCountryCode = feature?.properties.country_code;
-    const countryCode = typeof rawCountryCode === 'string' ? rawCountryCode : undefined;
-    const eventCount = Number(feature?.properties.event_count ?? 0);
-    if (!countryCode || !popup || !map) {
-        return;
-    }
-
+const createCountryPopup: CreatePopupContent = (region, data) => {
+    const eventCount = data?.properties.event_count ?? region.displayedValue;
     const content = document.createElement('div');
     const name = document.createElement('strong');
     const count = document.createElement('span');
-    name.textContent = countryName(countryCode);
+    name.textContent = countryName(region.code);
     count.textContent = eventCountLabel(eventCount);
     content.className = 'country-popup-content';
     content.append(name, count);
+    return content;
+};
 
-    popup.setLngLat(event.lngLat).setDOMContent(content).addTo(map);
+function handleMapReady(): void {
+    mapIsReady.value = true;
+    renderError.value = false;
 }
 
-function createMap() {
-    if (!mapContainer.value) {
-        return;
-    }
-
-    try {
-        map = new maplibregl.Map({
-            attributionControl: false,
-            center: [0, 15],
-            container: mapContainer.value,
-            dragRotate: false,
-            maxZoom: 6,
-            minZoom: 0,
-            pitchWithRotate: false,
-            style: createLightMapStyle(),
-            zoom: 0.7,
-        });
-        popup = new maplibregl.Popup({
-            closeButton: false,
-            closeOnClick: true,
-            offset: 10,
-        });
-
-        map.on('load', () => {
-            if (!map) {
-                return;
-            }
-            try {
-                map.addSource(countrySourceId, {
-                    type: 'geojson',
-                    data: createCountryData(),
-                });
-                map.addLayer({
-                    id: countryFillLayerId,
-                    type: 'fill',
-                    source: countrySourceId,
-                    paint: {
-                        'fill-color': createFillColorExpression(),
-                        'fill-opacity': 0.72,
-                    },
-                });
-                map.addLayer({
-                    id: countryLineLayerId,
-                    type: 'line',
-                    source: countrySourceId,
-                    paint: {
-                        'line-color': '#475467',
-                        'line-opacity': 0.7,
-                        'line-width': 0.55,
-                    },
-                });
-                map.on('mousemove', countryFillLayerId, showCountryPopup);
-                map.on('click', countryFillLayerId, showCountryPopup);
-                map.on('mouseenter', countryFillLayerId, () => {
-                    if (map) {
-                        map.getCanvas().style.cursor = 'pointer';
-                    }
-                });
-                map.on('mouseleave', countryFillLayerId, () => {
-                    if (map) {
-                        map.getCanvas().style.cursor = '';
-                    }
-                    popup?.remove();
-                });
-                map.fitBounds(
-                    [
-                        [-180, -85],
-                        [180, 85],
-                    ],
-                    { duration: 0, padding: 18 },
-                );
-                mapIsReady.value = true;
-            } catch {
-                renderError.value = true;
-            }
-        });
-
-        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-        map.addControl(
-            new maplibregl.AttributionControl({
-                compact: true,
-                customAttribution:
-                    'Country boundaries: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener noreferrer">Natural Earth</a>',
-            }),
-            'bottom-right',
-        );
-    } catch {
-        renderError.value = true;
-    }
+function handleMapRenderError(): void {
+    renderError.value = true;
 }
-
-onMounted(async () => {
-    await nextTick();
-    createMap();
-});
-
-onBeforeUnmount(() => {
-    popup?.remove();
-    popup = null;
-    map?.remove();
-    map = null;
-});
-
-watch(() => dashboardData.mapData, syncCountryData);
 </script>
 
 <style scoped lang="scss">
@@ -341,7 +207,7 @@ p {
     position: relative;
 }
 
-.map-canvas {
+.event-country-region-map {
     height: 420px;
     width: 100%;
 }
@@ -385,7 +251,6 @@ p {
 }
 
 .legend-scale {
-    background: linear-gradient(90deg, #f2f4f7 0%, #bbdefb 28%, #0d47a1 100%);
     border: 1px solid rgba(0, 0, 0, 0.16);
     border-radius: 999px;
     height: 10px;
@@ -419,7 +284,7 @@ p {
         min-height: 300px;
     }
 
-    .map-canvas {
+    .event-country-region-map {
         height: 300px;
     }
 
