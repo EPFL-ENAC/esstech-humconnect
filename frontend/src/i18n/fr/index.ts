@@ -2,6 +2,16 @@ export default {
     appTitle: 'HumConnect',
     notFoundMessage: "Oups. Il n'y a rien ici...",
     goHome: "Retour à l'accueil",
+    language: {
+        label: 'Langue',
+        english: 'English',
+        french: 'Français',
+    },
+    disclaimer: {
+        message:
+            'HumConnect est un agent conversationnel basé sur l’IA. Bien qu’il puisse récupérer des données auprès de sources externes fiables, cette technologie peut encore commettre des erreurs.',
+        dismiss: 'Fermer l’avertissement',
+    },
     navigation: {
         chats: 'Discussions',
         profile: 'Profil',
