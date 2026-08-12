@@ -10,6 +10,10 @@ from api.services.chat_room.tools.base import (
     ToolSet,
     parse_tool_call_arguments,
 )
+from api.services.chat_room.tools.d_portal import (
+    GET_IATI_ACTIVITY_TOOL,
+    SEARCH_IATI_ACTIVITIES_TOOL,
+)
 from api.services.chat_room.tools.dummy import DUMMY_TOOL
 from api.services.chat_room.tools.events import RECALL_EVENTS_TOOL, RECORD_EVENT_TOOL
 from api.services.chat_room.tools.humanitarian_context import (
@@ -41,6 +45,7 @@ __all__ = [
     "GET_ANALYSIS_TOOL",
     "GET_HUMANITARIAN_CONTEXT_TOOL",
     "GET_HUNGER_MAP_CONTEXT_TOOL",
+    "GET_IATI_ACTIVITY_TOOL",
     "GET_NATURAL_EVENTS_CONTEXT_TOOL",
     "GET_WHO_PUBLICATION_CONTENT_TOOL",
     "LIST_ANALYSES_TOOL",
@@ -48,6 +53,7 @@ __all__ = [
     "RECORD_EVENT_TOOL",
     "ROOT_CAUSE_ANALYSIS_TOOLS",
     "SAVE_WHY_STEP_TOOL",
+    "SEARCH_IATI_ACTIVITIES_TOOL",
     "SEARCH_WHO_PUBLICATIONS_TOOL",
     "SET_ROOT_CAUSE_TOOL",
     "START_5_WHYS_ANALYSIS_TOOL",

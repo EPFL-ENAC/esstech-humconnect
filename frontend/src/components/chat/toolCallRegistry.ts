@@ -7,6 +7,8 @@ import GenericToolCall from './GenericToolCall.vue';
 import HungerMapToolCall from './HungerMapToolCall.vue';
 import GetAnalysisToolCall from './GetAnalysisToolCall.vue';
 import HumanitarianContextToolCall from './HumanitarianContextToolCall.vue';
+import IatiActivityDetailToolCall from './IatiActivityDetailToolCall.vue';
+import IatiActivitySearchToolCall from './IatiActivitySearchToolCall.vue';
 import ListAnalysesToolCall from './ListAnalysesToolCall.vue';
 import NaturalEventsToolCall from './NaturalEventsToolCall.vue';
 import RecallEventsToolCall from './RecallEventsToolCall.vue';
@@ -25,6 +27,8 @@ import {
     hungerMapToolCallPayloadSchema,
     getAnalysisToolCallPayloadSchema,
     humanitarianContextToolCallPayloadSchema,
+    iatiActivityDetailToolCallPayloadSchema,
+    iatiActivitySearchToolCallPayloadSchema,
     listAnalysesToolCallPayloadSchema,
     naturalEventsToolCallPayloadSchema,
     recallEventsToolCallPayloadSchema,
@@ -64,6 +68,14 @@ const TOOL_CALL_REGISTRY: Record<string, ToolCallRegistration> = {
         humanitarianContextToolCallPayloadSchema,
     ),
     get_hunger_map_context: defineToolCall(HungerMapToolCall, hungerMapToolCallPayloadSchema),
+    search_iati_activities: defineToolCall(
+        IatiActivitySearchToolCall,
+        iatiActivitySearchToolCallPayloadSchema,
+    ),
+    get_iati_activity: defineToolCall(
+        IatiActivityDetailToolCall,
+        iatiActivityDetailToolCallPayloadSchema,
+    ),
     get_natural_events_context: defineToolCall(
         NaturalEventsToolCall,
         naturalEventsToolCallPayloadSchema,
