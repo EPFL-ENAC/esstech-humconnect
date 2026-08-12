@@ -2,6 +2,16 @@ export default {
     appTitle: 'HumConnect',
     notFoundMessage: 'Oops. Nothing here...',
     goHome: 'Go home',
+    language: {
+        label: 'Language',
+        english: 'English',
+        french: 'Français',
+    },
+    disclaimer: {
+        message:
+            'HumConnect is an AI chatbot. Although it can retrieve data from trusted external sources, AI technology can still make mistakes.',
+        dismiss: 'Dismiss warning',
+    },
     navigation: {
         chats: 'Chats',
         profile: 'Profile',

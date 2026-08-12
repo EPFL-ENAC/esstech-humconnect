@@ -10,6 +10,26 @@
                     style="width: 96px"
                 />
                 <q-toolbar-title> {{ t('appTitle') }} </q-toolbar-title>
+                <q-btn-dropdown
+                    flat
+                    dense
+                    no-caps
+                    icon="language"
+                    :label="locale === 'fr' ? 'FR' : 'EN'"
+                    :aria-label="t('language.label')"
+                >
+                    <q-list>
+                        <q-item
+                            v-for="option in localeOptions"
+                            :key="option.value"
+                            v-close-popup
+                            clickable
+                            @click="selectLocale(option.value)"
+                        >
+                            <q-item-section>{{ t(option.labelKey) }}</q-item-section>
+                        </q-item>
+                    </q-list>
+                </q-btn-dropdown>
                 <q-btn flat round icon="logout" @click="logout">
                     <q-tooltip>{{ t('auth.logout') }}</q-tooltip>
                 </q-btn>
@@ -42,6 +62,24 @@
         </q-drawer>
 
         <q-page-container>
+            <q-banner v-if="showDisclaimer" class="bg-amber-2 text-brown-10">
+                <template #avatar>
+                    <q-icon name="warning_amber" />
+                </template>
+
+                {{ t('disclaimer.message') }}
+
+                <template #action>
+                    <q-btn
+                        flat
+                        round
+                        dense
+                        icon="close"
+                        :aria-label="t('disclaimer.dismiss')"
+                        @click="showDisclaimer = false"
+                    />
+                </template>
+            </q-banner>
             <router-view />
         </q-page-container>
     </q-layout>
@@ -53,10 +91,23 @@ import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from 'src/stores/auth';
 
-const { t } = useI18n();
+type AppLocale = 'en-US' | 'fr';
+
+const localeOptions: { value: AppLocale; labelKey: string }[] = [
+    { value: 'en-US', labelKey: 'language.english' },
+    { value: 'fr', labelKey: 'language.french' },
+];
+
+const { locale, t } = useI18n();
 const router = useRouter();
 const authStore = useAuthStore();
 const leftDrawerOpen = ref(true);
+const showDisclaimer = ref(true);
+
+function selectLocale(nextLocale: AppLocale): void {
+    locale.value = nextLocale;
+    localStorage.setItem('app-locale', nextLocale);
+}
 
 async function logout() {
     await authStore.logout();
