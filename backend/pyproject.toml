@@ -45,6 +45,7 @@ packages = [
     "api.services",
     "api.services.chat_room",
     "api.services.chat_room.tools",
+    "api.services.d_portal",
     "api.services.natural_events",
     "api.services.nominatim",
     "api.services.reliefweb",

@@ -35,3 +35,32 @@ def fetch_validated_json(
         return model.model_validate(response.json())
     except (ValueError, ValidationError) as exc:
         raise ValueError(malformed_payload_message) from exc
+
+
+def post_validated_json(
+    url: str,
+    model: type[ResponseModelT],
+    *,
+    json_body: Mapping[str, object],
+    timeout_seconds: float,
+    malformed_payload_message: str,
+    headers: Mapping[str, str] | None = None,
+) -> ResponseModelT:
+    if headers is None:
+        response = requests.post(
+            url,
+            json=json_body,
+            timeout=timeout_seconds,
+        )
+    else:
+        response = requests.post(
+            url,
+            json=json_body,
+            headers=headers,
+            timeout=timeout_seconds,
+        )
+    response.raise_for_status()
+    try:
+        return model.model_validate(response.json())
+    except (ValueError, ValidationError) as exc:
+        raise ValueError(malformed_payload_message) from exc

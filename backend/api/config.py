@@ -55,6 +55,12 @@ class Config(BaseSettings):
     WHO_IRIS_MAX_DOCUMENTS: int = 3
     WHO_IRIS_EXCERPT_BYTES: int = 12_000
 
+    D_PORTAL_BASE_URL: str = "https://d-portal.iatistandard.org"
+    D_PORTAL_TIMEOUT_SECONDS: float = 10
+    D_PORTAL_SEARCH_LIMIT: int = 5
+    D_PORTAL_MAX_PARTICIPATING_ORGANISATIONS: int = 20
+    D_PORTAL_MAX_DOCUMENTS: int = 10
+
     SANIHUB_MCP_URL: str = "https://sanihub.washai.dev/api/test/mcp"
     SANIHUB_MCP_TIMEOUT_SECONDS: float = 30
 

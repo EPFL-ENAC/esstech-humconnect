@@ -215,6 +215,8 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
         "get_natural_events_context",
         "get_humanitarian_context",
         "get_hunger_map_context",
+        "search_iati_activities",
+        "get_iati_activity",
         "search_who_publications",
         "get_who_publication_content",
         "start_5_whys_analysis",
