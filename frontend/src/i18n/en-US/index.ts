@@ -19,7 +19,7 @@ export default {
     },
     auth: {
         signinTitle: 'Sign in to HumConnect',
-        signinSubtitle: 'Use your ENAC account to access your chats.',
+        signinSubtitle: '',
         signin: 'Sign in',
         logout: 'Sign out',
     },

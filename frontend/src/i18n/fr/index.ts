@@ -19,7 +19,7 @@ export default {
     },
     auth: {
         signinTitle: 'Connexion à HumConnect',
-        signinSubtitle: 'Utilisez votre compte ENAC pour accéder à vos discussions.',
+        signinSubtitle: '',
         signin: 'Se connecter',
         logout: 'Se déconnecter',
     },
