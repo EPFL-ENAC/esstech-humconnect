@@ -28,11 +28,12 @@ from api.services.chat_room.chat_assistant import (
     AssistantStreamPayloadUpdate,
     ChatAssistant,
 )
+from api.services.chat_room.chat_db import PersistentChatMessagesHistory
 from api.services.chat_room.default_tool_set import HUMCONNECT_TOOL_SET
 from api.services.chat_room.tools import ToolSet, parse_tool_call_arguments
 from api.services.chat_room.tools.base import ToolCallExecution, ToolExecutionContext
 
-ModelInputMessage = EasyInputMessageParam
+ModelInputMessage = EasyInputMessageParam | ResponseInputItemParam
 MAX_TOOL_CALL_ROUNDS = 10
 BASE_INSTRUCTIONS = (
     "When the user states a problem, run a 5 Whys root cause analysis by calling "
@@ -132,30 +133,31 @@ class HumConnectAssistant(ChatAssistant):
 
     @staticmethod
     def chat_history_to_model_input(
-        chat_history: Sequence[ChatMessageResponse],
+        chat_history: list[ChatMessageResponse],
     ) -> list[ModelInputMessage]:
         items: list[ModelInputMessage] = []
         for message in chat_history:
-            if message.status != MESSAGE_STATUS_COMPLETE:
-                continue
-            item = message.to_ai_model_input()
-            if not item["content"]:
-                # Terminal tool calls such as ask_question end the turn without
-                # producing text. Surface the tool's output as the message
-                # content so the exchange is preserved in the model's history.
-                parts: list[str] = []
-                for chunk in message.chunks:
-                    if chunk.type != CHUNK_TYPE_TOOL_CALL or chunk.payload is None:
-                        continue
-                    if chunk.payload.answer:
-                        parts.append(chunk.payload.answer)
-                if parts:
-                    item = cast(
-                        ModelInputMessage,
-                        {"role": item["role"], "content": "\n\n".join(parts)},
-                    )
-            if item["content"]:
-                items.append(item)
+            chunks = message.to_ai_model_input()
+            items.extend(chunks)
+
+        # if not item["content"]:
+        #     # Terminal tool calls such as ask_question end the turn without
+        #     # producing text. Surface the tool's output as the message
+        #     # content so the exchange is preserved in the model's history.
+        #     parts: list[str] = []
+        #     for chunk in message.chunks:
+        #         if chunk.type != CHUNK_TYPE_TOOL_CALL or chunk.payload is None:
+        #             continue
+        #         if chunk.payload.answer:
+        #             parts.append(chunk.payload.answer)
+        #     if parts:
+        #         item = cast(
+        #             ModelInputMessage,
+        #             {"role": item["role"], "content": "\n\n".join(parts)},
+        #         )
+        # if item["content"]:
+        #     items.add(item)
+
         return items
 
     @staticmethod
@@ -179,21 +181,21 @@ class HumConnectAssistant(ChatAssistant):
 
     async def stream_response(
         self,
-        chat_history: Sequence[ChatMessageResponse],
+        chat_history: PersistentChatMessagesHistory,
         question: str,
         tool_context: ToolExecutionContext | None = None,
     ) -> AsyncIterator[AssistantStreamEvent]:
-        model_input: ResponseInputParam = [
-            *self.chat_history_to_model_input(chat_history),
-            {
-                "role": "user",
-                "content": question,
-            },
-        ]
         chunk_cursor = StreamChunkCursor()
         tool_call_rounds = 0
 
         while True:
+            model_input: ResponseInputParam = [
+                *self.chat_history_to_model_input(
+                    await chat_history.get_assistant_chat_history(
+                        interrupt_stale_streaming_messages=False
+                    )
+                )
+            ]
             function_calls: list[ResponseFunctionToolCall] = []
             stream = await openai_client.responses.create(
                 input=model_input,

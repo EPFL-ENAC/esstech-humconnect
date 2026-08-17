@@ -10,6 +10,7 @@ from api.models.chat import (
     MessageChunkType,
     ToolCallPayload,
 )
+from api.services.chat_room.chat_db import PersistentChatMessagesHistory
 from api.services.chat_room.tools.base import ToolExecutionContext
 
 PLACEHOLDER_TOKEN_DELAY_SECONDS = 0.05
@@ -35,7 +36,7 @@ AssistantStreamEvent = AssistantStreamChunkDelta | AssistantStreamPayloadUpdate
 class ChatAssistant(Protocol):
     def stream_response(
         self,
-        chat_history: Sequence[ChatMessageResponse],
+        chat_history: PersistentChatMessagesHistory,
         question: str,
         tool_context: ToolExecutionContext | None = None,
     ) -> AsyncIterator[AssistantStreamEvent]:
@@ -45,7 +46,7 @@ class ChatAssistant(Protocol):
 class PlaceholderChatAssistant(ChatAssistant):
     async def stream_response(
         self,
-        chat_history: Sequence[ChatMessageResponse],
+        chat_history: PersistentChatMessagesHistory,
         question: str,
         tool_context: ToolExecutionContext | None = None,
     ) -> AsyncIterator[AssistantStreamEvent]:

@@ -69,11 +69,8 @@ class PersistentChatMessagesHistory:
         await self._ensure_loaded(
             interrupt_stale_streaming_messages=interrupt_stale_streaming_messages
         )
-        return [
-            message
-            for message in self._messages
-            if message.status == MESSAGE_STATUS_COMPLETE
-        ]
+
+        return [message for message in self._messages]
 
     async def submit_question(
         self, user_id: UUID, question: str

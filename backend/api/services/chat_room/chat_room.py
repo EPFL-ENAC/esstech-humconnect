@@ -204,7 +204,7 @@ class ChatRoomService:
         tool_context: ToolExecutionContext | None,
     ) -> None:
         async for chunk in self._chat_assistant.stream_response(
-            chat_history,
+            self._messages_history,
             question,
             tool_context,
         ):
