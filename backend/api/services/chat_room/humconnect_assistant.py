@@ -234,7 +234,6 @@ class HumConnectAssistant(ChatAssistant):
             tool_call_rounds += 1
 
             terminal_tool_called = False
-            tool_executions: list[ToolCallExecution] = []
             for function_call in function_calls:
                 tool_label = self._tool_set.label_for(function_call)
                 tool_arguments = parse_tool_call_arguments(function_call.arguments)
@@ -281,17 +280,8 @@ class HumConnectAssistant(ChatAssistant):
                     payload,
                 )
 
-                tool_executions.append(tool_execution)
                 if tool_execution.terminal:
                     terminal_tool_called = True
 
-            tool_input_items: list[ResponseInputItemParam] = []
-            for tool_execution in tool_executions:
-                tool_input_items.append(tool_execution.function_call_input_item)
-            for tool_execution in tool_executions:
-                tool_input_items.append(tool_execution.function_call_output_input_item)
-
             if terminal_tool_called:
                 return
-
-            model_input = [*model_input, *tool_input_items]
