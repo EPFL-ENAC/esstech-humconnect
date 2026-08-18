@@ -1,5 +1,5 @@
 <template>
-    <div class="q-my-md">
+    <div class="q-mb-md">
         <ChatMarkdownContent :content="chunk.content" />
     </div>
 </template>

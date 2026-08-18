@@ -72,6 +72,10 @@ const router = useRouter();
 const { t } = useI18n();
 const chatId = computed(() => String(route.params.id));
 
+const AUTO_SCROLL_THRESHOLD = 100;
+let lastScrollHeight = 0;
+let lastMessageCount = 0;
+
 const draft = ref('');
 const messagesElement = ref<HTMLElement | null>(null);
 const {
@@ -140,7 +144,29 @@ function handleEnter(event: KeyboardEvent) {
     void sendMessage();
 }
 
-function scheduleScrollToBottom() {
+function autoScrollToBottom() {
+    const element = messagesElement.value;
+    if (!element) {
+        return;
+    }
+
+    const isScrolledToBottom =
+        element.scrollHeight - element.scrollTop <= element.clientHeight + AUTO_SCROLL_THRESHOLD;
+
+    const scrollHeightChanged = element.scrollHeight !== lastScrollHeight;
+    lastScrollHeight = element.scrollHeight;
+
+    const messageCountChanged = messages.value.length !== lastMessageCount;
+    lastMessageCount = messages.value.length;
+
+    if (messageCountChanged) {
+        scheduleScrollToBottom('smooth');
+    } else if (scrollHeightChanged && isScrolledToBottom) {
+        scheduleScrollToBottom('instant');
+    }
+}
+
+function scheduleScrollToBottom(behavior: ScrollBehavior = 'instant') {
     if (scrollFrame !== undefined) {
         return;
     }
@@ -150,7 +176,7 @@ function scheduleScrollToBottom() {
         const element = messagesElement.value;
         element?.scrollTo({
             top: element.scrollHeight,
-            behavior: 'smooth',
+            behavior: behavior,
         });
     });
 }
@@ -159,8 +185,8 @@ function goBack() {
     void router.push('/');
 }
 
-watch(messages, scheduleScrollToBottom, { deep: true, flush: 'post' });
-onMessageDone(scheduleScrollToBottom);
+watch(messages, autoScrollToBottom, { deep: true, flush: 'post' });
+onMessageDone(autoScrollToBottom);
 
 onBeforeUnmount(() => {
     if (scrollFrame !== undefined) {

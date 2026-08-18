@@ -3,7 +3,7 @@
         dense
         switch-toggle-side
         :default-opened="defaultOpened"
-        class="activity-block"
+        class="activity-block q-mb-md"
         header-class="activity-block-header"
         :style="activityStyle"
     >
