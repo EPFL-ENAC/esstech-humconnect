@@ -28,7 +28,7 @@ export const useAuthStore = defineStore('auth', () => {
 
         try {
             const authenticated = await keycloak.init({
-                onLoad: 'check-sso',
+                checkLoginIframe: false,
             });
             initialized.value = true;
 
