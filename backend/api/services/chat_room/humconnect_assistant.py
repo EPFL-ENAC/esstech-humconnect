@@ -188,6 +188,9 @@ class HumConnectAssistant(ChatAssistant):
         chunk_cursor = StreamChunkCursor()
         tool_call_rounds = 0
 
+        turn_character_count = 0
+        TURN_CHARACTER_LIMIT = 100_000
+
         while True:
             model_input: ResponseInputParam = [
                 *self.chat_history_to_model_input(
@@ -221,10 +224,16 @@ class HumConnectAssistant(ChatAssistant):
                 else:
                     continue
 
+                turn_character_count += len(delta)
                 yield chunk_cursor.next_delta(
                     chunk_type,
                     delta,
                 )
+
+                if turn_character_count >= TURN_CHARACTER_LIMIT:
+                    raise RuntimeError(
+                        f"Turn character limit exceeded: {turn_character_count} >= {TURN_CHARACTER_LIMIT}"
+                    )
 
             if not function_calls:
                 return
