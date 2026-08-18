@@ -112,7 +112,7 @@ onBeforeUnmount(() => {
     background: white;
     border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: 8px;
-    max-width: min(680px, 86%);
+    max-width: min(800px, 86%);
     padding: 10px 12px;
     user-select: text;
 }

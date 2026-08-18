@@ -205,7 +205,6 @@ onBeforeUnmount(() => {
     flex-direction: column;
     gap: 16px;
     height: calc(100vh - 98px);
-    max-width: 920px;
 }
 
 .chat-header {
