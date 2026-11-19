@@ -1,5 +1,5 @@
 <template>
-    <q-page class="chat-page">
+    <q-page class="chat-page" :style-fn="pageStyle">
         <section class="chat-shell">
             <div class="chat-header">
                 <q-btn flat round icon="arrow_back" @click="goBack">
@@ -71,6 +71,10 @@ const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
 const chatId = computed(() => String(route.params.id));
+
+function pageStyle(offset: number, height: number) {
+    return { height: `${height - offset}px` };
+}
 
 const AUTO_SCROLL_THRESHOLD = 100;
 let lastScrollHeight = 0;
@@ -197,14 +201,16 @@ onBeforeUnmount(() => {
 
 <style scoped lang="scss">
 .chat-page {
+    display: flex;
     padding: 24px;
 }
 
 .chat-shell {
     display: flex;
+    flex: 1;
     flex-direction: column;
     gap: 16px;
-    height: calc(100vh - 98px);
+    min-height: 0;
 }
 
 .chat-header {
@@ -228,7 +234,7 @@ p {
     background: #f7f8fa;
     border: 1px solid rgba(0, 0, 0, 0.12);
     flex: 1;
-    min-height: 260px;
+    min-height: 0;
     overflow-y: auto;
     padding: 18px;
 }
@@ -271,10 +277,6 @@ p {
 @media (max-width: 640px) {
     .chat-page {
         padding: 16px;
-    }
-
-    .chat-shell {
-        height: calc(100vh - 82px);
     }
 }
 </style>

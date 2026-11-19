@@ -34,6 +34,24 @@
                     <q-tooltip>{{ t('auth.logout') }}</q-tooltip>
                 </q-btn>
             </q-toolbar>
+            <q-banner v-if="showDisclaimer" class="bg-amber-2 text-brown-10">
+                <template #avatar>
+                    <q-icon name="warning_amber" />
+                </template>
+
+                {{ t('disclaimer.message') }}
+
+                <template #action>
+                    <q-btn
+                        flat
+                        round
+                        dense
+                        icon="close"
+                        :aria-label="t('disclaimer.dismiss')"
+                        @click="showDisclaimer = false"
+                    />
+                </template>
+            </q-banner>
         </q-header>
 
         <q-drawer v-model="leftDrawerOpen" :breakpoint="0" :width="314" bordered>
@@ -62,24 +80,6 @@
         </q-drawer>
 
         <q-page-container>
-            <q-banner v-if="showDisclaimer" class="bg-amber-2 text-brown-10">
-                <template #avatar>
-                    <q-icon name="warning_amber" />
-                </template>
-
-                {{ t('disclaimer.message') }}
-
-                <template #action>
-                    <q-btn
-                        flat
-                        round
-                        dense
-                        icon="close"
-                        :aria-label="t('disclaimer.dismiss')"
-                        @click="showDisclaimer = false"
-                    />
-                </template>
-            </q-banner>
             <router-view />
         </q-page-container>
     </q-layout>
