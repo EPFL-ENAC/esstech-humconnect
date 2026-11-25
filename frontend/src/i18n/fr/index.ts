@@ -192,6 +192,7 @@ export default {
         emptyState: 'Envoyez un message pour commencer.',
         writeMessage: 'Écrire un message',
         send: 'Envoyer',
+        stop: 'Arrêter',
         copyMessage: 'Copier le message',
         copiedMessage: 'Message copié',
         copyMessageFailed: 'Impossible de copier le message.',

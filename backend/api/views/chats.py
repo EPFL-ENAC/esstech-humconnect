@@ -125,6 +125,25 @@ async def create_chat_message(
     return Response(status_code=status.HTTP_202_ACCEPTED)
 
 
+@router.post("/{chat_id}/stop", status_code=status.HTTP_204_NO_CONTENT)
+async def stop_chat_response(
+    chat_id: UUID,
+    user: User = Depends(require_user()),
+    session: AsyncSQLModelSession = Depends(get_session),
+) -> Response:
+    profile = await get_or_create_user_profile_from_token(user, session)
+    room = await chat_room_registry.get_room(chat_id)
+    try:
+        if not await room.verify_user_access(profile.id):
+            raise HTTPException(status_code=404, detail="Chat not found")
+
+        await room.stop_response()
+    finally:
+        await chat_room_registry.release_room_if_idle(chat_id)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/{chat_id}/events")
 async def chat_events(
     chat_id: UUID,

@@ -46,6 +46,18 @@
                 <q-btn round color="primary" icon="send" type="submit" :disable="!canSubmit">
                     <q-tooltip>{{ t('chat.send') }}</q-tooltip>
                 </q-btn>
+                <q-btn
+                    v-if="isGenerating"
+                    round
+                    color="negative"
+                    icon="stop"
+                    :loading="stopping"
+                    :disable="!canSend"
+                    :aria-label="t('chat.stop')"
+                    @click="stop"
+                >
+                    <q-tooltip>{{ t('chat.stop') }}</q-tooltip>
+                </q-btn>
             </form>
             <AskQuestionComposer
                 v-else
@@ -53,6 +65,8 @@
                 :possible-answers="activeQuestion.possibleAnswers"
                 :submit="submitMessage"
                 :disabled="!canSend"
+                :stopping="stopping"
+                @stop="stop"
             />
         </section>
     </q-page>
@@ -88,6 +102,7 @@ const {
     error,
     messages,
     sendMessage: submitMessage,
+    stopResponse,
     onMessageDone,
 } = useChat(chatId);
 let scrollFrame: number | undefined;
@@ -96,7 +111,20 @@ const connectionLabel = computed(() =>
     connected.value ? t('chat.connected') : t('chat.reconnecting'),
 );
 const canSend = computed(() => connected.value);
-const canSubmit = computed(() => canSend.value && draft.value.trim().length > 0);
+const isGenerating = computed(() => messages.value.at(-1)?.status === 'streaming');
+const canSubmit = computed(
+    () => canSend.value && !isGenerating.value && draft.value.trim().length > 0,
+);
+const stopping = ref(false);
+
+async function stop() {
+    stopping.value = true;
+    try {
+        await stopResponse();
+    } finally {
+        stopping.value = false;
+    }
+}
 
 const activeQuestion = computed<{
     callId: string;
@@ -271,7 +299,8 @@ p {
     align-items: flex-end;
     display: grid;
     gap: 10px;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-auto-flow: column;
+    grid-template-columns: minmax(0, 1fr);
 }
 
 @media (max-width: 640px) {

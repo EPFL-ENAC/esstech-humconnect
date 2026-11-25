@@ -4,6 +4,8 @@ from collections.abc import AsyncIterator, Sequence
 from uuid import UUID
 
 from api.models.chat import (
+    CHUNK_TYPE_TOOL_CALL,
+    MESSAGE_ROLE_ASSISTANT,
     ChatMessageResponse,
     ChatSnapshotResponse,
     MessageChunkType,
@@ -23,9 +25,11 @@ from api.services.chat_room.chat_assistant import (
 from api.services.chat_room.chat_db import (
     MESSAGE_STATUS_COMPLETE,
     MESSAGE_STATUS_ERROR,
+    MESSAGE_STATUS_INTERRUPTED,
     PersistentChatMessagesHistory,
 )
 from api.services.chat_room.humconnect_assistant import HumConnectAssistant
+from api.services.chat_room.tools import ASK_QUESTION_TOOL
 from api.services.chat_room.tools.base import ToolExecutionContext
 
 logger = logging.getLogger("uvicorn.error")
@@ -126,6 +130,25 @@ class ChatRoomService:
                 ),
             )
 
+    async def stop_response(self) -> None:
+        async with self._submission_lock:
+            task = self._generation_task
+            if task is not None and not task.done():
+                task.cancel()
+                await asyncio.wait([task])
+                return
+
+            history = await self._messages_history.get_assistant_chat_history()
+            if not history or not _is_waiting_for_answer(history[-1]):
+                return
+
+            await self._messages_history.update_message_status(
+                history[-1], MESSAGE_STATUS_INTERRUPTED
+            )
+            await self._broadcast_assistant_response_done(
+                history[-1].id, MESSAGE_STATUS_INTERRUPTED
+            )
+
     async def _ensure_no_active_response(self) -> None:
         if await self.has_active_generation():
             raise RuntimeError("A response is already streaming for this chat.")
@@ -168,6 +191,9 @@ class ChatRoomService:
                     question,
                     tool_context,
                 )
+            except asyncio.CancelledError:
+                await self._interrupt_assistant_response()
+                return
             except Exception as e:
                 logger.exception(
                     "Error during assistant response streaming: %s",
@@ -267,6 +293,18 @@ class ChatRoomService:
             ).model_dump(mode="json"),
         )
 
+    async def _interrupt_assistant_response(self) -> None:
+        assistant_message_id = self._messages_history.active_response_message_id
+        if assistant_message_id is None:
+            return
+        for chunk_index, payload in await self._messages_history.interrupt_response():
+            await self._broadcast_assistant_response_payload_update(
+                assistant_message_id, chunk_index, CHUNK_TYPE_TOOL_CALL, payload
+            )
+        await self._broadcast_assistant_response_done(
+            assistant_message_id, MESSAGE_STATUS_INTERRUPTED
+        )
+
     async def _fail_assistant_response(self) -> None:
         assistant_message_id = self._messages_history.active_response_message_id
         if assistant_message_id is None:
@@ -289,3 +327,16 @@ class ChatRoomService:
     def _has_active_generation_locked(self) -> bool:
         task = self._generation_task
         return task is not None and not task.done()
+
+
+def _is_waiting_for_answer(message: ChatMessageResponse) -> bool:
+    return (
+        message.role == MESSAGE_ROLE_ASSISTANT
+        and message.status == MESSAGE_STATUS_COMPLETE
+        and any(
+            chunk.payload is not None
+            and chunk.payload.tool_name == ASK_QUESTION_TOOL.name
+            and chunk.payload.status == "finished"
+            for chunk in message.chunks
+        )
+    )

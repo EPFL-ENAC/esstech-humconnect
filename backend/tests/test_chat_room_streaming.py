@@ -327,3 +327,92 @@ def test_placeholder_chat_assistant_streams_random_number(monkeypatch):
         ]
 
     assert asyncio.run(run()) == list("Random number: 42")
+
+
+def test_stop_response_cancels_generation_and_marks_message_interrupted():
+    history = FakeHistory()
+    stopped_payload = ToolCallPayload(
+        tool_name="dummy_tool",
+        tool_label="Dummy tool",
+        call_id="call_1",
+        status="failed",
+        error="Stopped by user.",
+    )
+    history.stopped_payloads = [(0, stopped_payload)]
+
+    class BlockingAssistant:
+        async def stream_response(self, chat_history, question, tool_context=None):
+            yield AssistantStreamChunkDelta(0, CHUNK_TYPE_MESSAGE_CONTENT, "Hi")
+            await asyncio.Event().wait()
+
+    room = ChatRoomService(
+        uuid4(), messages_history=cast(Any, history), chat_assistant=BlockingAssistant()
+    )
+
+    async def run():
+        async def start_then_stop():
+            await room._start_assistant_response([], "Hello?")
+            while not history.progress_tokens:
+                await asyncio.sleep(0)
+            await room.stop_response()
+
+        return await collect_room_events_after(start_then_stop, room, event_count=4)
+
+    events = asyncio.run(run())
+
+    assert history.interrupted
+    assert not history.completed
+    assert events[2]["type"] == "message_update_payload"
+    assert events[2]["payload"]["status"] == "failed"
+    assert events[3] == {
+        "type": "message_done",
+        "message_id": events[0]["message"]["id"],
+        "status": MESSAGE_STATUS_INTERRUPTED,
+    }
+
+
+def test_stop_response_dismisses_pending_question():
+    history = FakeHistory()
+    question = ChatMessageResponse.make_assistant_message(uuid4())
+    question.chunks = [
+        ChatMessageChunk.create(
+            0,
+            CHUNK_TYPE_TOOL_CALL,
+            payload=ToolCallPayload(
+                tool_name="ask_question",
+                tool_label="Ask question",
+                call_id="call_1",
+                status="finished",
+                answer="Which country?",
+            ),
+        )
+    ]
+    question.status = MESSAGE_STATUS_COMPLETE
+    history.chat_history = [question]
+    room = ChatRoomService(uuid4(), messages_history=cast(Any, history))
+
+    events = asyncio.run(collect_room_events_after(room.stop_response, room))
+
+    assert question.status == MESSAGE_STATUS_INTERRUPTED
+    assert question.to_ai_model_input() == []
+    assert events == [
+        {
+            "type": "message_done",
+            "message_id": str(question.id),
+            "status": MESSAGE_STATUS_INTERRUPTED,
+        }
+    ]
+
+
+def test_stop_response_ignores_completed_answer():
+    history = FakeHistory()
+    answer = ChatMessageResponse.make_assistant_message(
+        uuid4(), 0, CHUNK_TYPE_MESSAGE_CONTENT, "Done"
+    )
+    answer.status = MESSAGE_STATUS_COMPLETE
+    history.chat_history = [answer]
+    room = ChatRoomService(uuid4(), messages_history=cast(Any, history))
+
+    asyncio.run(room.stop_response())
+
+    assert answer.status == MESSAGE_STATUS_COMPLETE

@@ -227,6 +227,8 @@ class FakeHistory:
         self.payload_updates = []
         self.completed = False
         self.failed = False
+        self.interrupted = False
+        self.stopped_payloads = []
         self.active = True
         self.active_response_message_id = None
         self.started_message = None
@@ -285,6 +287,14 @@ class FakeHistory:
     async def fail_response(self):
         self.failed = True
         self.active = False
+
+    async def interrupt_response(self):
+        self.interrupted = True
+        self.active = False
+        return self.stopped_payloads
+
+    async def update_message_status(self, message, status):
+        message.update_status(status)
 
 
 class FakeAssistant:

@@ -73,6 +73,17 @@
             >
                 <q-tooltip>{{ t('chat.send') }}</q-tooltip>
             </q-btn>
+            <q-btn
+                round
+                color="negative"
+                icon="stop"
+                :loading="stopping"
+                :disable="disabled"
+                :aria-label="t('chat.stop')"
+                @click="emit('stop')"
+            >
+                <q-tooltip>{{ t('chat.stop') }}</q-tooltip>
+            </q-btn>
         </form>
     </div>
 </template>
@@ -89,7 +100,9 @@ const props = defineProps<{
     possibleAnswers: string[];
     submit: (content: string) => Promise<boolean>;
     disabled?: boolean;
+    stopping?: boolean;
 }>();
+const emit = defineEmits<{ stop: [] }>();
 
 const { t } = useI18n();
 const selected = ref<string | null>(null);
@@ -242,6 +255,7 @@ async function handleSubmit() {
 
 .answer-row.with-input {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-auto-flow: column;
+    grid-template-columns: minmax(0, 1fr);
 }
 </style>

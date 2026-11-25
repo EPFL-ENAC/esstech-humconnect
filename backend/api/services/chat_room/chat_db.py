@@ -19,6 +19,7 @@ from api.models.chat import (
     ChatSnapshotResponse,
     Message,
     MessageChunkType,
+    MessageStatus,
     ToolCallPayload,
 )
 from api.utils.datetime_utils import utc_now
@@ -191,25 +192,49 @@ class PersistentChatMessagesHistory:
         self._active_assistant_message_id = None
 
     async def fail_response(self) -> None:
+        await self._close_response(MESSAGE_STATUS_ERROR)
+
+    async def interrupt_response(self) -> list[tuple[int, ToolCallPayload]]:
         message = self._active_assistant_message
         if message is None:
-            return
+            return []
 
-        message.update_status(MESSAGE_STATUS_ERROR)
+        stopped_payloads: list[tuple[int, ToolCallPayload]] = []
+        for chunk in message.chunks:
+            if chunk.payload is None or chunk.payload.status != "running":
+                continue
+            chunk.update_payload(
+                chunk.payload.model_copy(
+                    update={"status": "failed", "error": "Stopped by user."}
+                )
+            )
+            stopped_payloads.append((chunk.index, chunk.payload))
+
+        await self._close_response(MESSAGE_STATUS_INTERRUPTED)
+        return stopped_payloads
+
+    async def update_message_status(
+        self, message: ChatMessageResponse, status: MessageStatus
+    ) -> None:
+        message.update_status(status)
+        if message.id not in self._persisted_message_ids:
+            return
 
         async with AsyncSQLModelSession(
             get_engine(), expire_on_commit=False
         ) as session:
-            if message.id in self._persisted_message_ids:
-                db_message = await session.get(Message, message.id)
-            else:
-                db_message = None
-
+            db_message = await session.get(Message, message.id)
             if db_message is not None:
-                db_message.update_chunks_status(message.chunks, MESSAGE_STATUS_ERROR)
+                db_message.update_chunks_status(message.chunks, status)
                 session.add(db_message)
                 await session.commit()
 
+    async def _close_response(self, status: MessageStatus) -> None:
+        message = self._active_assistant_message
+        if message is None:
+            return
+
+        await self.update_message_status(message, status)
         self._post_commit()
         self._active_assistant_message_id = None
 

@@ -1,6 +1,6 @@
 import { computed, ref, toValue, watch, type MaybeRefOrGetter } from 'vue';
 import { useApiEventStream } from 'src/composables/useApiEventStream';
-import { chatEventStreamUrl, createChatMessage } from 'src/utils/chatApi';
+import { chatEventStreamUrl, createChatMessage, stopChatResponse } from 'src/utils/chatApi';
 import type { ChatMessage, ChatSession, ChatStreamEvent } from 'src/utils/model';
 import { getI18nT } from 'src/utils/i18n';
 import { useChatsStore } from 'src/stores/chats';
@@ -113,6 +113,15 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
         }
     }
 
+    async function stopResponse(): Promise<void> {
+        try {
+            await stopChatResponse(String(toValue(chatId)));
+            error.value = '';
+        } catch (err) {
+            error.value = err instanceof Error ? err.message : t('errors.connection');
+        }
+    }
+
     function onMessageDone(callback: MessageDoneCallback) {
         messageDoneCallbacks.add(callback);
     }
@@ -132,6 +141,7 @@ export function useChat(chatId: MaybeRefOrGetter<ChatId>) {
         error,
         messages,
         sendMessage,
+        stopResponse,
         onMessageDone,
     };
 }

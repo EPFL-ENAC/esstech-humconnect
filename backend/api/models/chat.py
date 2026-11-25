@@ -366,6 +366,9 @@ class ChatMessageResponse(BaseModel):
         return "".join(chunk.content for chunk in self.chunks)
 
     def to_ai_model_input(self) -> list[ResponseInputItemParam]:
+        if self.status in (MESSAGE_STATUS_ERROR, MESSAGE_STATUS_INTERRUPTED):
+            return []
+
         items: list[ResponseInputItemParam] = []
         outputs: list[ResponseInputItemParam] = []
 

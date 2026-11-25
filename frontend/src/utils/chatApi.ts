@@ -52,6 +52,18 @@ export async function createChatMessage(chatId: string, content: string): Promis
     }
 }
 
+export async function stopChatResponse(chatId: string): Promise<void> {
+    const t = getI18nT();
+    const authStore = useAuthStore();
+    const response = await authStore.fetchApi(`${baseUrl}/chats/${chatId}/stop`, {
+        method: 'POST',
+    });
+
+    if (!response.ok) {
+        throw new Error(t('errors.connection'));
+    }
+}
+
 export function chatEventStreamUrl(chatId: string): string {
     return `${baseUrl}/chats/${chatId}/events`;
 }
