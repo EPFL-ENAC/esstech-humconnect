@@ -205,7 +205,7 @@ class HumConnectAssistant(ChatAssistant):
                 model=config.MODEL_NAME,
                 stream=True,
                 instructions=self.instructions_for_context(tool_context),
-                text={"format": {"type": "json_object"}},
+                store=False,
                 tools=[*self._tool_set.definitions()],
             )
 

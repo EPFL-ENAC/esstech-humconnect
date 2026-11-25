@@ -122,11 +122,8 @@ class ToolCallPayload(BaseModel):
     answer: str | None = None
     error: str | None = None
 
-    def to_openai_input_items(self) -> list[ResponseInputItemParam]:
-        if self.status == "running":
-            return []
-
-        function_call = cast(
+    def to_function_call_item(self) -> ResponseInputItemParam:
+        return cast(
             ResponseInputItemParam,
             {
                 "type": "function_call",
@@ -137,6 +134,7 @@ class ToolCallPayload(BaseModel):
             },
         )
 
+    def to_function_call_output_item(self) -> ResponseInputItemParam:
         if self.status == "finished":
             output = json.dumps({"ok": True, "result": self.answer or ""})
         else:
@@ -144,7 +142,7 @@ class ToolCallPayload(BaseModel):
                 {"ok": False, "error": self.error or "Tool execution failed."}
             )
 
-        function_call_output = cast(
+        return cast(
             ResponseInputItemParam,
             {
                 "type": "function_call_output",
@@ -152,7 +150,6 @@ class ToolCallPayload(BaseModel):
                 "output": output,
             },
         )
-        return [function_call, function_call_output]
 
     @staticmethod
     def from_running(
@@ -233,26 +230,33 @@ class ChatMessageChunk(BaseModel):
     def update_payload(self, payload: ToolCallPayload) -> None:
         self.payload = payload
 
-    def to_openai_input_item(self, role: str) -> list[ResponseInputItemParam]:
-        if self.type == "tool_call" and self.payload is not None:
-            return self.payload.to_openai_input_items()
-
-        content = (
-            f"<thinking>{self.content}</thinking>"
-            if self.type == "reasoning_text"
-            else self.content
-        )  # hack to make the model see that it was thinking
-
-        return [
-            cast(
+    def to_message_item(self, role: str, message_id: UUID) -> ResponseInputItemParam:
+        if role == MESSAGE_ROLE_ASSISTANT:
+            return cast(
                 ResponseInputItemParam,
                 {
                     "type": "message",
-                    "role": role,
-                    "content": content,
+                    "role": "assistant",
+                    "id": f"msg_{message_id.hex}_{self.index}",
+                    "status": "completed",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": self.content,
+                            "annotations": [],
+                        }
+                    ],
                 },
             )
-        ]
+
+        return cast(
+            ResponseInputItemParam,
+            {
+                "type": "message",
+                "role": role,
+                "content": self.content,
+            },
+        )
 
 
 class CreateChatResponse(BaseModel):
@@ -362,16 +366,28 @@ class ChatMessageResponse(BaseModel):
         return "".join(chunk.content for chunk in self.chunks)
 
     def to_ai_model_input(self) -> list[ResponseInputItemParam]:
-        items = []
-
-        include_thinking = (
-            self.status == MESSAGE_STATUS_STREAMING
-        )  # we can skip the reasoning chunks if the message is complete, since they are not useful for the model
+        items: list[ResponseInputItemParam] = []
+        outputs: list[ResponseInputItemParam] = []
 
         for chunk in self.chunks:
-            if include_thinking or chunk.type != CHUNK_TYPE_REASONING_TEXT:
-                items.extend(chunk.to_openai_input_item(self.role))
+            payload = chunk.payload
+            if chunk.type == CHUNK_TYPE_TOOL_CALL and payload is not None:
+                if payload.status != "running":
+                    items.append(payload.to_function_call_item())
+                    outputs.append(payload.to_function_call_output_item())
+                continue
 
+            # Text and reasoning start a new model response, so they flush the previous response's outputs.
+            # Rounds with neither stay merged until tool chunks store their round.
+            items.extend(outputs)
+            outputs = []
+
+            if chunk.type == CHUNK_TYPE_REASONING_TEXT or not chunk.content:
+                continue
+
+            items.append(chunk.to_message_item(self.role, self.id))
+
+        items.extend(outputs)
         return items
 
     def update_status(self, new_status: MessageStatus) -> None:

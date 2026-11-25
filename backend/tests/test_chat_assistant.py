@@ -41,50 +41,81 @@ def test_humconnect_assistants_share_default_tool_set(use_ready_default_tool_set
 
 def test_humconnect_chat_assistant_converts_complete_history_for_model():
     chat_id = uuid4()
-    messages = [
-        ChatMessageResponse.from_db_model(
-            make_db_message(
-                chat_id, MESSAGE_ROLE_USER, "Hello", MESSAGE_STATUS_COMPLETE
-            )
-        ),
-        ChatMessageResponse.from_db_model(
-            make_db_message(
-                chat_id=chat_id,
-                role=MESSAGE_ROLE_ASSISTANT,
-                content="Hi",
-                status=MESSAGE_STATUS_COMPLETE,
-            )
-        ),
-        ChatMessageResponse.from_db_model(
-            make_db_message(
-                chat_id=chat_id,
-                role=MESSAGE_ROLE_ASSISTANT,
-                content="Still typing",
-                status=MESSAGE_STATUS_STREAMING,
-            )
-        ),
-        ChatMessageResponse.from_db_model(
-            make_db_message(
-                chat_id=chat_id,
-                role=MESSAGE_ROLE_ASSISTANT,
-                content="Failed",
-                status=MESSAGE_STATUS_ERROR,
-            )
-        ),
-    ]
+    user = ChatMessageResponse.from_db_model(
+        make_db_message(chat_id, MESSAGE_ROLE_USER, "Hello", MESSAGE_STATUS_COMPLETE)
+    )
+    assistant = ChatMessageResponse.from_db_model(
+        make_db_message(chat_id, MESSAGE_ROLE_ASSISTANT, "Hi", MESSAGE_STATUS_COMPLETE)
+    )
 
-    model_input = HumConnectAssistant.chat_history_to_model_input(messages)
+    model_input = HumConnectAssistant.chat_history_to_model_input([user, assistant])
 
     assert model_input == [
+        {"type": "message", "role": MESSAGE_ROLE_USER, "content": "Hello"},
         {
-            "role": MESSAGE_ROLE_USER,
-            "content": "Hello",
-        },
-        {
+            "type": "message",
             "role": MESSAGE_ROLE_ASSISTANT,
-            "content": "Hi",
+            "id": f"msg_{assistant.id.hex}_0",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": "Hi", "annotations": []}],
         },
     ]
+
+
+def make_tool_chunk(index, call_id, status="finished"):
+    return ChatMessageChunk.create(
+        index,
+        CHUNK_TYPE_TOOL_CALL,
+        payload=ToolCallPayload(
+            tool_name="dummy_tool",
+            tool_label="Dummy tool",
+            call_id=call_id,
+            arguments={},
+            status=status,
+            answer="ok" if status == "finished" else None,
+        ),
+    )
+
+
+def model_input_summary(chunks):
+    message = ChatMessageResponse.make_assistant_message(uuid4())
+    message.chunks = chunks
+    return [
+        (item["type"], item.get("call_id") or item["content"][0]["text"])
+        for item in message.to_ai_model_input()
+    ]
+
+
+def test_assistant_history_batches_calls_per_model_response():
+    assert model_input_summary(
+        [
+            ChatMessageChunk.create(0, CHUNK_TYPE_MESSAGE_CONTENT, "first"),
+            make_tool_chunk(1, "a"),
+            make_tool_chunk(2, "b"),
+            ChatMessageChunk.create(3, CHUNK_TYPE_REASONING_TEXT, "think"),
+            make_tool_chunk(4, "c"),
+            ChatMessageChunk.create(5, CHUNK_TYPE_MESSAGE_CONTENT, "done"),
+        ]
+    ) == [
+        ("message", "first"),
+        ("function_call", "a"),
+        ("function_call", "b"),
+        ("function_call_output", "a"),
+        ("function_call_output", "b"),
+        ("function_call", "c"),
+        ("function_call_output", "c"),
+        ("message", "done"),
+    ]
+
+
+def test_assistant_history_skips_running_calls_and_empty_text():
+    assert model_input_summary(
+        [
+            ChatMessageChunk.create(0, CHUNK_TYPE_MESSAGE_CONTENT, ""),
+            make_tool_chunk(1, "a"),
+            make_tool_chunk(2, "b", status="running"),
+        ]
+    ) == [("function_call", "a"), ("function_call_output", "a")]
 
 
 def test_user_profile_prompt_context_formats_prompt_safe_fields():
