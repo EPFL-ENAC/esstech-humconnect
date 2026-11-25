@@ -1,5 +1,6 @@
 import asyncio
 import os
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -74,7 +75,7 @@ def make_user(**overrides):
 def test_get_or_create_user_profile_creates_missing_profile():
     session = FakeProfileSession()
 
-    profile = asyncio.run(get_or_create_user_profile_from_token(make_user(), session))
+    profile = asyncio.run(get_or_create_user_profile_from_token(make_user(), cast(Any, session)))
 
     assert profile.keycloak_sub == "keycloak-sub-1"
     assert profile.email == "jane@example.test"
@@ -95,7 +96,7 @@ def test_get_or_create_user_profile_skips_commit_when_identity_unchanged():
     original_updated_at = profile.updated_at
     session = FakeProfileSession(profile)
 
-    result = asyncio.run(get_or_create_user_profile_from_token(make_user(), session))
+    result = asyncio.run(get_or_create_user_profile_from_token(make_user(), cast(Any, session)))
 
     assert result is profile
     assert profile.updated_at == original_updated_at
@@ -119,7 +120,7 @@ def test_get_or_create_user_profile_updates_changed_identity():
     result = asyncio.run(
         get_or_create_user_profile_from_token(
             make_user(email="new@example.test"),
-            session,
+            cast(Any, session),
         )
     )
 
@@ -151,7 +152,7 @@ def test_get_profile_returns_identity_and_editable_fields():
     )
     session = FakeProfileSession(profile)
 
-    response = asyncio.run(get_profile(make_user(), session))
+    response = asyncio.run(get_profile(make_user(), cast(Any, session)))
 
     assert response.email == "jane@example.test"
     assert response.profession == "Doctor"
@@ -196,7 +197,7 @@ def test_update_profile_persists_editable_fields():
                 mother_tongue="ar",
             ),
             make_user(),
-            session,
+            cast(Any, session),
         )
     )
 
@@ -329,7 +330,7 @@ def test_search_profile_center_address_view_returns_suggestions(monkeypatch):
 
 def test_profile_payload_rejects_invalid_category():
     with pytest.raises(ValidationError):
-        UserProfileEditableFields(profession_category="invalid")
+        UserProfileEditableFields.model_validate({"profession_category": "invalid"})
 
 
 def test_profile_payload_rejects_negative_radius():
@@ -339,4 +340,4 @@ def test_profile_payload_rejects_negative_radius():
 
 def test_profile_payload_rejects_unknown_mother_tongue():
     with pytest.raises(ValidationError):
-        UserProfileEditableFields(mother_tongue="klingon")
+        UserProfileEditableFields.model_validate({"mother_tongue": "klingon"})

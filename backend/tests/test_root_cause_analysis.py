@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
+import sqlalchemy.sql.elements
 from sqlalchemy.sql import operators
 
 from api.models.root_cause_analysis import (
@@ -137,8 +138,8 @@ class FakeRcaAsyncSession:
 def _service(*, now=None) -> RootCauseAnalysisService:
     fixed_now = now or datetime(2026, 7, 21, 12, 0, tzinfo=UTC)
     return RootCauseAnalysisService(
-        session_factory=FakeRcaAsyncSession,
-        engine_factory=lambda: object(),
+        session_factory=cast(Any, FakeRcaAsyncSession),
+        engine_factory=cast(Any, lambda: object()),
         now_factory=lambda: fixed_now,
     )
 
@@ -148,8 +149,8 @@ def configure_rca_service(monkeypatch, *, now=None) -> None:
 
     def factory():
         return RootCauseAnalysisService(
-            session_factory=FakeRcaAsyncSession,
-            engine_factory=lambda: object(),
+            session_factory=cast(Any, FakeRcaAsyncSession),
+            engine_factory=cast(Any, lambda: object()),
             now_factory=lambda: fixed_now,
         )
 
@@ -719,7 +720,7 @@ def test_set_root_cause_tool_requires_execution_context():
     with pytest.raises(ValueError, match="requires chat execution context"):
         _run(
             SET_ROOT_CAUSE_TOOL.execute(
-                {"analysis_id": str(uuid4()), "root_cause": "x"}
+                {"analysis_id": str(uuid4()), "root_cause": "x"}, None
             )
         )
 

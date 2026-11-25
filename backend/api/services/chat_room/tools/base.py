@@ -200,7 +200,8 @@ class HumConnectTool:
 
 
 class HumConnectToolProvider(Protocol):
-    provider_name: str
+    @property
+    def provider_name(self) -> str: ...
 
     async def load_tools(self) -> Sequence[HumConnectTool]: ...
 
@@ -210,16 +211,13 @@ def pydantic_response_function_tool(
 ) -> FunctionToolParam:
     chat_tool = pydantic_function_tool(model, name=name, description=description)
     function = chat_tool["function"]
-    return cast(
-        FunctionToolParam,
-        {
-            "type": "function",
-            "name": function["name"],
-            "description": function["description"],
-            "strict": function["strict"],
-            "parameters": function["parameters"],
-        },
-    )
+    return {
+        "type": "function",
+        "name": function["name"],
+        "description": function["description"],
+        "strict": function["strict"],
+        "parameters": function["parameters"],
+    }
 
 
 def validate_tool_input(

@@ -82,7 +82,7 @@ def model_input_summary(chunks):
     message.chunks = chunks
     return [
         (item["type"], item.get("call_id") or item["content"][0]["text"])
-        for item in message.to_ai_model_input()
+        for item in cast(list[Any], message.to_ai_model_input())
     ]
 
 
@@ -184,7 +184,7 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
 
     class FakeResponses:
         def __init__(self):
-            self.create_kwargs = None
+            self.create_kwargs: Any = None
 
         async def create(self, **kwargs):
             self.create_kwargs = kwargs
@@ -273,7 +273,7 @@ def test_humconnect_chat_assistant_adds_user_profile_to_instructions(monkeypatch
 
     class FakeResponses:
         def __init__(self):
-            self.create_kwargs = None
+            self.create_kwargs: Any = None
 
         async def create(self, **kwargs):
             self.create_kwargs = kwargs

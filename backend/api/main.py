@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from logging import INFO, basicConfig, warning
 
@@ -23,7 +23,7 @@ basicConfig(level=INFO)
 
 
 @asynccontextmanager
-async def app_lifespan(_: FastAPI) -> AsyncIterator[None]:
+async def app_lifespan(_: FastAPI) -> AsyncGenerator[None]:
     FastAPICache.init(InMemoryBackend(), prefix="fastapi-cache")
     await HUMCONNECT_TOOL_SET.initialize()
     await mark_interrupted_messages_on_startup()

@@ -7,7 +7,7 @@ def test_service_handles_user_message_through_history_and_hub(monkeypatch):
         started_responses = []
         room = ChatRoomService(
             uuid4(),
-            messages_history=history,
+            messages_history=cast(Any, history),
         )
 
         async def start_assistant_response(chat_history, question, tool_context=None):
@@ -46,7 +46,7 @@ def test_service_passes_user_profile_context_to_assistant_context(monkeypatch):
         started_responses = []
         room = ChatRoomService(
             uuid4(),
-            messages_history=history,
+            messages_history=cast(Any, history),
         )
         user_profile_context = UserProfilePromptContext(username="field-coordinator")
 
@@ -74,7 +74,7 @@ def test_service_passes_user_profile_context_to_assistant_context(monkeypatch):
 
 def test_service_rejects_second_message_while_generation_is_active(monkeypatch):
     history = FakeHistory()
-    room = ChatRoomService(uuid4(), messages_history=history)
+    room = ChatRoomService(uuid4(), messages_history=cast(Any, history))
 
     async def has_active_generation():
         return True
@@ -94,7 +94,7 @@ def test_service_subscription_can_start_with_snapshot():
         chat=ChatSessionResponse.from_db_model(chat),
         messages=[],
     )
-    room = ChatRoomService(uuid4(), messages_history=history)
+    room = ChatRoomService(uuid4(), messages_history=cast(Any, history))
 
     async def run():
         async for event in room.subscribe(TEST_USER_ID, with_snapshot=True):
@@ -119,7 +119,7 @@ def test_service_passes_chat_history_and_question_to_assistant():
     )
     room = ChatRoomService(
         uuid4(),
-        messages_history=history,
+        messages_history=cast(Any, history),
         chat_assistant=assistant,
     )
     asyncio.run(start_and_wait_for_response(room, history.chat_history, "Latest question"))
@@ -146,7 +146,7 @@ def test_assistant_stream_pushes_every_chunk_and_broadcasts_deltas():
     )
     room = ChatRoomService(
         uuid4(),
-        messages_history=history,
+        messages_history=cast(Any, history),
         chat_assistant=assistant,
     )
     events = asyncio.run(collect_events_during_response(room, [], "Hello?"))
@@ -194,7 +194,7 @@ def test_assistant_stream_broadcasts_payload_updates():
     )
     room = ChatRoomService(
         uuid4(),
-        messages_history=history,
+        messages_history=cast(Any, history),
         chat_assistant=assistant,
     )
 
@@ -216,7 +216,7 @@ def test_assistant_stream_returns_without_done_event_when_no_tokens_are_generate
     assistant = FakeAssistant([])
     room = ChatRoomService(
         uuid4(),
-        messages_history=history,
+        messages_history=cast(Any, history),
         chat_assistant=assistant,
     )
 
@@ -237,7 +237,7 @@ def test_assistant_stream_marks_message_error_when_streaming_fails(monkeypatch):
     history = FakeHistory()
     room = ChatRoomService(
         uuid4(),
-        messages_history=history,
+        messages_history=cast(Any, history),
         chat_assistant=FakeAssistant(["created", "broken"]),
     )
     original_broadcast = room.broadcast
@@ -270,7 +270,7 @@ def test_assistant_stream_does_not_mark_error_when_done_broadcast_fails(monkeypa
     history = FakeHistory()
     room = ChatRoomService(
         uuid4(),
-        messages_history=history,
+        messages_history=cast(Any, history),
         chat_assistant=FakeAssistant(["done"]),
     )
     original_broadcast = room.broadcast
@@ -299,7 +299,7 @@ def test_assistant_stream_marks_message_error_when_assistant_fails():
     history = FakeHistory()
     room = ChatRoomService(
         uuid4(),
-        messages_history=history,
+        messages_history=cast(Any, history),
         chat_assistant=FakeAssistant([RuntimeError("assistant failed")]),
     )
 
@@ -322,8 +322,8 @@ def test_placeholder_chat_assistant_streams_random_number(monkeypatch):
 
     async def run():
         return [
-            chunk.content_delta
-            async for chunk in assistant.stream_response([], "What number?")
+            cast(AssistantStreamChunkDelta, chunk).content_delta
+            async for chunk in assistant.stream_response(cast(Any, []), "What number?")
         ]
 
     assert asyncio.run(run()) == list("Random number: 42")

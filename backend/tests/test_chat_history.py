@@ -292,7 +292,7 @@ def test_stale_streaming_messages_are_marked_interrupted(monkeypatch):
     install_fake_session(monkeypatch)
     _, message = make_chat_and_message()
 
-    asyncio.run(mark_stale_streaming_messages_interrupted(FakeAsyncSession()))
+    asyncio.run(mark_stale_streaming_messages_interrupted(cast(Any, FakeAsyncSession())))
 
     assert message.status == MESSAGE_STATUS_INTERRUPTED
     assert FakeAsyncSession.commit_count == 1

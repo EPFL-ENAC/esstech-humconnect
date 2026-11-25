@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import requests
 from pydantic import BaseModel, ValidationError
@@ -41,7 +41,7 @@ def post_validated_json(
     url: str,
     model: type[ResponseModelT],
     *,
-    json_body: Mapping[str, object],
+    json_body: Mapping[str, Any],
     timeout_seconds: float,
     malformed_payload_message: str,
     headers: Mapping[str, str] | None = None,

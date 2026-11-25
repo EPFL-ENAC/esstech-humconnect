@@ -22,7 +22,7 @@ pre-commit:
     backend-typecheck:
       root: backend
       glob: "backend/{api,tests}/**/*.py"
-      run: uvx ty@0.0.37 check {staged_files}
+      run: uvx ty@0.0.110 check {staged_files}
     backend-lint:
       root: backend
       glob: "backend/{api,tests}/**/*.py"

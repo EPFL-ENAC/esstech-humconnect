@@ -20,7 +20,7 @@ def test_ask_meditron_tool_calls_meditron_with_prompt(monkeypatch):
 
     async def run():
         return await ASK_MEDITRON_TOOL.execute(
-            {"prompt": "What is cholera?", "system_prompt": ""}
+            {"prompt": "What is cholera?", "system_prompt": ""}, None
         )
 
     assert asyncio.run(run()) == "Meditron answer"
@@ -49,7 +49,7 @@ def test_ask_meditron_tool_passes_system_prompt(monkeypatch):
             {
                 "prompt": "How should dehydration be assessed?",
                 "system_prompt": "Answer concisely.",
-            }
+            }, None
         )
 
     assert asyncio.run(run()) == "Clinical answer"
@@ -59,7 +59,7 @@ def test_ask_meditron_tool_passes_system_prompt(monkeypatch):
 @pytest.mark.parametrize("prompt", ["", 123, None])
 def test_ask_meditron_tool_rejects_missing_or_empty_prompt(prompt):
     async def run():
-        return await ASK_MEDITRON_TOOL.execute({"prompt": prompt})
+        return await ASK_MEDITRON_TOOL.execute({"prompt": prompt}, None)
 
     with pytest.raises(ValueError, match="invalid query data"):
         asyncio.run(run())
@@ -68,7 +68,7 @@ def test_ask_meditron_tool_rejects_missing_or_empty_prompt(prompt):
 def test_ask_meditron_tool_rejects_non_string_system_prompt():
     async def run():
         return await ASK_MEDITRON_TOOL.execute(
-            {"prompt": "What is cholera?", "system_prompt": 42}
+            {"prompt": "What is cholera?", "system_prompt": 42}, None
         )
 
     with pytest.raises(ValueError, match="invalid query data"):
@@ -87,7 +87,7 @@ def test_ask_meditron_tool_rejects_non_string_system_prompt():
 )
 def test_get_natural_events_context_tool_rejects_invalid_input(arguments):
     async def run():
-        return await GET_NATURAL_EVENTS_CONTEXT_TOOL.execute(arguments)
+        return await GET_NATURAL_EVENTS_CONTEXT_TOOL.execute(arguments, None)
 
     with pytest.raises(ValueError, match="invalid query data"):
         asyncio.run(run())
@@ -131,7 +131,7 @@ def test_get_natural_events_context_tool_delegates_to_pull(monkeypatch):
                 "center_latitude": 46.0,
                 "center_longitude": 7.0,
                 "radius_km": 100.0,
-            }
+            }, None
         )
 
     result = json.loads(asyncio.run(run()))
@@ -157,7 +157,7 @@ def test_get_natural_events_context_tool_delegates_to_pull(monkeypatch):
 )
 def test_get_humanitarian_context_tool_rejects_invalid_input(arguments):
     async def run():
-        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(arguments)
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute(arguments, None)
 
     with pytest.raises(ValueError, match="invalid query data"):
         asyncio.run(run())
@@ -212,7 +212,7 @@ def test_get_humanitarian_context_tool_fetches_and_normalizes_items(monkeypatch)
     monkeypatch.setattr(reliefweb_client_module.requests, "post", fake_post)
 
     async def run():
-        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute({"country_name": " Haiti "})
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute({"country_name": " Haiti "}, None)
 
     result = json.loads(asyncio.run(run()))
 
@@ -329,7 +329,7 @@ def test_get_humanitarian_context_tool_returns_partial_results(monkeypatch):
     monkeypatch.setattr(reliefweb_client_module.requests, "post", fake_post)
 
     async def run():
-        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute({"country_name": "Sudan"})
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute({"country_name": "Sudan"}, None)
 
     result = json.loads(asyncio.run(run()))
 
@@ -349,7 +349,7 @@ def test_get_humanitarian_context_tool_rejects_all_reliefweb_failures(monkeypatc
     monkeypatch.setattr(reliefweb_client_module.requests, "post", fake_post)
 
     async def run():
-        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute({"country_name": "Sudan"})
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute({"country_name": "Sudan"}, None)
 
     with pytest.raises(ValueError, match="humanitarian context from ReliefWeb"):
         asyncio.run(run())
@@ -362,7 +362,7 @@ def test_get_humanitarian_context_tool_rejects_all_malformed_payloads(monkeypatc
     monkeypatch.setattr(reliefweb_client_module.requests, "post", fake_post)
 
     async def run():
-        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute({"country_name": "Sudan"})
+        return await GET_HUMANITARIAN_CONTEXT_TOOL.execute({"country_name": "Sudan"}, None)
 
     with pytest.raises(ValueError, match="malformed humanitarian context data"):
         asyncio.run(run())
@@ -400,7 +400,7 @@ def test_recall_events_tool_delegates_to_recorded_event_service(monkeypatch):
     FakeAsyncSession.rows[RecordedEvent][cough_event.id] = cough_event
     FakeAsyncSession.rows[RecordedEvent][fever_event.id] = fever_event
 
-    arguments = {
+    arguments: dict[str, object] = {
         "keyword": "son",
         "date_start": "2026-06-20T00:00:00+00:00",
         "date_end": "2026-06-30T00:00:00+00:00",
@@ -431,7 +431,7 @@ def test_recall_events_tool_requires_execution_context(monkeypatch):
                 "tags": [],
                 "tag_match": "all",
                 "limit": 10,
-            }
+            }, None
         )
 
     with pytest.raises(ValueError, match="requires chat execution context"):
@@ -457,7 +457,7 @@ def test_recall_events_tool_rejects_invalid_date_range():
 
 
 def test_record_event_tool_schema_exposes_component_date_shape():
-    parameters = RECORD_EVENT_TOOL.definition["parameters"]
+    parameters: Any = RECORD_EVENT_TOOL.definition["parameters"]
     defs = parameters["$defs"]
     event_date_schema = defs["RecordEventDateInput"]
     day_selection_schema = defs["RecordEventDaySelectionInput"]
@@ -705,7 +705,7 @@ def test_record_event_tool_rejects_invalid_structured_location(location):
     arguments["event_location"] = location
 
     async def run():
-        return await RECORD_EVENT_TOOL.execute(arguments)
+        return await RECORD_EVENT_TOOL.execute(arguments, None)
 
     with pytest.raises(ValueError, match="invalid event data"):
         asyncio.run(run())
@@ -726,7 +726,7 @@ def test_record_event_tool_rejects_invalid_severity(severity):
     arguments["severity"] = severity
 
     async def run():
-        return await RECORD_EVENT_TOOL.execute(arguments)
+        return await RECORD_EVENT_TOOL.execute(arguments, None)
 
     with pytest.raises(ValueError, match="invalid event data"):
         asyncio.run(run())
@@ -737,7 +737,7 @@ def test_record_event_tool_requires_severity():
     del arguments["severity"]
 
     async def run():
-        return await RECORD_EVENT_TOOL.execute(arguments)
+        return await RECORD_EVENT_TOOL.execute(arguments, None)
 
     with pytest.raises(ValueError, match="invalid event data"):
         asyncio.run(run())
@@ -747,7 +747,7 @@ def test_record_event_tool_requires_execution_context(monkeypatch):
     configure_recorded_event_service(monkeypatch)
 
     async def run():
-        return await RECORD_EVENT_TOOL.execute(structured_record_event_arguments())
+        return await RECORD_EVENT_TOOL.execute(structured_record_event_arguments(), None)
 
     with pytest.raises(ValueError, match="requires chat execution context"):
         asyncio.run(run())
@@ -759,7 +759,7 @@ def test_record_event_tool_rejects_missing_or_empty_original_text(original_text)
     arguments["original_text"] = original_text
 
     async def run():
-        return await RECORD_EVENT_TOOL.execute(arguments)
+        return await RECORD_EVENT_TOOL.execute(arguments, None)
 
     with pytest.raises(ValueError, match="invalid event data"):
         asyncio.run(run())
@@ -1022,7 +1022,7 @@ def test_record_event_tool_rejects_end_without_known_dates(invalid_end_kind):
         arguments["event_end_date"] = unknown_date
 
     async def run():
-        return await RECORD_EVENT_TOOL.execute(arguments)
+        return await RECORD_EVENT_TOOL.execute(arguments, None)
 
     with pytest.raises(ValueError, match="invalid event data"):
         asyncio.run(run())
@@ -1172,7 +1172,7 @@ def test_record_event_tool_rejects_invalid_event_date(event_date):
     arguments["event_date"] = event_date
 
     async def run():
-        return await RECORD_EVENT_TOOL.execute(arguments)
+        return await RECORD_EVENT_TOOL.execute(arguments, None)
 
     with pytest.raises(ValueError, match="invalid event data"):
         asyncio.run(run())
@@ -1183,7 +1183,7 @@ def test_record_event_tool_rejects_non_string_tags():
     arguments["tags"] = ["health_incident", 123]
 
     async def run():
-        return await RECORD_EVENT_TOOL.execute(arguments)
+        return await RECORD_EVENT_TOOL.execute(arguments, None)
 
     with pytest.raises(ValueError, match="invalid event data"):
         asyncio.run(run())
@@ -1203,7 +1203,7 @@ def test_record_event_tool_rejects_invalid_fixed_tags(tags):
     arguments["tags"] = tags
 
     async def run():
-        return await RECORD_EVENT_TOOL.execute(arguments)
+        return await RECORD_EVENT_TOOL.execute(arguments, None)
 
     with pytest.raises(ValueError, match="invalid event data"):
         asyncio.run(run())
@@ -1214,7 +1214,7 @@ def test_record_event_tool_rejects_missing_tags():
     del arguments["tags"]
 
     async def run():
-        return await RECORD_EVENT_TOOL.execute(arguments)
+        return await RECORD_EVENT_TOOL.execute(arguments, None)
 
     with pytest.raises(ValueError, match="invalid event data"):
         asyncio.run(run())
@@ -1229,7 +1229,7 @@ def test_record_event_tool_rejects_invalid_profession_categories(field_name):
     arguments[field_name] = ["not_a_profession_category"]
 
     async def run():
-        return await RECORD_EVENT_TOOL.execute(arguments)
+        return await RECORD_EVENT_TOOL.execute(arguments, None)
 
     with pytest.raises(ValueError, match="invalid event data"):
         asyncio.run(run())

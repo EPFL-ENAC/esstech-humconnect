@@ -22,7 +22,7 @@ def test_registry_releases_idle_room_after_stream_subscription_exits():
         chat_id = uuid4()
         room = await registry.get_room(chat_id)
         subscription = room.subscribe()
-        subscription_task = asyncio.create_task(anext(subscription))
+        subscription_task = asyncio.ensure_future(anext(subscription))
         await asyncio.sleep(0)
 
         await registry.release_room_if_idle(chat_id)

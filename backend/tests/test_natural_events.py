@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import pytest
 import requests
@@ -171,8 +172,8 @@ def test_natural_events_pull_normalizes_and_sorts_provider_events():
 
     pull = NaturalEventsContextPull(
         context_query(),
-        eonet=FakeEonetService(eonet_response),
-        usgs=FakeUsgsService(usgs_response),
+        eonet=cast(Any, FakeEonetService(eonet_response)),
+        usgs=cast(Any, FakeUsgsService(usgs_response)),
     )
 
     result = json.loads(pull.run())
@@ -217,7 +218,7 @@ def test_eonet_step_processes_its_own_service_response():
 
     result = NasaEonetPullStep(
         context_query(),
-        service=FakeEonetService(response),
+        service=cast(Any, FakeEonetService(response)),
     ).run()
 
     assert result.provider_key == "nasa_eonet"
@@ -246,7 +247,7 @@ def test_usgs_step_processes_its_own_service_response():
 
     result = UsgsEarthquakePullStep(
         context_query(),
-        service=FakeUsgsService(response),
+        service=cast(Any, FakeUsgsService(response)),
     ).run()
 
     assert result.provider_key == "usgs_earthquakes"
@@ -268,8 +269,8 @@ def test_nasa_polygon_events_require_at_least_one_coordinate_inside_radius():
     )
     pull = NaturalEventsContextPull(
         context_query(),
-        eonet=FakeEonetService(NasaEonetGeoJsonResponse(features=[feature])),
-        usgs=FakeUsgsService(UsgsEarthquakeGeoJsonResponse(features=[])),
+        eonet=cast(Any, FakeEonetService(NasaEonetGeoJsonResponse(features=[feature]))),
+        usgs=cast(Any, FakeUsgsService(UsgsEarthquakeGeoJsonResponse(features=[]))),
     )
 
     result = json.loads(pull.run())
@@ -287,8 +288,8 @@ def test_nasa_event_without_usable_coordinates_returns_warning():
     )
     pull = NaturalEventsContextPull(
         context_query(),
-        eonet=FakeEonetService(NasaEonetGeoJsonResponse(features=[feature])),
-        usgs=FakeUsgsService(UsgsEarthquakeGeoJsonResponse(features=[])),
+        eonet=cast(Any, FakeEonetService(NasaEonetGeoJsonResponse(features=[feature]))),
+        usgs=cast(Any, FakeUsgsService(UsgsEarthquakeGeoJsonResponse(features=[]))),
     )
 
     result = json.loads(pull.run())
@@ -302,8 +303,8 @@ def test_nasa_event_without_usable_coordinates_returns_warning():
 def test_partial_provider_failure_returns_partial_results():
     pull = NaturalEventsContextPull(
         context_query(),
-        eonet=FailingEonetService(),
-        usgs=FakeUsgsService(UsgsEarthquakeGeoJsonResponse(features=[])),
+        eonet=cast(Any, FailingEonetService()),
+        usgs=cast(Any, FakeUsgsService(UsgsEarthquakeGeoJsonResponse(features=[]))),
     )
 
     result = json.loads(pull.run())
@@ -319,8 +320,8 @@ def test_partial_provider_failure_returns_partial_results():
 def test_both_provider_failures_raise_unreachable_error():
     pull = NaturalEventsContextPull(
         context_query(),
-        eonet=FailingEonetService(),
-        usgs=FailingUsgsService(),
+        eonet=cast(Any, FailingEonetService()),
+        usgs=cast(Any, FailingUsgsService()),
     )
 
     with pytest.raises(ValueError, match="Could not fetch natural events"):
@@ -345,7 +346,7 @@ def test_both_malformed_provider_payloads_raise_malformed_error(monkeypatch):
 def test_final_json_excludes_none_fields():
     pull = NaturalEventsContextPull(
         context_query(),
-        eonet=FakeEonetService(
+        eonet=cast(Any, FakeEonetService(
             NasaEonetGeoJsonResponse(
                 features=[
                     NasaEonetFeature(
@@ -358,8 +359,8 @@ def test_final_json_excludes_none_fields():
                     )
                 ]
             )
-        ),
-        usgs=FakeUsgsService(UsgsEarthquakeGeoJsonResponse(features=[])),
+        )),
+        usgs=cast(Any, FakeUsgsService(UsgsEarthquakeGeoJsonResponse(features=[]))),
     )
 
     result = json.loads(pull.run())

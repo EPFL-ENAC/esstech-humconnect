@@ -63,13 +63,13 @@ class FakeRecordedEventService(RecordedEventService):
 )
 def test_filterable_recorded_event_metadata_uses_jsonb(column_name):
     assert isinstance(
-        RecordedEvent.__table__.c[column_name].type,  # ty: ignore[unresolved-attribute]
+        RecordedEvent.__table__.c[column_name].type,  # ty: ignore[missing-attribute]
         JSONB,
     )
 
 
 def test_recorded_event_location_uses_indexed_relational_columns():
-    table = RecordedEvent.__table__  # ty: ignore[unresolved-attribute]
+    table = RecordedEvent.__table__  # ty: ignore[missing-attribute]
     assert "event_location" not in table.c
     assert "location_granularity" not in table.c
     assert {
@@ -87,7 +87,7 @@ def test_recorded_event_location_uses_indexed_relational_columns():
 
 
 def test_recorded_event_end_dates_use_indexed_nullable_columns_and_range_constraint():
-    table = RecordedEvent.__table__  # ty: ignore[unresolved-attribute]
+    table = RecordedEvent.__table__  # ty: ignore[missing-attribute]
     assert {
         "event_end_datetime",
         "event_end_date_granularity",

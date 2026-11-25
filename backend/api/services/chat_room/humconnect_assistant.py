@@ -7,8 +7,6 @@ from openai.types.responses import (
     ResponseFunctionToolCall,
     ResponseInputItemParam,
     ResponseInputParam,
-    ResponseReasoningTextDeltaEvent,
-    ResponseTextDeltaEvent,
 )
 
 from api.agent.openai import openai_client
@@ -213,10 +211,10 @@ class HumConnectAssistant(ChatAssistant):
             async for event in stream:
                 if event.type == "response.output_text.delta":
                     chunk_type = CHUNK_TYPE_MESSAGE_CONTENT
-                    delta = cast(ResponseTextDeltaEvent, event).delta
+                    delta = event.delta
                 elif event.type == "response.reasoning_text.delta":
                     chunk_type = CHUNK_TYPE_REASONING_TEXT
-                    delta = cast(ResponseReasoningTextDeltaEvent, event).delta
+                    delta = event.delta
                 elif event.type == "response.output_item.done":
                     item = getattr(event, "item", None)
                     if getattr(item, "type", None) == "function_call":

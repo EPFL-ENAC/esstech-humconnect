@@ -93,7 +93,7 @@ def make_remote_tool(
         name=name,
         title=title,
         description=description,
-        inputSchema={
+        input_schema={
             "type": "object",
             "properties": {"query": {"type": "string"}},
             "required": ["query"],
@@ -305,7 +305,7 @@ def test_serialize_mcp_result_supports_text_and_mixed_content():
         structured_content=None,
         content=[
             TextContent(type="text", text="caption"),
-            ImageContent(type="image", data="aW1hZ2U=", mimeType="image/png"),
+            ImageContent(type="image", data="aW1hZ2U=", mime_type="image/png"),
         ],
     )
 
