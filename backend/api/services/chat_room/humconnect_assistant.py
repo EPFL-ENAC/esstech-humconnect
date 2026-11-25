@@ -203,6 +203,7 @@ class HumConnectAssistant(ChatAssistant):
             stream = await openai_client.responses.create(
                 input=model_input,
                 model=config.MODEL_NAME,
+                reasoning={"effort": config.REASONING_EFFORT},
                 stream=True,
                 instructions=self.instructions_for_context(tool_context),
                 store=False,

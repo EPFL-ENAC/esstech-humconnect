@@ -76,7 +76,7 @@ class HumConnectMCPProxy:
                 "name": public_name,
                 "description": remote_tool.description
                 or f"Tool provided by the {self.mcp_name} MCP server.",
-                "parameters": remote_tool.inputSchema,
+                "parameters": remote_tool.input_schema,
                 "strict": False,
             },
         )
