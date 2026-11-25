@@ -36,7 +36,8 @@ async function signin() {
             requestedRoute?.startsWith('/') && !requestedRoute.startsWith('//')
                 ? requestedRoute
                 : '/';
-        const redirectPath = router.resolve(safeRequestedRoute).href;
+        const { path, query } = router.resolve(safeRequestedRoute);
+        const redirectPath = router.resolve({ path, query }).href;
 
         await authStore.login(new URL(redirectPath, window.location.origin).href);
     } finally {
