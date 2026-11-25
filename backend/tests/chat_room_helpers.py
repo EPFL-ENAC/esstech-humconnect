@@ -293,7 +293,7 @@ class FakeAssistant:
         self.calls = []
 
     async def stream_response(self, chat_history, question, tool_context=None):
-        self.calls.append((list(chat_history), question, tool_context))
+        self.calls.append((list(chat_history.chat_history), question, tool_context))
         for chunk in self.chunks:
             if isinstance(chunk, Exception):
                 raise chunk
@@ -337,6 +337,21 @@ def install_fake_openai_client(monkeypatch, streams):
     fake_client = FakeOpenAIClient(streams)
     monkeypatch.setattr(humconnect_assistant_module, "openai_client", fake_client)
     return fake_client
+
+
+async def stream_with_history(assistant, messages, question, tool_context=None):
+    history = FakeHistory()
+    user_message = await history.submit_question(TEST_USER_ID, question)
+    response = await history.start_response()
+    history.chat_history = [*messages, user_message, response]
+    events = []
+    async for event in assistant.stream_response(history, question, tool_context):
+        events.append(event)
+        if isinstance(event, AssistantStreamPayloadUpdate):
+            response.update_chunk_payload(event.index, event.type, event.payload)
+        else:
+            response.append_chunk_delta(event.index, event.type, event.content_delta)
+    return events
 
 
 async def start_and_wait_for_response(room, chat_history=None, question=""):

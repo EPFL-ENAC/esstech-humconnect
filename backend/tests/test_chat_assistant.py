@@ -227,9 +227,7 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
     ]
 
     async def run():
-        return [
-            chunk async for chunk in assistant.stream_response(history, "Say hello")
-        ]
+        return await stream_with_history(assistant, history, "Say hello")
 
     assert asyncio.run(run()) == [
         AssistantStreamChunkDelta(0, CHUNK_TYPE_REASONING_TEXT, "Think"),
@@ -256,20 +254,15 @@ def test_humconnect_chat_assistant_streams_openai_text_deltas(monkeypatch):
         "set_root_cause",
         "list_analyses",
     ]
-    assert fake_client.responses.create_kwargs["input"] == [
-        {
-            "role": MESSAGE_ROLE_USER,
-            "content": "Earlier question",
-        },
-        {
-            "role": MESSAGE_ROLE_ASSISTANT,
-            "content": "Earlier answer",
-        },
-        {
-            "role": "user",
-            "content": "Say hello",
-        },
+    model_input = fake_client.responses.create_kwargs["input"]
+    assert [item["role"] for item in model_input] == [
+        MESSAGE_ROLE_USER,
+        MESSAGE_ROLE_ASSISTANT,
+        MESSAGE_ROLE_USER,
     ]
+    assert model_input[0]["content"] == "Earlier question"
+    assert model_input[1]["content"][0]["text"] == "Earlier answer"
+    assert model_input[2]["content"] == "Say hello"
 
 
 def test_humconnect_chat_assistant_adds_user_profile_to_instructions(monkeypatch):
@@ -310,14 +303,7 @@ def test_humconnect_chat_assistant_adds_user_profile_to_instructions(monkeypatch
     )
 
     async def run():
-        return [
-            chunk
-            async for chunk in assistant.stream_response(
-                [],
-                "Say hello",
-                tool_context,
-            )
-        ]
+        return await stream_with_history(assistant, [], "Say hello", tool_context)
 
     assert asyncio.run(run()) == [
         AssistantStreamChunkDelta(0, CHUNK_TYPE_MESSAGE_CONTENT, "Hello"),
@@ -388,7 +374,7 @@ def test_humconnect_chat_assistant_executes_dummy_tool_calls(
     assistant = HumConnectAssistant()
 
     async def run():
-        return [chunk async for chunk in assistant.stream_response([], "Use a tool")]
+        return await stream_with_history(assistant, [], "Use a tool")
 
     assert asyncio.run(run()) == [
         AssistantStreamPayloadUpdate(
@@ -473,7 +459,7 @@ def test_humconnect_chat_assistant_executes_ask_meditron_tool_calls(monkeypatch)
     assistant = HumConnectAssistant()
 
     async def run():
-        return [chunk async for chunk in assistant.stream_response([], "Use Meditron")]
+        return await stream_with_history(assistant, [], "Use Meditron")
 
     assert asyncio.run(run()) == [
         AssistantStreamPayloadUpdate(
@@ -553,14 +539,7 @@ def test_humconnect_chat_assistant_executes_record_event_tool_calls(monkeypatch)
     assistant = HumConnectAssistant()
 
     async def run():
-        return [
-            chunk
-            async for chunk in assistant.stream_response(
-                [],
-                "Remember this",
-                record_event_tool_context(),
-            )
-        ]
+        return await stream_with_history(assistant, [], "Remember this", record_event_tool_context())
 
     chunks = asyncio.run(run())
     [persisted_event] = recorded_events()
@@ -627,7 +606,7 @@ def test_humconnect_chat_assistant_reports_invalid_tool_arguments(
     assistant = HumConnectAssistant()
 
     async def run():
-        return [chunk async for chunk in assistant.stream_response([], "Use a tool")]
+        return await stream_with_history(assistant, [], "Use a tool")
 
     assert asyncio.run(run()) == [
         AssistantStreamPayloadUpdate(
@@ -684,7 +663,7 @@ def test_humconnect_chat_assistant_reports_malformed_tool_arguments(
     assistant = HumConnectAssistant()
 
     async def run():
-        return [chunk async for chunk in assistant.stream_response([], "Use a tool")]
+        return await stream_with_history(assistant, [], "Use a tool")
 
     chunks = asyncio.run(run())
 
@@ -727,7 +706,7 @@ def test_humconnect_chat_assistant_reports_unknown_tool(monkeypatch):
     assistant = HumConnectAssistant()
 
     async def run():
-        return [chunk async for chunk in assistant.stream_response([], "Use a tool")]
+        return await stream_with_history(assistant, [], "Use a tool")
 
     assert asyncio.run(run()) == [
         AssistantStreamPayloadUpdate(
