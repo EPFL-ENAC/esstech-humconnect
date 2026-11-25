@@ -6,6 +6,7 @@ interface ApiEventStreamOptions<T> {
     onEvent: (event: T) => void;
     onError?: (error: Error | null) => void;
     reconnectDelayMs?: number;
+    errorGraceMs?: number;
 }
 
 export function useApiEventStream<T>({
@@ -13,6 +14,7 @@ export function useApiEventStream<T>({
     onEvent,
     onError,
     reconnectDelayMs = 1000,
+    errorGraceMs = 5000,
 }: ApiEventStreamOptions<T>) {
     const authStore = useAuthStore();
     const connected = ref(false);
@@ -20,6 +22,7 @@ export function useApiEventStream<T>({
 
     let controller: AbortController | null = null;
     let reconnectTimer: number | undefined;
+    let errorTimer: number | undefined;
     let reconnectEnabled = true;
     let generation = 0;
 
@@ -98,6 +101,7 @@ export function useApiEventStream<T>({
         reconnectEnabled = false;
         generation += 1;
         clearReconnectTimer();
+        clearErrorTimer();
 
         const currentController = controller;
         controller = null;
@@ -112,9 +116,22 @@ export function useApiEventStream<T>({
         }
     }
 
+    function clearErrorTimer() {
+        window.clearTimeout(errorTimer);
+        errorTimer = undefined;
+    }
+
     function setError(currentError: Error | null) {
         error.value = currentError;
-        onError?.(currentError);
+        if (!currentError) {
+            clearErrorTimer();
+            onError?.(null);
+        } else if (errorTimer === undefined) {
+            errorTimer = window.setTimeout(() => {
+                errorTimer = undefined;
+                onError?.(error.value);
+            }, errorGraceMs);
+        }
     }
 
     watch(

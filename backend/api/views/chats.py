@@ -12,8 +12,7 @@ from fastapi import (
 )
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as AsyncSQLModelSession
-from starlette.requests import ClientDisconnect
-from starlette.responses import StreamingResponse
+from sse_starlette import EventSourceResponse
 
 from api.auth import require_user
 from api.db import get_engine, get_session
@@ -149,7 +148,7 @@ async def chat_events(
     chat_id: UUID,
     user: User = Depends(require_user()),
     session: AsyncSQLModelSession = Depends(get_session),
-) -> StreamingResponse:
+) -> EventSourceResponse:
     profile = await get_or_create_user_profile_from_token(user, session)
     room = await chat_room_registry.get_room(chat_id)
     if not await room.verify_user_access(profile.id):
@@ -159,25 +158,11 @@ async def chat_events(
     async def stream_events() -> AsyncIterator[str]:
         try:
             async for event in room.subscribe(profile.id, with_snapshot=True):
-                yield _format_sse_event(event)
-        except ClientDisconnect:
-            return
+                yield json.dumps(event, separators=(",", ":"))
         finally:
             await chat_room_registry.release_room_if_idle(chat_id)
 
-    return StreamingResponse(
-        stream_events(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-def _format_sse_event(event: dict) -> str:
-    return f"data: {json.dumps(event, separators=(',', ':'))}\n\n"
+    return EventSourceResponse(stream_events())
 
 
 async def mark_interrupted_messages_on_startup() -> None:

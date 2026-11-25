@@ -28,6 +28,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.0",
     "sqlmodel>=0.0.38",
     "uvicorn>=0.49.0",
+    "sse-starlette>=3.7.1",
 ]
 
 [project.optional-dependencies]
