@@ -9,7 +9,7 @@ export default {
     },
     disclaimer: {
         message:
-            'HumConnect is an AI chatbot. Although it can retrieve data from trusted external sources, AI technology can still make mistakes.',
+            'HumConnect is an LLM prototype still under development. Conversations are not private. Do not enter personal, sensitive or confidential information or rely on its answers. Although the HumConnect works with data from trusted sources, it may make mistakes.',
         dismiss: 'Dismiss warning',
     },
     navigation: {
